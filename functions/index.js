@@ -6,6 +6,7 @@ const { EVENTS, PERSONAS, availablePersonas, personaSourceIds, toPublicSource } 
 const { checkGate } = require("./policy");
 const prompts = require("./prompts");
 const { chat } = require("./openai");
+const { guardMessages, parseVerdict, fallbackFor } = require("./guard");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -16,7 +17,7 @@ const TEACHER_EMAILS = defineString("TEACHER_EMAILS", { default: "" });
 // true 이면 출처 원문 대조 전(verified:false) 페르소나도 사용 가능. 리허설 전용, 실제 수업에서는 false 로 둔다.
 const ALLOW_UNVERIFIED = defineString("ALLOW_UNVERIFIED_PERSONAS", { default: "false" });
 const allowUnverified = () => ALLOW_UNVERIFIED.value() === "true";
-const DEFAULT_EVENT = "ulsan2022";
+const DEFAULT_EVENT = "jeju2018";
 
 const REGION = "asia-northeast3"; // 서울
 const MAX_AI_CALLS_PER_GROUP = 150;
@@ -121,7 +122,9 @@ exports.getCase = onCall(opts, async (req) => {
     const ev = EVENTS[req.data.eventId];
     if (!ev) throw new HttpsError("not-found", "사건을 찾을 수 없습니다.");
     const all = PERSONAS.filter((p) => p.events.includes(ev.id));
-    return { event: { id: ev.id, title: ev.title, teacherNote: ev.teacherNote }, personas: all.map(pub), allowUnverified: allowUnverified() };
+    // 교사에게는 원문 대조를 위해 융합 근거와 근거 진술 전문을 함께 보낸다(학생에게는 보내지 않음)
+    const full = (p) => ({ ...pub(p), basis: p.basis, stance: p.stance, claims: p.claims.map(([text, src, kind]) => ({ text, src, kind })) });
+    return { event: { id: ev.id, title: ev.title, teacherNote: ev.teacherNote }, personas: all.map(full), allowUnverified: allowUnverified() };
   }
 
   const code = String(req.data?.code || "").toUpperCase();
@@ -229,6 +232,23 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
     throw new HttpsError("unavailable", "AI 응답을 받지 못했습니다. 잠시 후 다시 시도하세요.");
   }
 
+  // 상위 AI(규범 감독자): 페르소나 응답을 학생에게 보내기 전에 검사한다. 위반이거나 검사 실패 시 안내문으로 대체.
+  let guard = null;
+  if (s === 1) {
+    const persona = personas.find((p) => p.id === payload.personaId);
+    try {
+      const verdictText = await chat({
+        apiKey, model, json: true, maxTokens: 200,
+        messages: guardMessages({ persona, claims: persona.claims, studentMessage: input, reply: output }),
+      });
+      guard = parseVerdict(verdictText);
+    } catch (e) {
+      console.error(e);
+      guard = { ok: false, category: "error", reason: "감독자 호출 실패" };
+    }
+    if (!guard.ok) { guard.original = output; output = fallbackFor(guard.category); }
+  }
+
   const logRef = groupRef.collection("logs").doc();
   await Promise.all([
     logRef.set({
@@ -244,6 +264,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
         round: payload.round || null,
       },
       model,
+      guard: guard || null,
       threadKey,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     }),

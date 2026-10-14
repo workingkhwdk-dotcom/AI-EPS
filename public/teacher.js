@@ -17,7 +17,7 @@ onAuthStateChanged(auth, (u) => {
 });
 
 // ---- 인물·출처 점검 ----
-const EVENT_LABELS = { ulsan2022: "울산 2022", jeju2018: "제주 2018" };
+const EVENT_LABELS = { jeju2018: "제주 예멘 2018" };
 $("#ev-chips").innerHTML = Object.entries(EVENT_LABELS).map(([id, l]) => `<button class="chip" data-ev="${id}">${l}</button>`).join("");
 $("#ev-chips").onclick = (e) => { const b = e.target.closest("[data-ev]"); if (b) { $("#t-event").value = b.dataset.ev; loadPersonaCheck(b.dataset.ev); } };
 $("#t-event").onchange = (e) => loadPersonaCheck(e.target.value);
@@ -30,11 +30,17 @@ async function loadPersonaCheck(eventId) {
     $("#persona-check").innerHTML = mode + (data.event.teacherNote ? `<div class="notice muted">교사 메모: ${esc(data.event.teacherNote)}</div>` : "") +
       data.personas.map((p) => {
         const ok = p.sources.every((s) => s.verified);
+        const byId = Object.fromEntries(p.sources.map((s) => [s.id, s]));
         return `<div class="scn"><b>${esc(p.name)}</b> <span class="tag ${ok ? "" : "y"}">${ok ? "원문 대조 완료" : "대조 필요"}</span>
           <div class="meta-line">${esc(p.role)}</div>
+          <div class="meta-line">입장: ${esc(p.stance)}</div>
+          <div class="meta-line">융합 근거: ${esc(p.basis)}</div>
+          <div style="margin-top:8px"><b style="font-size:13px">근거 진술</b>
+          ${p.claims.map((c) => `<div class="meta-line" style="color:var(--ink);margin-top:4px"><span class="tag ${c.kind === "주장" || c.kind === "의견" ? "y" : ""}">${esc(c.kind)}</span> ${esc(c.text)} <span class="tag x">${esc(c.src)}</span></div>`).join("")}</div>
+          <div style="margin-top:10px"><b style="font-size:13px">출처 (원문을 열어 위 진술과 대조)</b>
           ${p.sources.map((s) => `<div style="margin-top:8px"><span class="tag ${s.verified ? "" : "x"}">${s.id}</span>
             <a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title)}</a>${s.titleIsDescriptive ? ' <span class="meta-line">(제목은 설명 문구, 실제 제목 확인)</span>' : ""}
-            <div class="meta-line">${esc(s.outlet)} · ${esc(s.date)}</div><div class="meta-line">확인할 것: ${esc(s.check)}</div></div>`).join("")}</div>`;
+            <div class="meta-line">${esc(s.outlet)} · ${esc(s.date)}</div><div class="meta-line">확인할 것: ${esc(s.check)}</div></div>`).join("")}</div></div>`;
       }).join("");
   } catch (e) { $("#persona-check").innerHTML = `<div class="notice">${esc(errMsg(e))}</div>`; }
 }
