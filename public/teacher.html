@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>AI-EPS 교사용</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header class="hdr"><div class="hdr-in"><span class="logo">AI-EPS 교사용</span><span class="meta-line" id="who"></span></div></header>
+<main class="wrap">
+  <section id="login" class="card">
+    <h2>교사 로그인</h2>
+    <p class="desc">허용된 교사 계정(구글)으로 로그인하세요.</p>
+    <button class="btn btn-primary" id="login-btn">구글로 로그인</button>
+  </section>
+
+  <section id="main" class="hidden">
+    <div class="card">
+      <h2>새 수업 만들기</h2>
+      <label class="lbl" for="t-title">수업 이름</label><input type="text" id="t-title" value="국내에 정착한 난민 문제 해결 방안 제안하기" />
+      <label class="lbl" for="t-groups">모둠 수 (최대 12)</label><input type="number" id="t-groups" value="6" min="1" max="12" />
+      <div style="margin-top:14px"><button class="btn btn-primary" id="create-btn">수업 만들기</button></div>
+    </div>
+    <div class="card"><h2>내 수업</h2><div id="sessions" class="group"></div></div>
+    <div id="monitor" class="hidden">
+      <div class="card">
+        <div class="row" style="justify-content:space-between"><h2 id="m-title" style="margin:0"></h2><button class="btn btn-tinted btn-sm" id="csv-btn">로그 CSV 내려받기</button></div>
+        <p class="desc" id="m-code"></p>
+        <div id="groups"></div>
+      </div>
+      <div class="card" id="log-card"><h3 id="log-title">AI 사용 로그</h3><div id="logs"></div></div>
+    </div>
+  </section>
+</main>
+<script type="module" src="teacher.js"></script>
+</body>
+</html>

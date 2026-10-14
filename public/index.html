@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>AI-EPS 수업</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header class="hdr"><div class="hdr-in">
+  <span class="logo">AI-EPS</span>
+  <span class="meta-line" id="who"></span>
+</div></header>
+
+<main class="wrap">
+  <section id="join" class="card">
+    <h2>수업 입장</h2>
+    <p class="desc">선생님이 알려 준 수업 코드와 모둠 번호를 입력하세요. 이름 대신 별명을 사용하고, 개인정보는 쓰지 않습니다.</p>
+    <label class="lbl" for="j-code">수업 코드</label>
+    <input type="text" id="j-code" maxlength="6" autocapitalize="characters" autocomplete="off" />
+    <label class="lbl" for="j-group">모둠 번호</label>
+    <input type="number" id="j-group" min="1" max="12" inputmode="numeric" />
+    <label class="lbl" for="j-nick">별명</label>
+    <input type="text" id="j-nick" maxlength="12" autocomplete="off" />
+    <div style="margin-top:16px"><button class="btn btn-primary" id="j-btn">입장하기</button></div>
+  </section>
+
+  <section id="app" class="hidden">
+    <div class="stages" id="tabs"></div>
+    <div id="panel"></div>
+  </section>
+</main>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

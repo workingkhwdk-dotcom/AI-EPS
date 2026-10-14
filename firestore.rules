@@ -1,0 +1,45 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isTeacher(code) {
+      return signedIn() &&
+        get(/databases/$(database)/documents/sessions/$(code)).data.teacherUid == request.auth.uid;
+    }
+    function myGroup(code) {
+      return get(/databases/$(database)/documents/sessions/$(code)/members/$(request.auth.uid)).data.groupId;
+    }
+    function isMember(code, gid) {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/sessions/$(code)/members/$(request.auth.uid)) &&
+        myGroup(code) == gid;
+    }
+
+    match /sessions/{code} {
+      // 교사는 자기 수업 목록 조회(쿼리)도 가능해야 하므로 resource 기준으로 판정
+      allow read: if signedIn() && (resource.data.teacherUid == request.auth.uid ||
+        exists(/databases/$(database)/documents/sessions/$(code)/members/$(request.auth.uid)));
+      allow write: if false; // Cloud Functions(Admin SDK)만 생성·수정
+
+      match /members/{uid} {
+        allow read: if signedIn() && (request.auth.uid == uid || isTeacher(code));
+        allow write: if false;
+      }
+
+      match /groups/{gid} {
+        allow read: if isTeacher(code) || isMember(code, gid);
+        // 학생은 모둠 산출물(work)만 수정할 수 있다
+        allow update: if isMember(code, gid) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['work']);
+        allow create, delete: if false;
+
+        // AI 상호작용 로그: 읽기만 허용, 기록은 서버만
+        match /logs/{logId} {
+          allow read: if isTeacher(code) || isMember(code, gid);
+          allow write: if false;
+        }
+      }
+    }
+  }
+}
