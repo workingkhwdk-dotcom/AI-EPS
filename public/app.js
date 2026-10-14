@@ -58,8 +58,8 @@ async function enter(code) {
   if (!mSnap.exists()) { localStorage.removeItem("eps_code"); return; }
   Object.assign(S, { code, groupId: mSnap.data().groupId, nick: mSnap.data().nickname });
   groupRef = doc(db, `sessions/${code}/groups/${S.groupId}`);
-  S.caseInfo = (await call("getCase")()).data;
-  S.persona = S.caseInfo.personas[0]?.id;
+  S.caseInfo = (await call("getCase")({ code })).data;
+  S.persona = S.caseInfo.myPersona?.id;
   $("#join").classList.add("hidden");
   $("#app").classList.remove("hidden");
   $("#who").textContent = `${S.groupId.replace("g", "")}모둠 · ${S.nick}`;
@@ -121,36 +121,49 @@ function render(force = false) {
 // ---------- 단계별 화면 ----------
 const renderStage = {
   1() {
-    const info = S.caseInfo, qs = arr("s1.preQuestions"), logs = stageLogs(1).filter((l) => l.payload?.personaId === S.persona);
-    const persona = info.personas.find((p) => p.id === S.persona);
+    const info = S.caseInfo, qs = arr("s1.preQuestions");
+    const me = info.myPersona, logs = stageLogs(1).filter((l) => l.payload?.personaId === S.persona);
+    if (!me) return `${gyrBanner(1)}<div class="notice">배정된 인물이 없습니다. 선생님께 알려 주세요.</div>`;
     const ready = qs.filter((q) => q.trim().length >= 5).length >= 3;
+    const src = (m) => `<div class="group" style="margin-top:8px">${m.sources.map((x, i) =>
+      `<div class="cell"><div class="grow"><span class="tag">자료${i + 1}</span> <a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a>
+      <div class="meta-line">${esc(x.outlet)} · ${esc(x.date)}${x.verified ? "" : ` · <b style="color:var(--yellow)">원문 대조 전(리허설)</b>`}</div></div></div>`).join("")}</div>`;
     return `${gyrBanner(1)}
-    <div class="card"><h2>사건</h2><p>${esc(info.premise)}</p></div>
+    <div class="card"><h2>${esc(info.title)}</h2><p>${esc(info.premise)}</p></div>
+    <div class="card"><h3>우리 모둠원이 만날 인물</h3>
+      <p class="desc">같은 사건이라도 입장이 다른 사람들이 있습니다. 모둠원마다 <b>서로 다른 인물</b>과 대화하고, 알아낸 점을 모아 사건을 입체적으로 이해하세요.</p>
+      <div class="group"><div class="cell"><div class="grow"><span class="tag">내가 만날 인물</span><br><b>${esc(me.name)}</b><br><span class="meta-line">${esc(me.role)}</span></div></div>
+      ${info.otherPersonas.map((p) => `<div class="cell"><div class="grow">${esc(p.name)}<br><span class="meta-line">${esc(p.role)}</span></div></div>`).join("")}</div></div>
     <div class="card"><h3>① 모둠 사전 질문 만들기 <span class="tag ${ready ? "" : "x"}">${qs.length}/3 이상</span></h3>
       <p class="desc">대화하기 전에 모둠에서 토의해 인물에게 물어볼 질문을 3개 이상 만드세요. (질문 목록이 완성되어야 대화가 열립니다.)</p>
       ${listHtml("s1.preQuestions", (q) => esc(q), "질문을 추가하세요.")}
-      ${strAdder("s1.preQuestions", "q1", "예) 한국에 와서 가장 힘들었던 일은 무엇인가요?", 5)}
+      ${strAdder("s1.preQuestions", "q1", "예) 정착한 뒤 학교와 동네에서 가장 어려웠던 점은 무엇인가요?", 5)}
     </div>
-    <div class="card"><h3>② 가상 인물과 대화하기</h3>
-      <div class="notice muted">대화 상대는 수업을 위해 만든 <b>가상의 인물</b>입니다. 실제 사실은 2단계에서 확인합니다. 모둠원마다 다른 인물과 대화해 정보를 나누어 보세요.</div>
-      <div class="chipbar">${info.personas.map((p) => `<button class="chip ${p.id === S.persona ? "on" : ""}" data-act="persona" data-id="${p.id}">${esc(p.name)}</button>`).join("")}</div>
-      <div class="meta-line" style="margin:8px 0">${esc(persona?.role || "")}</div>
-      <div class="chat">${logs.map((l) => `<div class="bubble me">${esc(l.input)}</div><div class="bubble ai">${esc(l.output)}</div>`).join("") || `<div class="meta-line">아직 대화가 없습니다.</div>`}</div>
+    <div class="card"><h3>② ${esc(me.name)}과(와) 대화하기</h3>
+      <div class="notice muted">이 인물은 <b>실제 보도와 자료를 바탕으로 구성한 수업용 인물</b>입니다. 자료에 없는 내용은 모른다고 답하며, 말한 내용마다 근거 자료 번호가 붙습니다.</div>
+      <label class="lbl">이 인물의 근거 자료</label>${src(me)}
+      <div class="chat" style="margin-top:10px">${logs.map((l) => `<div class="bubble me">${esc(l.input)}</div><div class="bubble ai">${esc(l.output)}</div>`).join("") || `<div class="meta-line">아직 대화가 없습니다.</div>`}</div>
       ${S.busy ? loading() : ""}
       <div class="row" style="margin-top:10px"><input type="text" id="msg" maxlength="500" placeholder="${ready ? "질문을 입력하세요" : "먼저 사전 질문 3개를 만드세요"}" ${ready ? "" : "disabled"} style="flex:1;min-width:0" />
         <button class="btn btn-primary" data-act="ask-persona" ${ready && !S.busy ? "" : "disabled"}>보내기</button></div>
     </div>
-    <div class="card"><h3>③ 대화에서 알게 된 점·빈틈</h3><textarea id="s1note" placeholder="궁금한 점, 더 알고 싶은 점을 적어 보세요." data-save="s1.note">${esc(w("s1.note") || "")}</textarea></div>`;
+    <div class="card"><h3>③ 내가 알아낸 점 (내 말로 정리)</h3>
+      <p class="desc">대화에서 알게 된 사실, 이 인물의 입장, 더 궁금한 점을 적으세요. 모둠원이 이 글을 읽고 토의합니다.</p>
+      <textarea id="s1note" data-save="s1.findings.${S.persona}" placeholder="${esc(me.name)}에게서 알게 된 점">${esc(w("s1.findings." + S.persona) || "")}</textarea></div>
+    <div class="card"><h3>④ 모둠원이 알아온 점</h3>
+      ${info.otherPersonas.map((p) => `<div style="margin-bottom:10px"><b>${esc(p.name)}</b>
+        <div class="ai-out" style="background:var(--surface);box-shadow:var(--shadow-card)">${esc(w("s1.findings." + p.id) || "(아직 정리하지 않았습니다)")}</div></div>`).join("") || `<div class="meta-line">같은 사건의 다른 인물이 없습니다.</div>`}
+      <div class="meta-line">입장이 서로 다른 인물들의 이야기를 비교해 보세요. 누가 같은 사건을 어떻게 다르게 보고 있나요?</div></div>`;
   },
 
   2() {
-    const mats = S.caseInfo.realCaseMaterials || [];
+    const mats = S.caseInfo.materials || [];
     return `${gyrBanner(2)}
     <div class="card"><h3>실제 사건 자료</h3>
-      ${mats.length ? `<div class="group">${mats.map((m) => `<div class="cell"><div class="grow"><b>${esc(m.title)}</b><br><span class="meta-line">${esc(m.source || "")}</span><br>${esc(m.summary || "")}${m.url ? `<br><a href="${esc(m.url)}" target="_blank" rel="noopener">원문 보기</a>` : ""}</div></div>`).join("")}</div>`
-        : `<div class="notice muted">선생님이 제시하는 실제 사건 자료(기사, 보고서 등)를 보면서 활동하세요.</div>`}</div>
-    <div class="card"><h3>① 가상 경험 ↔ 실제 사건 대조</h3>
-      <p class="desc">1단계 대화에서 알게 된 내용이 실제 자료에서도 확인되는지 비교해 적으세요.</p>
+      <p class="desc">1단계에서 만난 인물들은 아래와 같은 실제 보도·자료를 바탕으로 구성되었습니다. 원문을 읽고 대화에서 들은 내용과 비교하세요.</p>
+      <div class="group">${mats.map((m) => `<div class="cell"><div class="grow"><a href="${esc(m.url)}" target="_blank" rel="noopener"><b>${esc(m.title)}</b></a><br><span class="meta-line">${esc(m.outlet)} · ${esc(m.date)}</span></div></div>`).join("")}</div></div>
+    <div class="card"><h3>① 인물의 말 ↔ 실제 자료 대조</h3>
+      <p class="desc">1단계 대화에서 알게 된 내용이 실제 자료에서도 확인되는지, 인물마다 입장이 어떻게 다른지 비교해 적으세요.</p>
       ${listHtml("s2.contrast", (r) => `<b>대화에서 들은 내용</b>: ${esc(r.virtual)}<br><b>실제 자료에서 확인</b>: ${esc(r.real)}`)}
       <label class="lbl">대화에서 들은 내용</label><input type="text" id="cv" />
       <label class="lbl">실제 자료에서 확인한 내용 (같음/다름/확인 안 됨 포함)</label><input type="text" id="cr" />

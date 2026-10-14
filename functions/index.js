@@ -2,7 +2,7 @@ const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { defineSecret, defineString } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 
-const { CASE, REAL_CASE_MATERIALS } = require("./case");
+const { EVENTS, PERSONAS, availablePersonas, personaSourceIds, toPublicSource } = require("./case");
 const { checkGate } = require("./policy");
 const prompts = require("./prompts");
 const { chat } = require("./openai");
@@ -13,6 +13,10 @@ const db = admin.firestore();
 const OPENAI_API_KEY = defineSecret("OPENAI_API_KEY");
 const OPENAI_MODEL = defineString("OPENAI_MODEL", { default: "gpt-4o-mini" });
 const TEACHER_EMAILS = defineString("TEACHER_EMAILS", { default: "" });
+// true 이면 출처 원문 대조 전(verified:false) 페르소나도 사용 가능. 리허설 전용, 실제 수업에서는 false 로 둔다.
+const ALLOW_UNVERIFIED = defineString("ALLOW_UNVERIFIED_PERSONAS", { default: "false" });
+const allowUnverified = () => ALLOW_UNVERIFIED.value() === "true";
+const DEFAULT_EVENT = "ulsan2022";
 
 const REGION = "asia-northeast3"; // 서울
 const MAX_AI_CALLS_PER_GROUP = 150;
@@ -48,13 +52,16 @@ async function newCode() {
 exports.createSession = onCall(opts, async (req) => {
   const auth = requireTeacher(req);
   const groupCount = Math.min(Math.max(parseInt(req.data?.groupCount, 10) || 6, 1), MAX_GROUPS);
-  const title = String(req.data?.title || CASE.title).slice(0, 80);
+  const eventId = EVENTS[req.data?.eventId] ? req.data.eventId : DEFAULT_EVENT;
+  if (!availablePersonas(eventId, allowUnverified()).length)
+    throw new HttpsError("failed-precondition", "원문 대조가 끝난 페르소나가 없습니다. case.js 의 출처 verified 를 확인하세요.");
+  const title = String(req.data?.title || EVENTS[eventId].title).slice(0, 80);
   const code = await newCode();
   const batch = db.batch();
   batch.set(db.doc(`sessions/${code}`), {
     teacherUid: auth.uid,
     title,
-    caseId: CASE.id,
+    eventId,
     groupCount,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   });
@@ -62,6 +69,7 @@ exports.createSession = onCall(opts, async (req) => {
     batch.set(db.doc(`sessions/${code}/groups/g${i}`), {
       name: `${i}모둠`,
       aiCount: 0,
+      memberCount: 0,
       work: {},
     });
   }
@@ -81,23 +89,55 @@ exports.joinSession = onCall(opts, async (req) => {
   if (!(groupNo >= 1 && groupNo <= session.data().groupCount))
     throw new HttpsError("invalid-argument", "모둠 번호가 올바르지 않습니다.");
   const groupId = `g${groupNo}`;
-  await db.doc(`sessions/${code}/members/${auth.uid}`).set({
-    groupId,
-    nickname,
-    joinedAt: admin.firestore.FieldValue.serverTimestamp(),
+  const personas = availablePersonas(session.data().eventId, allowUnverified());
+  if (!personas.length) throw new HttpsError("failed-precondition", "아직 사용할 수 있는 인물이 없습니다. 선생님께 문의하세요.");
+  const memberRef = db.doc(`sessions/${code}/members/${auth.uid}`);
+  const groupRef = db.doc(`sessions/${code}/groups/${groupId}`);
+  // 모둠원마다 서로 다른 인물을 순서대로 배정한다(직소). 재입장 시에는 기존 배정을 유지한다.
+  const personaId = await db.runTransaction(async (tx) => {
+    const [m, g] = await Promise.all([tx.get(memberRef), tx.get(groupRef)]);
+    if (m.exists && m.data().groupId === groupId && personas.some((p) => p.id === m.data().personaId)) {
+      tx.update(memberRef, { nickname });
+      return m.data().personaId;
+    }
+    const n = g.data()?.memberCount || 0;
+    const pid = personas[n % personas.length].id;
+    tx.update(groupRef, { memberCount: n + 1 });
+    tx.set(memberRef, { groupId, nickname, personaId: pid, joinedAt: admin.firestore.FieldValue.serverTimestamp() });
+    return pid;
   });
-  return { groupId };
+  return { groupId, personaId };
 });
 
-// 학생/교사 화면이 쓰는 수업 설정(사건·페르소나·실제 자료). 시스템 프롬프트는 포함하지 않는다.
+// 화면이 쓰는 수업 설정. 시스템 프롬프트와 근거 진술 전문은 보내지 않는다.
+//  - 학생: { code } → 자기 수업의 사건·내 인물·자료 목록
+//  - 교사: { eventId } → 사건별 인물 및 출처 검증 현황
 exports.getCase = onCall(opts, async (req) => {
-  requireAuth(req);
+  const auth = requireAuth(req);
+  const pub = (p) => ({ id: p.id, name: p.name, role: p.role, sources: personaSourceIds(p).map(toPublicSource) });
+
+  if (req.data?.eventId) {
+    requireTeacher(req);
+    const ev = EVENTS[req.data.eventId];
+    if (!ev) throw new HttpsError("not-found", "사건을 찾을 수 없습니다.");
+    const all = PERSONAS.filter((p) => p.events.includes(ev.id));
+    return { event: { id: ev.id, title: ev.title, teacherNote: ev.teacherNote }, personas: all.map(pub), allowUnverified: allowUnverified() };
+  }
+
+  const code = String(req.data?.code || "").toUpperCase();
+  const [sess, mem] = await Promise.all([db.doc(`sessions/${code}`).get(), db.doc(`sessions/${code}/members/${auth.uid}`).get()]);
+  if (!sess.exists || !mem.exists) throw new HttpsError("permission-denied", "이 수업의 참여자가 아닙니다.");
+  const ev = EVENTS[sess.data().eventId];
+  const personas = availablePersonas(ev.id, allowUnverified());
+  const mine = personas.find((p) => p.id === mem.data().personaId);
   return {
-    title: CASE.title,
-    premise: CASE.premise,
-    stakeholders: CASE.stakeholders,
-    personas: CASE.personas.map(({ id, name, role }) => ({ id, name, role })),
-    realCaseMaterials: REAL_CASE_MATERIALS,
+    title: ev.title,
+    premise: ev.summary,
+    stakeholders: ev.stakeholders,
+    myPersona: mine ? pub(mine) : null,
+    // 같은 사건의 다른 인물(모둠원이 알아 올 인물): 이름과 역할만 공개
+    otherPersonas: personas.filter((p) => !mine || p.id !== mine.id).map(({ id, name, role }) => ({ id, name, role })),
+    materials: ev.sources.map(toPublicSource),
   };
 });
 
@@ -109,7 +149,11 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
 
   const memberSnap = await db.doc(`sessions/${code}/members/${auth.uid}`).get();
   if (!memberSnap.exists) throw new HttpsError("permission-denied", "이 수업의 참여자가 아닙니다.");
-  const { groupId, nickname } = memberSnap.data();
+  const { groupId, nickname, personaId } = memberSnap.data();
+  const sessData = (await db.doc(`sessions/${code}`).get()).data();
+  const ev = EVENTS[sessData.eventId];
+  const evCtx = { summary: ev.summary, premise: ev.summary };
+  const personas = availablePersonas(ev.id, allowUnverified());
   const groupRef = db.doc(`sessions/${code}/groups/${groupId}`);
   const group = (await groupRef.get()).data() || {};
   const work = group.work || {};
@@ -119,7 +163,8 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
     type,
     work,
     payload,
-    personaIds: CASE.personas.map((p) => p.id),
+    // 1단계는 배정된 내 인물과만 대화할 수 있다(모둠원이 서로 다른 인물과 대화해 정보를 나눈다)
+    personaIds: personas.some((p) => p.id === personaId) ? [personaId] : [],
   });
   if (!gate.ok) throw new HttpsError("failed-precondition", gate.reason);
   if ((group.aiCount || 0) >= MAX_AI_CALLS_PER_GROUP)
@@ -131,7 +176,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
   const s = Number(stage);
 
   if (s === 1) {
-    const persona = CASE.personas.find((p) => p.id === payload.personaId);
+    const persona = personas.find((p) => p.id === payload.personaId);
     threadKey = `${groupId}:p:${persona.id}`;
     const hist = await db
       .collection(`sessions/${code}/groups/${groupId}/logs`)
@@ -141,7 +186,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
       .map((d) => d.data())
       .sort((a, b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0))
       .slice(-10);
-    messages = [{ role: "system", content: prompts.personaPrompt(CASE, persona) }];
+    messages = [{ role: "system", content: prompts.personaPrompt(ev, persona) }];
     past.forEach((l) => {
       messages.push({ role: "user", content: l.input });
       messages.push({ role: "assistant", content: l.output });
@@ -152,14 +197,14 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
   } else if (s === 3) {
     input = String(payload.question).trim();
     messages = [
-      { role: "system", content: prompts.verifyPrompt(CASE) },
+      { role: "system", content: prompts.verifyPrompt(evCtx) },
       { role: "user", content: input },
     ];
   } else if (s === 4) {
     const p = work.s4.proposals.find((x) => x.id === payload.proposalId);
     input = p.text.trim();
     messages = [
-      { role: "system", content: prompts.feedbackPrompt(CASE) },
+      { role: "system", content: prompts.feedbackPrompt(evCtx) },
       { role: "user", content: `우리 모둠의 대안:\n${input}` },
     ];
   } else if (s === 5) {
@@ -169,7 +214,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
       .join("\n");
     input = `대안: ${p.text}\n시점: ${payload.round}년 후\n학생들의 예측:\n${preds}`;
     messages = [
-      { role: "system", content: prompts.scenarioPrompt(CASE, payload.round) },
+      { role: "system", content: prompts.scenarioPrompt(evCtx, payload.round) },
       { role: "user", content: input },
     ];
     json = true;

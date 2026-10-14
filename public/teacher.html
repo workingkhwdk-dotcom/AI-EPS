@@ -21,9 +21,17 @@
   <section id="main" class="hidden">
     <div class="card">
       <h2>새 수업 만들기</h2>
-      <label class="lbl" for="t-title">수업 이름</label><input type="text" id="t-title" value="국내에 정착한 난민 문제 해결 방안 제안하기" />
+      <label class="lbl" for="t-event">사건</label>
+      <select id="t-event"><option value="ulsan2022">울산 동구 아프간 특별기여자 정착 (2022)</option><option value="jeju2018">제주 예멘 난민 신청 논란 (2018)</option></select>
+      <label class="lbl" for="t-title">수업 이름</label><input type="text" id="t-title" value="난민 수용·정착을 둘러싼 갈등, 해결 방안 제안하기" />
       <label class="lbl" for="t-groups">모둠 수 (최대 12)</label><input type="number" id="t-groups" value="6" min="1" max="12" />
       <div style="margin-top:14px"><button class="btn btn-primary" id="create-btn">수업 만들기</button></div>
+    </div>
+    <div class="card">
+      <h2>인물·출처 점검</h2>
+      <p class="desc">페르소나는 아래 출처의 보도 내용에만 근거합니다. <b>수업 전에 원문 링크를 열어 확인</b>하고, 확인한 출처는 <code>functions/case.js</code>에서 <code>verified</code>를 true로 바꿔 배포하세요. 확인 전 인물은 학생에게 보이지 않습니다.</p>
+      <div class="chipbar" id="ev-chips"></div>
+      <div id="persona-check" style="margin-top:12px"></div>
     </div>
     <div class="card"><h2>내 수업</h2><div id="sessions" class="group"></div></div>
     <div id="monitor" class="hidden">
