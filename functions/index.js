@@ -2,8 +2,12 @@ const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { defineSecret, defineString } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 
-const { EVENTS, PERSONAS, availablePersonas, personaSourceIds, toPublicSource, materialsFor, materialsAdmin } = require("./case");
-const { checkGate, toList } = require("./policy");
+const {
+  EVENTS, PERSONAS, availablePersonas, personaSourceIds, toPublicSource, materialsFor, materialsAdmin,
+  casesFor, casesAdmin, aftermathFor, aftermathAdmin,
+} = require("./case");
+const { checkGate, toList, FINAL_ID } = require("./policy");
+const conduct = require("./conduct");
 const prompts = require("./prompts");
 const { chat, extractJson } = require("./openai");
 const { guardMessages, parseVerdict, resolveOutput } = require("./guard");
@@ -118,7 +122,7 @@ exports.joinSession = onCall(opts, async (req) => {
 });
 
 // 화면이 쓰는 수업 설정.
-//  - 학생: { code } → 내 인물의 이름과 편지, 실제 자료(사건 개요는 화면에 보이지 않지만 함께 보낸다). 인물의 역할·근거·출처는 보내지 않는다.
+//  - 학생: { code } → 내 인물의 이름과 편지, 3단계 실제 자료, 4단계 해외 사례 카드, 7단계 이후 전개(사건 개요는 화면에 보이지 않지만 함께 보낸다). 인물의 역할·근거·출처는 보내지 않는다.
 //  - 교사: { eventId } → 인물별 근거 진술·출처 검증 현황, 자료 전체
 exports.getCase = onCall(opts, async (req) => {
   const auth = requireAuth(req);
@@ -128,7 +132,7 @@ exports.getCase = onCall(opts, async (req) => {
     const ev = EVENTS[req.data.eventId];
     if (!ev) throw new HttpsError("not-found", "사건을 찾을 수 없습니다.");
     const full = (p) => ({
-      id: p.id, label: p.label, name: p.name, role: p.role, stance: p.stance, setting: p.setting, voice: p.voice, basis: p.basis, profile: p.profile, letter: p.letter, ps: p.ps || "",
+      id: p.id, label: p.label, name: p.name, role: p.role, stance: p.stance, setting: p.setting, voice: p.voice, basis: p.basis, profile: p.profile, story: p.story, views: p.views, letter: p.letter, ps: p.ps || "",
       sources: personaSourceIds(p).map(toPublicSource),
       claims: p.claims.map(([text, src, kind]) => ({ text, src, kind })),
     });
@@ -140,6 +144,8 @@ exports.getCase = onCall(opts, async (req) => {
       event: { id: ev.id, title: ev.title, summary: ev.summary, teacherNote: ev.teacherNote },
       personas: PERSONAS.filter((p) => p.events.includes(ev.id)).map(full),
       materials,
+      cases: casesAdmin().map((c) => ({ ...c, sources: c.src.map(toPublicSource) })),
+      aftermath: aftermathAdmin().map((a) => ({ ...a, sources: a.src.map(toPublicSource) })),
       allowUnverified: allowUnverified(),
     };
   }
@@ -155,6 +161,8 @@ exports.getCase = onCall(opts, async (req) => {
     stakeholders: ev.stakeholders,
     me: mine ? { name: mine.name, letter: mine.letter, ps: mine.ps || "" } : null,
     materials: materialsFor(allowUnverified()),
+    cases: casesFor(allowUnverified()),
+    aftermath: aftermathFor(allowUnverified()),
   };
 });
 
@@ -185,7 +193,8 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
   const memberRef = db.doc(`sessions/${code}/members/${auth.uid}`);
   const memberSnap = await memberRef.get();
   if (!memberSnap.exists) throw new HttpsError("permission-denied", "이 수업의 참여자가 아닙니다.");
-  const { groupId, nickname, personaId } = memberSnap.data();
+  const member = memberSnap.data();
+  const { groupId, nickname, personaId } = member;
   const sessData = (await db.doc(`sessions/${code}`).get()).data();
   const ev = EVENTS[sessData.eventId];
   const evCtx = { summary: ev.summary, premise: ev.summary };
@@ -210,6 +219,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
     if (s === 1) {
       const persona = personas.find((p) => p.id === personaId);
       if (!persona) throw new HttpsError("failed-precondition", "배정된 인물이 없습니다. 선생님께 알려 주세요.");
+      if (member.chatLocked) throw new HttpsError("failed-precondition", conduct.strikeNotice(conduct.STRIKE_LIMIT));
       const chatCol = db.collection(`sessions/${code}/members/${auth.uid}/chat`);
       const past = (await chatCol.get()).docs
         .map((d) => d.data())
@@ -223,33 +233,61 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
       });
       messages.push({ role: "user", content: input });
 
-      const reply = await callModel({ apiKey, model: baseModel, messages, maxTokens: 300, efforts: [effort] });
-
-      // 상위 AI(규범 감독자): 학생에게 보내기 전에 검사. 가벼운 위반은 고쳐 쓰고, 무거운 위반·검사 실패는 안내로 대체
-      let verdict;
-      try {
-        const verdictText = await callModel({
-          apiKey, model: GUARD_MODEL.value() || baseModel, json: true, maxTokens: 400, efforts: ["low"],
-          messages: guardMessages({ persona, claims: persona.claims, studentMessage: input, reply }),
-        });
-        verdict = parseVerdict(verdictText);
-      } catch (e) {
-        verdict = { ok: false, category: "error", reason: "감독자 호출 실패", fixed: "" };
+      // 학생 태도 1차 검사: 명백한 조롱·성적 희롱은 인물 응답을 만들지 않고 바로 선을 긋는다
+      const pre = conduct.screenMessage(input);
+      let reply = "", verdict, out, conductCat = "ok", conductBy = null;
+      if (pre.category !== "ok") {
+        conductCat = pre.category; conductBy = "rule";
+        verdict = { ok: false, category: "conduct", reason: `학생 메시지 규칙 검사: ${conduct.LABELS[pre.category]}`, fixed: "", conduct: pre.category };
+      } else {
+        reply = await callModel({ apiKey, model: baseModel, messages, maxTokens: 300, efforts: [effort] });
+        // 상위 AI(규범 감독자): 학생에게 보내기 전에 검사. 가벼운 위반은 고쳐 쓰고, 무거운 위반·검사 실패는 안내로 대체.
+        // 학생 메시지의 태도(conduct)도 함께 판정한다.
+        try {
+          const verdictText = await callModel({
+            apiKey, model: GUARD_MODEL.value() || baseModel, json: true, maxTokens: 400, efforts: ["low"],
+            messages: guardMessages({ persona, claims: persona.claims, studentMessage: input, reply }),
+          });
+          verdict = parseVerdict(verdictText);
+        } catch (e) {
+          verdict = { ok: false, category: "error", reason: "감독자 호출 실패", fixed: "", conduct: "ok" };
+        }
+        if (verdict.conduct !== "ok") { conductCat = verdict.conduct; conductBy = "guard"; }
       }
-      const out = resolveOutput(verdict, reply);
+      if (conductCat !== "ok") out = { text: conduct.boundaryReply(conductCat), replaced: true, how: "conduct" };
+      else out = resolveOutput(verdict, reply);
       if (out.replaced) bump.guardCount = FieldValue().increment(1);
+
+      // 위반 기록: 학생 경고 횟수(strikes)가 한도에 이르면 교사가 풀어 줄 때까지 대화를 멈춘다. 교사 화면에는 신호(alerts)가 간다.
+      const memberUpd = { aiCount: FieldValue().increment(1) };
+      let conductLog = null;
+      const writes = [];
+      if (conductCat !== "ok") {
+        const strikes = (member.conduct?.strikes || 0) + 1;
+        const locked = strikes >= conduct.STRIKE_LIMIT;
+        conductLog = { category: conductCat, by: conductBy, strikes, locked, notice: conduct.strikeNotice(strikes) };
+        memberUpd.conduct = { strikes, total: (member.conduct?.total || 0) + 1, last: conductCat, lastAt: FieldValue().serverTimestamp() };
+        if (locked) memberUpd.chatLocked = true;
+        bump.conductCount = FieldValue().increment(1);
+        writes.push(db.collection(`sessions/${code}/alerts`).doc().set({
+          uid: auth.uid, nickname, groupId, personaId, category: conductCat, by: conductBy, input, strikes, locked,
+          createdAt: FieldValue().serverTimestamp(),
+        }));
+      }
 
       const ref = chatCol.doc();
       await Promise.all([
         ref.set({
-          uid: auth.uid, nickname, personaId, input, output: out.text, model: baseModel,
-          guard: { ok: verdict.ok, category: verdict.category, reason: verdict.reason, how: out.how || null, original: out.replaced ? reply : null },
+          uid: auth.uid, nickname, personaId, input, output: out.text, model: conductBy === "rule" ? "rule" : baseModel,
+          guard: { ok: verdict.ok && !conductLog, category: conductLog ? "conduct" : verdict.category, reason: verdict.reason, how: out.how || null, original: out.replaced && reply ? reply : null },
+          conduct: conductLog,
           createdAt: FieldValue().serverTimestamp(),
         }),
         groupRef.update(bump),
-        memberRef.update({ aiCount: FieldValue().increment(1) }),
+        memberRef.update(memberUpd),
+        ...writes,
       ]);
-      return { logId: ref.id, result: out.text };
+      return { logId: ref.id, result: out.text, conduct: conductLog };
     }
 
     // ---- 3~5단계: 모둠 로그 ----
@@ -257,7 +295,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
     let model = baseModel;
     if (s === 3) {
       const c = toList(work.s2.checks).find((x) => x.id === payload.checkId);
-      input = `학생들이 인터뷰에서 들은 이야기: ${c.heard || "(적지 않음)"}\n이 이야기가 사실인지 확인하려는 검증 질문: ${c.question}`;
+      input = `학생들이 인터뷰에서 들은 이야기: ${c.heard || "(적지 않음)"}\n이 이야기가 사실인지 확인하려는 검증 질문: ${c.question}\n학생들이 실제 자료에서 먼저 찾은 내용: ${c.real}`;
       messages = [{ role: "system", content: prompts.verifyPrompt(evCtx) }, { role: "user", content: input }];
       output = await callModel({ apiKey, model, messages, maxTokens: 700, efforts: [effort] });
       result = output;
@@ -265,6 +303,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
     } else if (s === 4) {
       const p = toList(work.s4.proposals).find((x) => x.id === payload.proposalId);
       input = p.text.trim();
+      const extra = [p.cause && `이 대안이 겨냥하는 원인: ${p.cause}`, p.ref && `참고한 사례: ${p.ref}`].filter(Boolean).join("\n");
       const models = FEEDBACK_MODELS.value().split(",").map((m) => m.trim()).filter(Boolean);
       const lenses = Object.keys(REVIEW_LABELS);
       // 서로 다른 관점의 독립 검토 3개. AI의 판단이 하나의 권위가 되지 않도록 학생이 비교하게 한다.
@@ -273,7 +312,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
           const m = models.length ? models[i % models.length] : baseModel;
           return callModel({
             apiKey, model: m, maxTokens: 500, efforts: [effort],
-            messages: [{ role: "system", content: prompts.feedbackPrompt(evCtx, lens) }, { role: "user", content: `우리 모둠의 대안:\n${input}` }],
+            messages: [{ role: "system", content: prompts.feedbackPrompt(evCtx, lens) }, { role: "user", content: `우리 모둠의 대안:\n${input}${extra ? `\n${extra}` : ""}` }],
           }).then((text) => ({ lens, label: REVIEW_LABELS[lens], text, model: m }));
         }),
       );
@@ -284,7 +323,9 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
       model = [...new Set(reviews.map((r) => r.model))].join(",");
       logPayload = { proposalId: p.id };
     } else if (s === 5) {
-      const p = toList(work.s4.proposals).find((x) => x.id === payload.proposalId);
+      const p = payload.proposalId === FINAL_ID
+        ? { id: FINAL_ID, text: String(work.s4.final).trim() }
+        : toList(work.s4.proposals).find((x) => x.id === payload.proposalId);
       const preds = toList(work.s5.predictions).map((x) => `- ${x.stakeholder || "이해관계자"}: ${x.text}`).join("\n");
       input = `대안: ${p.text}\n시점: ${payload.round}년 후\n학생들의 예측:\n${preds}`;
       messages = [{ role: "system", content: prompts.scenarioPrompt(evCtx, payload.round) }, { role: "user", content: input }];
@@ -309,4 +350,18 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
     await groupRef.update({ lastAiError: { stage: s, message: String(e.message).slice(0, 300), at: FieldValue().serverTimestamp() } }).catch(() => {});
     throw new HttpsError("unavailable", "AI 응답을 받지 못했습니다. 잠시 후 다시 시도하세요.");
   }
+});
+
+// 교사: 대화 규칙 위반으로 멈춘 학생의 대화를 다시 연다(경고 횟수 초기화, 누적 기록은 유지)
+exports.unlockChat = onCall(opts, async (req) => {
+  const auth = await requireTeacher(req);
+  const code = String(req.data?.code || "").toUpperCase();
+  const uid = String(req.data?.uid || "");
+  const sess = await db.doc(`sessions/${code}`).get();
+  if (!sess.exists || sess.data().teacherUid !== auth.uid) throw new HttpsError("permission-denied", "내 수업이 아닙니다.");
+  const ref = db.doc(`sessions/${code}/members/${uid}`);
+  const m = await ref.get();
+  if (!m.exists) throw new HttpsError("not-found", "학생을 찾을 수 없습니다.");
+  await ref.update({ chatLocked: false, conduct: { ...(m.data().conduct || {}), strikes: 0, lastAt: m.data().conduct?.lastAt || null } });
+  return { ok: true };
 });

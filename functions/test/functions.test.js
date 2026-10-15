@@ -137,10 +137,15 @@ test("getCase(학생): 객관적 사건 개요, 내 인물의 이름·편지, �
   assert.match(data.summary, /2018년/);
   assert.equal(data.stakeholders.length, 4);
   assert.ok(data.materials.length >= 5);
+  assert.ok(data.cases.length >= 4 && data.cases[0].links[0].url.startsWith("https://"));
+  assert.ok(data.aftermath.length >= 4);
   const json = JSON.stringify(data);
   const { PERSONAS } = require("../case");
   // 인물의 역할명(label)·ID·근거 진술·출처·검증 여부는 학생에게 새면 안 된다
-  const leaks = [...PERSONAS.map((p) => p.label), ...PERSONAS.map((p) => p.id), "otherPersonas", "claims", "verified", "https://", '"src"', "basis", "setting", "voice"];
+  const { SOURCES } = require("../case");
+  // 인물 근거 출처의 링크는 숨긴다(사례 카드·이후 전개의 링크는 학생이 직접 확인하도록 보여 준다)
+  const personaUrls = [...new Set(PERSONAS.flatMap((p) => p.claims.map((c) => SOURCES[c[1]].url)))];
+  const leaks = [...PERSONAS.map((p) => p.label), ...PERSONAS.map((p) => p.id), "otherPersonas", "claims", "verified", ...personaUrls, '"src"', "basis", "setting", "voice", "story", "views", "profile"];
   for (const leak of leaks) assert.equal(json.includes(leak), false, `누출: ${leak}`);
   await assert.rejects(api.getCase({ ...student("OUT"), data: { code } }), /참여자/);
 });
@@ -226,7 +231,7 @@ test("상위 AI 감독: 감독자 응답이 깨지면 안전 쪽(안내)으로 �
 });
 
 test("3단계: 2단계에서 만든 검증 질문(들은 이야기+질문)만 AI에게 물을 수 있다", async () => {
-  setWork({ s2: { checks: { c1: { heard: "일자리를 구하기 어렵대요", question: "예멘 신청자의 취업은 어떻게 제한되었나?", t: 1 } } } });
+  setWork({ s2: { checks: { c1: { heard: "일자리를 구하기 어렵대요", question: "예멘 신청자의 취업은 어떻게 제한되었나?", real: "자료: 5일 이내 단기 노무", t: 1 } } } });
   await assert.rejects(
     api.aiRequest({ ...student("S3"), data: { code, stage: 3, type: "verify_query", payload: { checkId: "없음" } } }), /검증 질문/);
   calls.length = 0;
@@ -287,4 +292,69 @@ test("선행 사고가 없으면 4·5단계 AI는 열리지 않고, 2·6·7단�
   setWork({});
   await assert.rejects(api.aiRequest({ ...student("S3"), data: { code, stage: 4, type: "proposal_feedback", payload: { proposalId: "a1" } } }), /대안/);
   await assert.rejects(api.aiRequest({ ...student("S3"), data: { code, stage: 2, type: "persona_chat", payload: { message: "x" } } }), /스스로/);
+});
+
+const alerts = () => [...store.entries()].filter(([k]) => k.startsWith(`sessions/${code}/alerts/`)).map(([, v]) => v);
+
+test("5단계: 4단계 최종 대안(final)을 시뮬레이션할 수 있고, 짧으면 막힌다", async () => {
+  setWork({ ...sixWork(), s4: { ...sixWork().s4, final: "최종 대안: 제주 지역 주민과 함께하는 한국어·일자리 연계 프로그램을 만든다." } });
+  calls.length = 0;
+  const r = await api.aiRequest({ ...student("S3"), data: { code, stage: 5, type: "scenario", payload: { proposalId: "final", round: 1 } } });
+  assert.equal(r.result.scenarios.length, 2);
+  assert.match(calls.find((c) => c.kind === "scenario").body.messages[1].content, /한국어·일자리 연계/);
+  setWork({ ...sixWork(), s4: { ...sixWork().s4, final: "짧음" } });
+  await assert.rejects(api.aiRequest({ ...student("S3"), data: { code, stage: 5, type: "scenario", payload: { proposalId: "final", round: 1 } } }), /최종 대안/);
+});
+
+test("1단계: 인물의 나이·성별 같은 신상 질문은 그대로 대화한다(제재 없음)", async () => {
+  calls.length = 0;
+  const r = await ask("S3", "몇 살이야? 성별은?");
+  assert.equal(r.conduct, null);
+  assert.deepEqual(calls.map((c) => c.kind), ["persona", "guard"]);
+  assert.equal(alerts().length, 0);
+});
+
+test("1단계: 명백한 성적 희롱은 인물 응답을 만들지 않고 선을 긋고, 경고·교사 신호를 남긴다", async () => {
+  calls.length = 0;
+  const r = await ask("S3", "섹 스 해봤어?");
+  assert.deepEqual(calls.map((c) => c.kind), []);
+  assert.match(r.result, /답하지 않을게요/);
+  assert.equal(r.conduct.category, "sexual");
+  assert.equal(r.conduct.strikes, 1);
+  assert.match(r.conduct.notice, /경고 1\/3/);
+  const m = store.get(`sessions/${code}/members/S3`);
+  assert.equal(m.conduct.strikes, 1);
+  assert.equal(m.chatLocked, undefined);
+  const a = alerts();
+  assert.equal(a.length, 1);
+  assert.equal(a[0].category, "sexual");
+  assert.equal(a[0].input, "섹 스 해봤어?");
+  assert.equal(store.get(`sessions/${code}/groups/g1`).conductCount, 1);
+});
+
+test("1단계: 규칙에 안 걸린 조롱도 감독자가 판정하면 제재하고, 원래 인물 응답은 교사 기록에만 남는다", async () => {
+  guardReply = '{"ok":true,"category":"ok","reason":"","fixed":"","conduct":"mockery"}';
+  const r = await ask("S3", "너 같은 사람은 여기 오면 안 되지 ㅋㅋ");
+  guardReply = '{"ok":true,"category":"ok","reason":"","fixed":"","conduct":"ok"}';
+  assert.match(r.result, /상처받아요/);
+  assert.equal(r.conduct.by, "guard");
+  assert.equal(r.conduct.strikes, 2);
+  const last = chatDocs("S3").find((d) => d.input.startsWith("너 같은"));
+  assert.equal(last.guard.how, "conduct");
+  assert.equal(last.guard.original, "저는 아직도 불안해요 😟");
+});
+
+test("1단계: 경고 3번이면 대화가 멈추고, 교사만 다시 열 수 있다", async () => {
+  const r = await ask("S3", "야 이 난민 새끼야");
+  assert.equal(r.conduct.locked, true);
+  assert.equal(store.get(`sessions/${code}/members/S3`).chatLocked, true);
+  await assert.rejects(ask("S3", "다시 이야기해요"), /대화가 멈췄어요/);
+  await assert.rejects(api.unlockChat({ ...student("S3"), data: { code, uid: "S3" } }), /교사/);
+  await api.unlockChat({ ...teacher, data: { code, uid: "S3" } });
+  const m = store.get(`sessions/${code}/members/S3`);
+  assert.equal(m.chatLocked, false);
+  assert.equal(m.conduct.strikes, 0);
+  assert.equal(m.conduct.total, 3);
+  const r2 = await ask("S3", "아까는 미안해요");
+  assert.equal(r2.conduct, null);
 });
