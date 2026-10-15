@@ -3,7 +3,7 @@ const { defineSecret, defineString } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 
 const { EVENTS, PERSONAS, availablePersonas, personaSourceIds, toPublicSource, materialsFor, materialsAdmin } = require("./case");
-const { checkGate, toList } = require("./policy");
+const { checkGate, toList, proposalText } = require("./policy");
 const prompts = require("./prompts");
 const { chat, extractJson } = require("./openai");
 const { guardMessages, parseVerdict, resolveOutput } = require("./guard");
@@ -260,7 +260,9 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
     let model = baseModel;
     if (s === 3) {
       const c = toList(work.s2.checks).find((x) => x.id === payload.checkId);
-      input = `학생들이 인터뷰에서 들은 말: ${c.heard || "(적지 않음)"}\n검증 질문: ${c.question}` +
+      const cause = c.causeId ? toList(work.s2?.causes).find((x) => x.id === c.causeId) : null;
+      input = (cause ? `학생들이 확인하려는 원인 가설: ${cause.text}\n확인할 말: ${c.heard || "(적지 않음)"}` : `학생들이 인터뷰에서 들은 말: ${c.heard || "(적지 않음)"}`) +
+        `\n검증 질문: ${c.question}` +
         (c.srcType ? `\n학생들이 확인하려는 자료 종류: ${c.srcType}` : "");
       messages = [{ role: "system", content: prompts.verifyPrompt(evCtx) }, { role: "user", content: input }];
       output = await callModel({ apiKey, model, messages, maxTokens: 700, efforts: [effort] });
@@ -288,7 +290,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
       model = [...new Set(reviews.map((r) => r.model))].join(",");
       logPayload = { proposalId: p.id };
     } else if (s === 5) {
-      const p = toList(work.s4.proposals).find((x) => x.id === payload.proposalId);
+      const p = { id: payload.proposalId, text: proposalText(work, payload.proposalId) };
       const preds = toList(work.s5.predictions).map((x) => `- ${x.stakeholder || "이해관계자"}: ${x.text}`).join("\n");
       input = `대안: ${p.text}\n시점: ${payload.round}년 후\n학생들의 예측:\n${preds}`;
       messages = [{ role: "system", content: prompts.scenarioPrompt(evCtx, payload.round) }, { role: "user", content: input }];

@@ -253,9 +253,11 @@ function stageSections(n, g) {
       ];
     }
     case 2: return [
-      { title: "검증 질문", rows: listOf(w.s2?.checks).map((c) => [`들은 말: ${c.heard || ""}`, joinLines(["검증 질문", c.question], ["확인할 자료", c.srcType], ["자료 비교", c.real]), c.nick]) },
-      { title: "원인 추측", rows: listOf(w.s2?.causes).map((c) => [c.level || "원인", c.text, c.nick]) },
       { title: "나·우리와의 연결고리", rows: listOf(w.s2?.links).map((r) => [r.level, joinLines(["처지", r.situation], ["이어지는 점", r.point], ["확인 방법", r.confirm]), r.nick]) },
+      { title: "원인 가설", rows: listOf(w.s2?.causes).map((c) => [c.level || "원인", c.text, c.nick]) },
+      { title: "검증 질문", rows: listOf(w.s2?.checks).map((c) => [`확인할 말: ${c.heard || ""}`, joinLines(
+        ["관련 원인 가설", c.causeId ? listOf(w.s2?.causes).find((x) => x.id === c.causeId)?.text || "(삭제됨)" : ""],
+        ["검증 질문", c.question], ["확인할 자료", c.srcType], ["자료 비교", c.real]), c.nick]) },
     ];
     case 3: {
       const checks = listOf(w.s2?.checks);
@@ -265,6 +267,7 @@ function stageSections(n, g) {
           const c = checks.find((x) => x.id === l.payload?.checkId), v = w.s3?.checks?.[l.id] || {};
           return [`질문: ${c?.question || l.input}`, joinLines(["판정", v.verdict], ["판정 근거", v.source], ["AI 답 점검", v.reason], ["AI 답", l.output]), l.nickname];
         }) },
+        { title: "원인 가설 점검", rows: listOf(w.s2?.causes).map((q) => [q.text, w.s3?.causes?.[q.id]?.status || "판단 안 함", q.nick]) },
         { title: "핵심 원인", rows: [["확인된 사실", ch.evidence], ["뜻하는 것", ch.meaning], ["핵심 원인", ch.cause]].filter(([, v]) => tx(v)) },
       ];
     }
@@ -277,14 +280,14 @@ function stageSections(n, g) {
           return [`검토 대상: ${(p?.text || l.input).slice(0, 60)}`, joinLines(["판단", d.choice], ["공통 지적", d.compare], ["이유", d.reason],
             ["AI 검토", (parse(l.output).reviews || []).map((r) => `[${r.label}] ${r.text}`).join("\n")]), l.nickname];
         }) },
-        { title: "최종 대안", rows: [["최종 대안", w.s4?.final], ["고른 이유", w.s4?.finalReason]].filter(([, v]) => tx(v)) },
+        { title: "최종 대안", rows: [["최종 대안", w.s4?.final], ["고른 이유", w.s4?.finalReason], ["문제 질문의 두 바람", w.s4?.finalFit]].filter(([, v]) => tx(v)) },
       ];
     }
     case 5: return [
       { title: "이해관계자 반응 예측", rows: listOf(w.s5?.predictions).map((r) => [r.stakeholder, r.text, r.nick]) },
       { title: "시나리오와 모둠 판단", rows: ofStage(5).map((l) => {
         const sc = parse(l.output).scenarios || [], sel = w.s5?.selection?.[l.id] || {};
-        return [`${l.payload?.round}년 후`, joinLines(
+        return [`${l.payload?.proposalId === "final" ? "최종 대안" : "후보 대안"} · ${l.payload?.round}년 후`, joinLines(
           ["", sc.map((x, i) => `${sel.idx === i ? "✓ " : "· "}${x.title}`).join("\n")],
           ["고른 시나리오의 작동 기제", sc[sel.idx]?.mechanism], ["작동 기제 점검", sel.mech], ["고른 이유", sel.reason]), l.nickname];
       }) },
