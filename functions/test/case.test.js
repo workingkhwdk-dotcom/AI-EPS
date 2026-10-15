@@ -130,3 +130,24 @@ test("페르소나 프롬프트: 공통 배경·자기 생각 포함, 생각을 
   assert.doesNotMatch(prompt, /\(자료\d\)/);
   assert.doesNotMatch(prompt, /울산|아프간/);
 });
+
+test("인물마다 실존 인물처럼 구체적인 삶의 이야기·기억나는 장면·마음속 고민·말버릇이 있고, 메타 표현이 없다", () => {
+  for (const p of PERSONAS) {
+    assert.ok(p.story.length >= 6 && p.episodes.length >= 4, p.id);
+    assert.ok(p.inner.length > 20 && p.habits.length > 10, p.id);
+    assert.doesNotMatch([...p.story, ...p.episodes, p.inner, p.habits].join(" "), /수업용|챗봇|AI|자료|보도|인터뷰/, p.id);
+  }
+  const prompt = personaPrompt(EVENTS.jeju2018, PERSONAS[0]);
+  assert.match(prompt, /\[네 삶의 이야기\]/);
+  assert.match(prompt, /\[기억나는 장면\]/);
+  assert.ok(PERSONAS[0].episodes.every((e) => prompt.includes(e)));
+});
+
+test("인물들의 삶은 서로 스친다: 이야기 속 연결이 양쪽 인물 모두에 있다", () => {
+  const life = (id) => { const p = PERSONAS.find((x) => x.id === id); return [...p.story, ...p.episodes].join(" "); };
+  assert.match(life("j_applicant"), /선장님/); assert.match(life("j_employer"), /멀미/);        // 아델 ↔ 강태호
+  assert.match(life("j_applicant2"), /쉼터/); assert.match(life("j_shelter"), /기술자/);        // 하산 ↔ 오성민
+  assert.match(life("j_applicant2"), /인권 활동가/); assert.match(life("j_supporter"), /가장/); // 하산 ↔ 서진
+  assert.match(life("j_applicant"), /김치전/); assert.match(life("j_host"), /김치전/);          // 아델 ↔ 지혜
+  assert.match(life("j_resident"), /법무부 소관/); assert.match(life("j_province"), /법무부 소관/); // 미경 ↔ 윤서영
+});

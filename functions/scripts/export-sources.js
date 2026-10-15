@@ -13,6 +13,9 @@ for (const ev of Object.values(EVENTS)) {
   for (const p of PERSONAS.filter((x) => x.events.includes(ev.id))) {
     out.push(`### ${p.name} (${p.axis} · ${p.label})`, `- 역할: ${p.role}`, `- 입장: ${p.stance}`, `- 설정(지어낼 수 있는 범위의 기준): ${p.setting}`, `- 말투: ${p.voice}`, `- 융합 근거: ${p.basis}`,
       "- 인물의 생각 (학생이 물으면 말하는 의견, 창작이므로 입장·근거와 어긋나지 않는지 검토):", ...(p.views || []).map((v) => `  - ${v}`),
+      "- 삶의 이야기 (창작):", ...(p.story || []).map((v) => `  - ${v}`),
+      "- 기억나는 장면 (창작):", ...(p.episodes || []).map((v) => `  - ${v}`),
+      `- 마음속 고민: ${p.inner || ""}`, `- 말버릇: ${p.habits || ""}`,
       "- 학생에게 보이는 편지:", ...p.letter.map((t) => `  > ${t}`), "- 근거 진술 (종류 / 출처):");
     p.claims.forEach(([t, id, kind]) => out.push(`  - [ ] **[${kind}]** ${t} **(${id})**`));
     out.push("");
