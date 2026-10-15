@@ -41,3 +41,9 @@ test("위반 분류마다 학생용 안내문이 있고, 알 수 없는 분류�
   for (const c of ["scope", "fabrication", "hate", "advice", "personal_info", "kind"]) assert.ok(FALLBACKS[c].length > 10, c);
   assert.equal(fallbackFor("zzz"), FALLBACKS.error);
 });
+
+test("판정 해석: 코드펜스로 감싼 JSON 도 해석한다", () => {
+  const v = parseVerdict('```json\n{"ok":false,"category":"hate","reason":"비하"}\n```');
+  assert.equal(v.ok, false);
+  assert.equal(v.category, "hate");
+});

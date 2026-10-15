@@ -1,5 +1,6 @@
 // 상위 AI 감독 층: 페르소나 응답이 학생에게 가기 전에 규범(charter.js) 준수 여부를 검사한다.
 const { CHARTER } = require("./charter");
+const { extractJson } = require("./openai");
 
 const CATEGORIES = ["ok", "scope", "fabrication", "hate", "advice", "personal_info", "kind"];
 
@@ -39,7 +40,7 @@ function guardMessages({ persona, claims, studentMessage, reply }) {
 // 감독자 응답을 해석한다. 형식이 깨지면 안전 쪽(차단)으로 처리한다.
 function parseVerdict(text) {
   try {
-    const v = JSON.parse(text);
+    const v = extractJson(text);
     const category = CATEGORIES.includes(v.category) ? v.category : v.ok ? "ok" : "scope";
     const ok = v.ok === true && category === "ok";
     return { ok, category: ok ? "ok" : category === "ok" ? "scope" : category, reason: String(v.reason || "").slice(0, 200) };

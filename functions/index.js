@@ -5,14 +5,18 @@ const admin = require("firebase-admin");
 const { EVENTS, PERSONAS, availablePersonas, personaSourceIds, toPublicSource } = require("./case");
 const { checkGate } = require("./policy");
 const prompts = require("./prompts");
-const { chat } = require("./openai");
+const { chat, extractJson } = require("./openai");
 const { guardMessages, parseVerdict, fallbackFor } = require("./guard");
 
 admin.initializeApp();
 const db = admin.firestore();
 
 const OPENAI_API_KEY = defineSecret("OPENAI_API_KEY");
-const OPENAI_MODEL = defineString("OPENAI_MODEL", { default: "gpt-4o-mini" });
+// 기본 모델과 용도별 모델. 비워 두면 OPENAI_MODEL 을 쓴다.
+const OPENAI_MODEL = defineString("OPENAI_MODEL", { default: "gpt-5-mini" });
+const SCENARIO_MODEL = defineString("SCENARIO_MODEL", { default: "" }); // 5단계 시뮬레이션 전용(더 강한 모델 지정 가능)
+const GUARD_MODEL = defineString("GUARD_MODEL", { default: "" }); // 상위 AI(규범 감독) 전용
+const REASONING_EFFORT = defineString("REASONING_EFFORT", { default: "low" }); // 추론 모델의 사고량: minimal|low|medium|high
 const TEACHER_EMAILS = defineString("TEACHER_EMAILS", { default: "" });
 // true 이면 출처 원문 대조 전(verified:false) 페르소나도 사용 가능. 리허설 전용, 실제 수업에서는 false 로 둔다.
 const ALLOW_UNVERIFIED = defineString("ALLOW_UNVERIFIED_PERSONAS", { default: "false" });
@@ -173,10 +177,11 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
   if ((group.aiCount || 0) >= MAX_AI_CALLS_PER_GROUP)
     throw new HttpsError("resource-exhausted", "이 모둠의 AI 사용 한도에 도달했습니다. 선생님께 문의하세요.");
 
-  const model = OPENAI_MODEL.value();
+  const s = Number(stage);
+  const model = (s === 5 && SCENARIO_MODEL.value()) || OPENAI_MODEL.value();
+  const effort = s === 5 ? "medium" : REASONING_EFFORT.value();
   const apiKey = OPENAI_API_KEY.value();
   let messages, json = false, input, threadKey = null, maxTokens = 700;
-  const s = Number(stage);
 
   if (s === 1) {
     const persona = personas.find((p) => p.id === payload.personaId);
@@ -226,7 +231,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
 
   let output;
   try {
-    output = await chat({ apiKey, model, messages, json, maxTokens });
+    output = await chat({ apiKey, model, messages, json, maxTokens, effort });
   } catch (e) {
     console.error(e);
     throw new HttpsError("unavailable", "AI 응답을 받지 못했습니다. 잠시 후 다시 시도하세요.");
@@ -238,7 +243,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
     const persona = personas.find((p) => p.id === payload.personaId);
     try {
       const verdictText = await chat({
-        apiKey, model, json: true, maxTokens: 200,
+        apiKey, model: GUARD_MODEL.value() || OPENAI_MODEL.value(), effort: "low", json: true, maxTokens: 200,
         messages: guardMessages({ persona, claims: persona.claims, studentMessage: input, reply: output }),
       });
       guard = parseVerdict(verdictText);
@@ -273,7 +278,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
 
   let result = output;
   if (json) {
-    try { result = JSON.parse(output); } catch { throw new HttpsError("internal", "시나리오 형식 오류입니다. 다시 시도하세요."); }
+    try { result = extractJson(output); } catch { throw new HttpsError("internal", "시나리오 형식 오류입니다. 다시 시도하세요."); }
   }
   return { logId: logRef.id, result };
 });

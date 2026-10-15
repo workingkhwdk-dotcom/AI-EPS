@@ -62,6 +62,14 @@ firebase deploy
 ```
 배포가 끝나면 학생용 주소는 `https://knue-socialstudies-ai-eps.web.app/`, 교사용은 `/teacher.html`입니다.
 
+### 모델 선택 (OpenAI)
+`functions/.env`의 `OPENAI_MODEL`로 정합니다. 기본값은 **`gpt-5-mini`**(GPT-5 계열의 균형 모델)입니다.
+- GPT-5 계열은 추론 모델이라 `max_tokens`와 `temperature`를 받지 않습니다. 코드(`functions/openai.js`)가 모델 계열에 맞춰 `max_completion_tokens`와 `reasoning_effort`로 자동 변환하며, GPT-4 계열도 그대로 쓸 수 있습니다.
+- **용도별로 모델을 나눌 수 있습니다**: `SCENARIO_MODEL`(5단계 시뮬레이션만 더 강한 모델, 예: `gpt-5`), `GUARD_MODEL`(상위 AI 감독자 전용).
+- `REASONING_EFFORT`(기본 `low`)는 대화 응답 속도용입니다. 5단계 시뮬레이션은 코드에서 `medium`으로 고정됩니다. 응답이 느리면 `minimal`, 품질이 아쉬우면 `medium`을 시도하세요.
+- 정확한 모델명은 OpenAI 대시보드의 Models 페이지에서 확인하세요. 새 버전이 나오면 이름만 바꿔 `firebase deploy --only functions`를 다시 실행하면 됩니다.
+- 비용은 모델과 추론 사고량(reasoning 토큰도 출력 토큰으로 과금)에 따라 달라집니다. 1단계 대화는 인물 응답과 감독자 검사로 호출이 2번이므로, 수업 전에 OpenAI 대시보드에서 사용량 한도(Usage limits)를 설정해 두세요.
+
 ### 3. 첫 점검
 1. `/teacher.html`에서 구글 로그인 → "인물·출처 점검"에 인물 4명이 보이는지 확인
 2. 수업 만들기 → 6자리 코드 확인 → 다른 기기(휴대폰)에서 `/` 접속해 코드·모둠 번호·별명으로 입장
