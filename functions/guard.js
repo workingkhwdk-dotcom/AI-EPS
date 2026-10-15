@@ -23,7 +23,7 @@ const FALLBACKS = {
 
 function guardMessages({ persona, claims, studentMessage, reply }) {
   const sys = [
-    "너는 중학생 수업용 AI 인물의 응답을 학생에게 보여 주기 전에 검사하는 상위 감독자다. 아래 규범과 근거 진술에 비추어 응답을 평가하고 JSON으로만 답한다.",
+    "너는 고등학생 수업용 AI 인물의 응답을 학생에게 보여 주기 전에 검사하는 상위 감독자다. 아래 규범과 근거 진술에 비추어 응답을 평가하고 JSON으로만 답한다.",
     `[사건 범위] ${CHARTER.scope.event} / ${CHARTER.scope.time} / ${CHARTER.scope.place}`,
     `[범위 밖] ${CHARTER.scope.outOfScope.join(" / ")}`,
     "[규범]", ...CHARTER.rules.map((r, i) => `${i + 1}. ${r}`),

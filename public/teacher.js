@@ -10,6 +10,7 @@ const hasKeys = (o) => o && typeof o === "object" && Object.keys(o).length > 0;
 const filled = (v) => (typeof v === "string" ? v.trim() !== "" : hasKeys(v));
 
 let current = null, curTitle = "", unsubs = [], members = [], groups = [], gFilter = "all";
+let logsBy = {}, cmpStage = 1, workGid = null; // 모둠별 AI 기록, 단계별 모아 보기 단계, 열어 둔 모둠 산출물
 let tickTimer = null;
 
 // ---------- 로그인 ----------
@@ -55,7 +56,7 @@ $("#sessions").onclick = (e) => { const b = e.target.closest("[data-code]"); if 
 function progressOf(work) {
   const w = work || {};
   return [
-    hasKeys(w.s1?.findings),
+    hasKeys(w.s1?.findings) || filled(w.s1?.problem?.hmw),
     hasKeys(w.s2?.checks),
     hasKeys(w.s3?.checks) || filled(w.s3?.chain?.cause),
     hasKeys(w.s4?.proposals) || filled(w.s4?.final),
@@ -66,7 +67,7 @@ function progressOf(work) {
 }
 
 function openSession(code, title) {
-  current = code; curTitle = title; gFilter = "all";
+  current = code; curTitle = title; gFilter = "all"; logsBy = {}; workGid = null;
   unsubs.forEach((u) => u()); unsubs = [];
   clearInterval(tickTimer);
   $("#dash").classList.remove("hidden");
@@ -76,7 +77,16 @@ function openSession(code, title) {
   unsubs.push(onSnapshot(collection(db, `sessions/${code}/members`), (s) => { members = s.docs.map((d) => ({ uid: d.id, ...d.data() })); renderDash(); }));
   unsubs.push(onSnapshot(collection(db, `sessions/${code}/groups`), (s) => {
     groups = s.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => parseInt(a.id.slice(1)) - parseInt(b.id.slice(1)));
+    for (const g of groups) {
+      if (logsBy[g.id]) continue;
+      logsBy[g.id] = [];
+      unsubs.push(onSnapshot(query(collection(db, `sessions/${code}/groups/${g.id}/logs`), orderBy("createdAt")), (ls) => {
+        logsBy[g.id] = ls.docs.map((d) => ({ id: d.id, ...d.data() }));
+        renderWorkViews();
+      }));
+    }
     renderDash();
+    renderWorkViews();
   }));
   tickTimer = setInterval(renderDash, 15000); // 접속 상태를 주기적으로 갱신
   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -116,13 +126,13 @@ function renderDash() {
       <td><span class="dots">${pr.map((f, i) => `<i class="${f ? "on" : ""} ${cur === i + 1 ? "cur" : ""}" title="${i + 1}단계 ${STAGE_NAMES[i + 1]}"></i>`).join("")}</span></td>
       <td>${g.aiCount || 0}회${g.lastAiError ? ` <span class="tag r" title="${esc(g.lastAiError.message)}">오류</span>` : ""}</td>
       <td>${g.guardCount || 0}회</td>
-      <td><button class="btn btn-tinted btn-sm" data-glog="${g.id}">모둠 기록</button></td></tr>`;
+      <td class="row" style="flex-wrap:nowrap"><button class="btn btn-tinted btn-sm" data-gwork="${g.id}">산출물</button><button class="btn btn-plain btn-sm" data-glog="${g.id}">AI 기록</button></td></tr>`;
   }).join("");
 }
 
 $("#g-filter").onclick = (e) => { const b = e.target.closest("[data-g]"); if (b) { gFilter = b.dataset.g; renderDash(); } };
 $("#copy-btn").onclick = async () => { try { await navigator.clipboard.writeText(current); toast("코드를 복사했어요"); } catch { toast(`수업 코드: ${current}`); } };
-$("#detail-close").onclick = () => $("#detail").classList.add("hidden");
+$("#detail-close").onclick = () => { workGid = null; $("#detail").classList.add("hidden"); };
 
 // ---------- 대화·기록 보기 ----------
 function showDetail(title, html) {
@@ -134,6 +144,7 @@ function showDetail(title, html) {
 const guardTag = (g) => !g || g.ok ? "" : ` <span class="tag ${g.how === "fixed" ? "y" : "r"}">감독자 ${g.how === "fixed" ? "수정" : "대체"} · ${esc(g.category)}</span>`;
 
 async function loadChat(uid) {
+  workGid = null;
   const m = members.find((x) => x.uid === uid);
   const snap = await getDocs(query(collection(db, `sessions/${current}/members/${uid}/chat`), orderBy("createdAt")));
   const rows = snap.docs.map((d) => d.data());
@@ -163,7 +174,11 @@ async function loadGroupLogs(gid) {
   showDetail(`${g?.name || gid} 3~5단계 AI 기록`, html);
 }
 $("#students").onclick = (e) => { const b = e.target.closest("[data-chat]"); if (b) loadChat(b.dataset.chat).catch((err) => toast(errMsg(err), true)); };
-$("#groups").onclick = (e) => { const b = e.target.closest("[data-glog]"); if (b) loadGroupLogs(b.dataset.glog).catch((err) => toast(errMsg(err), true)); };
+$("#groups").onclick = (e) => {
+  const w = e.target.closest("[data-gwork]");
+  if (w) { workGid = w.dataset.gwork; renderWorkViews(); $("#detail").scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+  const b = e.target.closest("[data-glog]"); if (b) { workGid = null; loadGroupLogs(b.dataset.glog).catch((err) => toast(errMsg(err), true)); }
+};
 
 // CSV: 연구·평가 기록용. 엑셀에서 한글이 깨지지 않도록 BOM 포함
 $("#csv-btn").onclick = async () => {
@@ -177,6 +192,7 @@ $("#csv-btn").onclick = async () => {
     const s = await getDocs(query(collection(db, `sessions/${current}/groups/${g.id}/logs`), orderBy("createdAt")));
     s.docs.map((d) => d.data()).forEach((l) => lines.push(["모둠 AI", g.id, l.stage, l.nickname, T(l), l.model, l.input, l.output, ""]));
   }
+  for (const g of groups) workRows(g).forEach(([st, item, by, text]) => lines.push(["모둠 산출물", g.id, st, by, "", "", item, text, ""]));
   const csv = lines.map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
@@ -211,3 +227,102 @@ async function loadCheck(eventId) {
         <div class="meta-line">${it.src.map((id) => `<span class="tag ${it.verified ? "" : "x"}">${id}</span>`).join(" ")} 학생에게 보이는 캡션: ${esc(it.caption)}${it.verified ? "" : " · 미검증"}</div></div>`).join("")}</div></details>`).join("");
   } catch (e) { $("#persona-check").innerHTML = `<div class="notice">${esc(errMsg(e))}</div>`; }
 }
+
+// ---------- 모둠 산출물 (학생이 적은 문제·원인·대안·시나리오·계획) ----------
+const PROBLEM_CHECK_N = 5, REFLECT_N = 10;
+const tx = (v) => (typeof v === "string" ? v.trim() : "");
+const listOf = (x) => Object.entries(x || {}).map(([id, v]) => ({ id, ...(v && typeof v === "object" ? v : { text: v }) })).sort((a, b) => (a.t || 0) - (b.t || 0));
+const countTrue = (o) => Object.values(o || {}).filter(Boolean).length;
+const joinLines = (...xs) => xs.filter(([, v]) => tx(String(v ?? ""))).map(([k, v]) => (k ? `${k}: ${v}` : v)).join("\n");
+const parse = (s) => { try { return JSON.parse(s); } catch { return {}; } };
+
+// 단계별 산출물을 [{ title, rows: [[항목, 내용, 작성자]] }] 로 정리한다. 화면과 CSV가 함께 쓴다.
+function stageSections(n, g) {
+  const w = g.work || {}, logs = logsBy[g.id] || [];
+  const ofStage = (k) => logs.filter((l) => l.stage === k);
+  switch (n) {
+    case 1: {
+      const pb = w.s1?.problem || {};
+      return [
+        { title: "개인 제출 (모둠원이 만난 인물)", rows: listOf(w.s1?.findings).map((f) => [
+          `${f.nick || "모둠원"} → ${f.persona || "인물"}${f.submitted === false ? " (수정 중·미제출)" : ""}`,
+          joinLines(["누구", f.who], ["힘든 것", f.hard], ["바라는 것", f.want], ["기억에 남는 말", f.quote], ["확인할 말", f.doubt], ["", f.text]), f.nick]) },
+        { title: "모둠 문제 정의", rows: [
+          ["같은 점", pb.common], ["부딪히는 점", pb.conflict], ["문제 상황", pb.situation], ["우리가 풀 질문", pb.hmw],
+          ["점검표", hasKeys(pb.checks) ? `${countTrue(pb.checks)} / ${PROBLEM_CHECK_N}` : ""]].filter(([, v]) => tx(v)) },
+      ];
+    }
+    case 2: return [
+      { title: "나·우리와의 연결고리", rows: listOf(w.s2?.links).map((r) => [r.level, joinLines(["처지", r.situation], ["이어지는 점", r.point], ["확인 방법", r.confirm]), r.nick]) },
+      { title: "원인 가설", rows: listOf(w.s2?.causes).map((c) => [c.level || "원인", c.text, c.nick]) },
+      { title: "검증 질문", rows: listOf(w.s2?.checks).map((c) => [`확인할 말: ${c.heard || ""}`, joinLines(
+        ["관련 원인 가설", c.causeId ? listOf(w.s2?.causes).find((x) => x.id === c.causeId)?.text || "(삭제됨)" : ""],
+        ["검증 질문", c.question], ["확인할 자료", c.srcType], ["자료 비교", c.real]), c.nick]) },
+    ];
+    case 3: {
+      const checks = listOf(w.s2?.checks);
+      const ch = w.s3?.chain || {};
+      return [
+        { title: "검증 결과", rows: ofStage(3).map((l) => {
+          const c = checks.find((x) => x.id === l.payload?.checkId), v = w.s3?.checks?.[l.id] || {};
+          return [`질문: ${c?.question || l.input}`, joinLines(["판정", v.verdict], ["판정 근거", v.source], ["AI 답 점검", v.reason], ["AI 답", l.output]), l.nickname];
+        }) },
+        { title: "원인 가설 점검", rows: listOf(w.s2?.causes).map((q) => [q.text, w.s3?.causes?.[q.id]?.status || "판단 안 함", q.nick]) },
+        { title: "핵심 원인", rows: [["확인된 사실", ch.evidence], ["뜻하는 것", ch.meaning], ["핵심 원인", ch.cause]].filter(([, v]) => tx(v)) },
+      ];
+    }
+    case 4: {
+      const props = listOf(w.s4?.proposals);
+      return [
+        { title: "모둠 대안", rows: props.map((p) => ["대안", p.text, p.nick]) },
+        { title: "AI 검토와 모둠 판단", rows: ofStage(4).map((l) => {
+          const p = props.find((x) => x.id === l.payload?.proposalId), d = w.s4?.decisions?.[l.id] || {};
+          return [`검토 대상: ${(p?.text || l.input).slice(0, 60)}`, joinLines(["판단", d.choice], ["공통 지적", d.compare], ["이유", d.reason],
+            ["AI 검토", (parse(l.output).reviews || []).map((r) => `[${r.label}] ${r.text}`).join("\n")]), l.nickname];
+        }) },
+        { title: "최종 대안", rows: [["최종 대안", w.s4?.final], ["고른 이유", w.s4?.finalReason], ["문제 질문의 두 바람", w.s4?.finalFit]].filter(([, v]) => tx(v)) },
+      ];
+    }
+    case 5: return [
+      { title: "이해관계자 반응 예측", rows: listOf(w.s5?.predictions).map((r) => [r.stakeholder, r.text, r.nick]) },
+      { title: "시나리오와 모둠 판단", rows: ofStage(5).map((l) => {
+        const sc = parse(l.output).scenarios || [], sel = w.s5?.selection?.[l.id] || {};
+        return [`${l.payload?.proposalId === "final" ? "최종 대안" : "후보 대안"} · ${l.payload?.round}년 후`, joinLines(
+          ["", sc.map((x, i) => `${sel.idx === i ? "✓ " : "· "}${x.title}`).join("\n")],
+          ["고른 시나리오의 작동 기제", sc[sel.idx]?.mechanism], ["작동 기제 점검", sel.mech], ["고른 이유", sel.reason]), l.nickname];
+      }) },
+      { title: "예상되는 문제", rows: [["예상 문제", w.s5?.newProblem]].filter(([, v]) => tx(v)) },
+    ];
+    case 6: {
+      const p = w.s6?.plan || {};
+      return [{ title: p.type === "patch" ? "대안 보완안" : "행동 계획", rows: [["대상", p.target], ["내용", p.content], ["방법", p.method], ["기대 효과", p.effect], ["어려움과 대응", p.difficulty]].filter(([, v]) => tx(v)) }];
+    }
+    case 7: return [{ title: "공유·성찰", rows: [["발표 정리", w.s7?.share], ["AI 활용 점검", hasKeys(w.s7?.checks) ? `${countTrue(w.s7.checks)} / ${REFLECT_N}` : ""], ["성찰", w.s7?.reflection]].filter(([, v]) => tx(v)) }];
+  }
+  return [];
+}
+
+function sectionsHtml(secs) {
+  return secs.map((s) => `<div class="w-sec"><h4>${esc(s.title)}</h4>${s.rows.length
+    ? s.rows.map(([k, v, by]) => `<div class="logline"><div class="q">${esc(k)}${by ? ` <span class="meta-line">· ${esc(by)}</span>` : ""}</div><div class="a">${esc(v || "")}</div></div>`).join("")
+    : `<div class="meta-line">아직 없음</div>`}</div>`).join("");
+}
+function workRows(g) {
+  const out = [];
+  for (let n = 1; n <= 7; n++) for (const s of stageSections(n, g)) for (const [k, v, by] of s.rows) out.push([n, `${s.title} · ${k}`, by || "", v || ""]);
+  return out;
+}
+
+function renderWorkViews() {
+  if (!current) return;
+  $("#cmp-stages").innerHTML = STAGE_NAMES.slice(1).map((nm, i) => `<button class="chip sm ${cmpStage === i + 1 ? "on" : ""}" data-cs="${i + 1}">${i + 1}. ${nm}</button>`).join("");
+  $("#cmp-body").innerHTML = groups.map((g) => `<div class="cmp-g"><div class="cmp-h">${esc(g.name)}</div>${sectionsHtml(stageSections(cmpStage, g))}</div>`).join("")
+    || `<div class="meta-line">모둠이 없습니다.</div>`;
+  if (workGid) {
+    const g = groups.find((x) => x.id === workGid); if (!g) return;
+    $("#detail-title").textContent = `${g.name} 산출물 (실시간)`;
+    $("#detail-body").innerHTML = STAGE_NAMES.slice(1).map((nm, i) => `<div class="w-stage"><div class="cmp-h">${i + 1}단계 ${nm}</div>${sectionsHtml(stageSections(i + 1, g))}</div>`).join("");
+    $("#detail").classList.remove("hidden");
+  }
+}
+$("#cmp-stages").onclick = (e) => { const b = e.target.closest("[data-cs]"); if (b) { cmpStage = Number(b.dataset.cs); renderWorkViews(); } };

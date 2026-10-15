@@ -32,6 +32,12 @@ function toList(x) {
     .sort((a, b) => (a.t || 0) - (b.t || 0));
 }
 
+// 5단계 시뮬레이션 대상: 4단계 최종 대안("final") 또는 후보 대안
+function proposalText(work, id) {
+  if (id === "final") { const f = str(work.s4?.final); return f.length >= MIN_PROPOSAL_LEN ? f : ""; }
+  return str(toList(work.s4?.proposals).find((x) => x.id === id)?.text);
+}
+
 function checkGate({ stage, type, work = {}, payload = {} }) {
   const rule = STAGE_RULES[stage];
   if (!rule) return blocked("존재하지 않는 단계입니다.");
@@ -61,8 +67,7 @@ function checkGate({ stage, type, work = {}, payload = {} }) {
       const preds = toList(work.s5?.predictions).filter((x) => str(x.text).length >= MIN_PREDICTION_LEN);
       if (preds.length < MIN_PREDICTIONS)
         return blocked(`이해관계자 반응 예측을 ${MIN_PREDICTIONS}개 이상 먼저 작성해 저장하세요.`);
-      const p = toList(work.s4?.proposals).find((x) => x.id === payload.proposalId);
-      if (!p) return blocked("시뮬레이션할 대안을 선택하세요.");
+      if (!proposalText(work, payload.proposalId)) return blocked("시뮬레이션할 대안을 선택하세요. (최종 대안은 30자 이상)");
       if (!ROUNDS.includes(payload.round)) return blocked("시점(1년, 3년, 5년 후)을 선택하세요.");
       return allowed();
     }
@@ -71,4 +76,4 @@ function checkGate({ stage, type, work = {}, payload = {} }) {
   }
 }
 
-module.exports = { STAGE_RULES, ROUNDS, MAX_MESSAGE_LEN, checkGate, toList };
+module.exports = { STAGE_RULES, ROUNDS, MAX_MESSAGE_LEN, checkGate, toList, proposalText };
