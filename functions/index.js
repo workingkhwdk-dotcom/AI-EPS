@@ -15,6 +15,7 @@ const db = admin.firestore();
 const OPENAI_API_KEY = defineSecret("OPENAI_API_KEY");
 // 기본 모델과 용도별 모델. 비워 두면 OPENAI_MODEL 을 쓴다.
 const OPENAI_MODEL = defineString("OPENAI_MODEL", { default: "gpt-5-mini" });
+const PERSONA_MODEL = defineString("PERSONA_MODEL", { default: "gpt-5" }); // 1단계 인물 대화 전용
 const SCENARIO_MODEL = defineString("SCENARIO_MODEL", { default: "" }); // 5단계 시뮬레이션 전용(더 강한 모델 지정 가능)
 const GUARD_MODEL = defineString("GUARD_MODEL", { default: "" }); // 상위 AI(규범 감독) 전용
 const FEEDBACK_MODELS = defineString("FEEDBACK_MODELS", { default: "" }); // 4단계 독립 검토에 쓸 모델들(쉼표). 비우면 OPENAI_MODEL 로 3회
@@ -247,7 +248,8 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
       });
       messages.push({ role: "user", content: input });
 
-      const reply = await callModel({ apiKey, model: baseModel, messages, maxTokens: 400, efforts: [effort] });
+      const personaModel = PERSONA_MODEL.value() || baseModel;
+      const reply = await callModel({ apiKey, model: personaModel, messages, maxTokens: 400, efforts: [effort] });
 
       // 상위 AI(규범 감독자): 학생에게 보내기 전에 검사. 가벼운 위반은 고쳐 쓰고, 무거운 위반·검사 실패는 안내로 대체
       let verdict;
@@ -266,7 +268,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
       const ref = chatCol.doc();
       await Promise.all([
         ref.set({
-          uid: auth.uid, nickname, personaId, input, output: out.text, model: baseModel,
+          uid: auth.uid, nickname, personaId, input, output: out.text, model: personaModel,
           guard: { ok: verdict.ok, category: verdict.category, reason: verdict.reason, how: out.how || null, original: out.replaced || out.trimmed ? reply : null, trimmed: !!out.trimmed },
           createdAt: FieldValue().serverTimestamp(),
         }),
