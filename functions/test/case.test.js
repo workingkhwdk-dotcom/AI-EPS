@@ -146,3 +146,11 @@ test("7단계 이후 전개 자료: 종류와 출처가 있고 검증 전에는 
   assert.equal(aftermathFor(false).length, 0);
   assert.ok(aftermathFor(true).every((a) => a.caption && a.links.length));
 });
+
+test("모든 출처에 검색 교차 확인 기록이 있고, 교차 확인만으로는 학생에게 공개되지 않는다", () => {
+  for (const [id, x] of Object.entries(SOURCES)) {
+    assert.ok(["ok", "partial", "fixed", "todo"].includes(x.crossCheck?.status), id);
+    assert.ok(x.crossCheck.note.length > 5, id);
+    assert.equal(x.verified, false, id);
+  }
+});
