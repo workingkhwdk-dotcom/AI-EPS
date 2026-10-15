@@ -604,8 +604,8 @@ const sub1 = {
     const done = all.length, total = Math.max(S.memberCount, done);
     const chk = (i) => `<label class="cell" style="cursor:pointer"><input type="checkbox" data-save="s1.problem.checks.${i}" ${w(`s1.problem.checks.${i}`) ? "checked" : ""} style="width:20px;height:20px;margin-top:2px"><span class="grow">${esc(PROBLEM_CHECKS[i])}</span></label>`;
     return `<div class="notice green"><b>여기부터는 모둠 활동입니다.</b> 화면을 같이 보며 얼굴을 맞대고 이야기하세요. 아래 칸은 모둠 공용이라 누가 써도 모든 모둠원 화면에 바로 나타납니다.</div>
-    <div class="card"><h3>1) 네 사람의 이야기 나란히 보기</h3>
-      <p class="desc">각자 만난 사람을 돌아가며 1분씩 소개하세요. (제출 ${done} / ${total}명)</p>
+    <div class="card"><h3>1) 모둠원이 만난 사람들 나란히 보기</h3>
+      <p class="desc">각자 만난 사람을 돌아가며 1분씩 소개하세요. 같은 사건을 서로 어떻게 다르게 보는지, 같은 처지라도 생각이 어떻게 다른지 찾아보세요. (제출 ${done} / ${total}명)</p>
       <div class="board">${all.map((f) => `<div class="b-col"><div class="b-h">${esc(f.persona || "인물")}<small>${esc(f.nick || "")}</small></div>
         <div class="b-r"><span>누구</span>${esc(f.who || f.text || "")}</div><div class="b-r"><span>힘든 것</span>${esc(f.hard || "")}</div><div class="b-r"><span>바라는 것</span>${esc(f.want || "")}</div></div>`).join("")}</div></div>
     <div class="card"><h3>2) 같은 점 찾기 ${shared}</h3>
