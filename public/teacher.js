@@ -151,6 +151,9 @@ function showDetail(title, html) {
   $("#detail").classList.remove("hidden");
   $("#detail").scrollIntoView({ behavior: "smooth", block: "start" });
 }
+// 검색 교차 확인 결과(원문 대조 전 참고용)
+const CROSS = { ok: ["", "교차 확인"], partial: ["y", "일부 확인"], fixed: ["b", "고쳐 씀"], todo: ["x", "확인 못 함"] };
+const crossTag = (s) => s.crossCheck ? `<div class="meta-line" style="margin-top:2px"><span class="tag ${CROSS[s.crossCheck.status]?.[0] ?? "x"}">${CROSS[s.crossCheck.status]?.[1] || esc(s.crossCheck.status)}</span> ${esc(s.crossCheck.note)}</div>` : "";
 const CONDUCT_LABELS = { mockery: "조롱·모욕", sexual: "성적 희롱" };
 const guardTag = (g) => !g || g.ok ? "" : ` <span class="tag ${g.how === "fixed" ? "y" : "r"}">감독자 ${g.how === "fixed" ? "수정" : "대체"} · ${esc(g.category)}</span>`;
 
@@ -233,14 +236,14 @@ async function loadCheck(eventId) {
         <div style="margin-top:10px"><b>근거 진술</b>${p.claims.map((c) => `<div class="meta-line" style="color:var(--ink);margin-top:4px"><span class="tag ${c.kind === "주장" || c.kind === "의견" ? "y" : ""}">${esc(c.kind)}</span> ${esc(c.text)} <span class="tag x">${esc(c.src)}</span></div>`).join("")}</div>
         <div style="margin-top:10px"><b>출처 (원문을 열어 진술과 대조)</b>${p.sources.map((s) => `<div style="margin-top:8px"><span class="tag ${s.verified ? "" : "x"}">${s.id}</span>
           <a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title)}</a>${s.titleIsDescriptive ? ' <span class="meta-line">(제목은 설명 문구, 실제 제목 확인)</span>' : ""}
-          <div class="meta-line">${esc(s.outlet)} · ${esc(s.date)}</div><div class="meta-line">확인할 것: ${esc(s.check)}</div></div>`).join("")}</div></div></details>`;
+          <div class="meta-line">${esc(s.outlet)} · ${esc(s.date)}</div><div class="meta-line">확인할 것: ${esc(s.check)}</div>${crossTag(s)}</div>`).join("")}</div></div></details>`;
     }).join("");
     $("#material-check").innerHTML = data.materials.map((c) => `<details class="fold"><summary>${esc(c.title)} <span class="meta-line">· ${c.items.length}개</span></summary><div class="inner">
       ${c.items.map((it) => `<div class="logline"><span class="kind k-${esc(it.kind)}">${esc(it.kind)}</span> ${it.date ? `<b>${esc(it.date)}</b> ` : ""}${esc(it.text)}
         <div class="meta-line">${it.src.map((id) => `<span class="tag ${it.verified ? "" : "x"}">${id}</span>`).join(" ")} 학생에게 보이는 캡션: ${esc(it.caption)}${it.verified ? "" : " · 미검증"}</div></div>`).join("")}</div></details>`).join("");
     const srcList = (sources) => sources.map((s) => `<div style="margin-top:8px"><span class="tag ${s.verified ? "" : "x"}">${s.id}</span>
       <a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title)}</a>${s.titleIsDescriptive ? ' <span class="meta-line">(제목은 설명 문구, 실제 제목 확인)</span>' : ""}
-      <div class="meta-line">${esc(s.outlet)} · ${esc(s.date)}</div><div class="meta-line">확인할 것: ${esc(s.check)}</div></div>`).join("");
+      <div class="meta-line">${esc(s.outlet)} · ${esc(s.date)}</div><div class="meta-line">확인할 것: ${esc(s.check)}</div>${crossTag(s)}</div>`).join("");
     $("#case-check").innerHTML = (data.cases || []).map((c) => `<details class="fold"><summary><span>${esc(c.country)} <span class="meta-line">· ${esc(c.title)}</span></span> <span class="tag ${c.verified ? "" : "y"}">${c.verified ? "원문 대조 완료" : "대조 필요"}</span></summary><div class="inner">
       <div class="meta-line" style="color:var(--ink)"><b>무엇을 했나</b> ${esc(c.what)}</div>
       <div class="meta-line" style="color:var(--ink);margin-top:4px"><b>어떻게 되었나</b> ${esc(c.result)}</div>

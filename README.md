@@ -46,7 +46,6 @@ firestore.rules    학생은 자기 모둠의 work만 수정, AI 로그는 서�
 ### 2. 터미널에서 배포
 ```bash
 git clone https://github.com/workingkhwdk-dotcom/AI-EPS.git && cd AI-EPS
-git checkout claude/loving-fermat-vslak3
 
 npm i -g firebase-tools
 firebase login
@@ -64,7 +63,7 @@ firebase deploy
 
 ### 교사 계정 관리
 교사 자격은 구글 계정의 이메일로 판정하며, 아래 **세 곳 중 한 곳에만 있어도** 교사입니다(대소문자 무시).
-1. **관리자(코드에 고정)**: `functions/teachers.js`의 `ADMIN_EMAILS` — `working.khwdk@gmail.com`. 설정을 잘못해도 잠기지 않도록 항상 교사입니다.
+1. **코드에 고정**: `functions/teachers.js`의 `ADMIN_EMAILS`(관리자 `working.khwdk@gmail.com`, 설정을 잘못해도 잠기지 않도록 항상 교사)와 `FIXED_TEACHERS`(`ccchoihy@gmail.com`). 바꾸려면 재배포가 필요합니다.
 2. **Firestore (권장, 재배포 불필요)**: Firebase 콘솔 → Firestore Database → 데이터에서
    - 컬렉션 `config` 만들기 → 문서 ID `teachers` → 필드 이름 `emails`, 유형 **array**, 값에 이메일 문자열을 추가
    - 이메일을 추가하거나 지우면 **즉시 반영**됩니다. (쉼표로 구분한 문자열 필드로 입력해도 됩니다.)
