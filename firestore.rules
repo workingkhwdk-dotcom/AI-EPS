@@ -16,6 +16,11 @@ service cloud.firestore {
         myGroup(code) == gid;
     }
 
+    // 서버 설정(교사 목록 등): 클라이언트는 읽기·쓰기 모두 불가. Firebase 콘솔(관리자 권한)에서만 수정한다.
+    match /config/{doc} {
+      allow read, write: if false;
+    }
+
     match /sessions/{code} {
       // 교사는 자기 수업 목록 조회(쿼리)도 가능해야 하므로 resource 기준으로 판정
       allow read: if signedIn() && (resource.data.teacherUid == request.auth.uid ||

@@ -80,6 +80,18 @@ test("교사: 수업 만들기 → 코드와 모둠 문서 생성", async () => 
   assert.ok(store.has(`sessions/${code}/groups/g2`));
 });
 
+test("Firestore config/teachers 에 이메일을 넣으면 재배포 없이 교사가 되고, 관리자는 항상 교사", async () => {
+  const newTeacher = { auth: { uid: "T2", token: { email: "New.Teacher@School.kr" } } };
+  await assert.rejects(api.createSession({ ...newTeacher, data: {} }), /교사/);
+  store.set("config/teachers", { emails: ["new.teacher@school.kr"] });
+  const r = await api.createSession({ ...newTeacher, data: { groupCount: 1 } });
+  assert.match(r.code, /^[A-Z2-9]{6}$/);
+  store.delete("config/teachers");
+  await assert.rejects(api.createSession({ ...newTeacher, data: {} }), /교사/);
+  const admin = { auth: { uid: "A1", token: { email: "working.khwdk@gmail.com" } } };
+  assert.match((await api.createSession({ ...admin, data: { groupCount: 1 } })).code, /^[A-Z2-9]{6}$/);
+});
+
 test("교사가 아니면 수업을 만들 수 없다", async () => {
   await assert.rejects(api.createSession({ ...student("S0"), data: {} }), /교사/);
 });

@@ -62,6 +62,16 @@ firebase deploy
 ```
 배포가 끝나면 학생용 주소는 `https://knue-socialstudies-ai-eps.web.app/`, 교사용은 `/teacher.html`입니다.
 
+### 교사 계정 관리
+교사 자격은 구글 계정의 이메일로 판정하며, 아래 **세 곳 중 한 곳에만 있어도** 교사입니다(대소문자 무시).
+1. **관리자(코드에 고정)**: `functions/teachers.js`의 `ADMIN_EMAILS` — `working.khwdk@gmail.com`. 설정을 잘못해도 잠기지 않도록 항상 교사입니다.
+2. **Firestore (권장, 재배포 불필요)**: Firebase 콘솔 → Firestore Database → 데이터에서
+   - 컬렉션 `config` 만들기 → 문서 ID `teachers` → 필드 이름 `emails`, 유형 **array**, 값에 이메일 문자열을 추가
+   - 이메일을 추가하거나 지우면 **즉시 반영**됩니다. (쉼표로 구분한 문자열 필드로 입력해도 됩니다.)
+3. **배포 설정**: `functions/.env`의 `TEACHER_EMAILS` (쉼표 목록). 바꾸려면 재배포가 필요합니다.
+
+`config` 컬렉션은 보안 규칙으로 클라이언트 접근이 모두 막혀 있어, 학생이나 교사 화면에서는 읽거나 쓸 수 없고 콘솔과 서버만 다룰 수 있습니다. 수업은 만든 교사 계정 하나에만 연결됩니다.
+
 ### 모델 선택 (OpenAI)
 `functions/.env`의 `OPENAI_MODEL`로 정합니다. 기본값은 **`gpt-5-mini`**(GPT-5 계열의 균형 모델)입니다.
 - GPT-5 계열은 추론 모델이라 `max_tokens`와 `temperature`를 받지 않습니다. 코드(`functions/openai.js`)가 모델 계열에 맞춰 `max_completion_tokens`와 `reasoning_effort`로 자동 변환하며, GPT-4 계열도 그대로 쓸 수 있습니다.

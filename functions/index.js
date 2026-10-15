@@ -7,6 +7,7 @@ const { checkGate } = require("./policy");
 const prompts = require("./prompts");
 const { chat, extractJson } = require("./openai");
 const { guardMessages, parseVerdict, fallbackFor } = require("./guard");
+const { isTeacherEmail } = require("./teachers");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -35,11 +36,13 @@ function requireAuth(req) {
   return req.auth;
 }
 
-function requireTeacher(req) {
+async function requireTeacher(req) {
   const auth = requireAuth(req);
-  const allow = TEACHER_EMAILS.value().split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-  const email = (auth.token.email || "").toLowerCase();
-  if (!email || !allow.includes(email)) throw new HttpsError("permission-denied", "교사 계정이 아닙니다.");
+  const ok = await isTeacherEmail(auth.token.email, {
+    envList: TEACHER_EMAILS.value(),
+    readDoc: async () => (await db.doc("config/teachers").get()).data(),
+  });
+  if (!ok) throw new HttpsError("permission-denied", "교사 계정이 아닙니다.");
   return auth;
 }
 
@@ -55,7 +58,7 @@ async function newCode() {
 
 // 교사: 수업 만들기 (모둠 문서 함께 생성)
 exports.createSession = onCall(opts, async (req) => {
-  const auth = requireTeacher(req);
+  const auth = await requireTeacher(req);
   const groupCount = Math.min(Math.max(parseInt(req.data?.groupCount, 10) || 6, 1), MAX_GROUPS);
   const eventId = EVENTS[req.data?.eventId] ? req.data.eventId : DEFAULT_EVENT;
   if (!availablePersonas(eventId, allowUnverified()).length)
@@ -122,7 +125,7 @@ exports.getCase = onCall(opts, async (req) => {
   const pub = (p) => ({ id: p.id, name: p.name, role: p.role, sources: personaSourceIds(p).map(toPublicSource) });
 
   if (req.data?.eventId) {
-    requireTeacher(req);
+    await requireTeacher(req);
     const ev = EVENTS[req.data.eventId];
     if (!ev) throw new HttpsError("not-found", "사건을 찾을 수 없습니다.");
     const all = PERSONAS.filter((p) => p.events.includes(ev.id));
