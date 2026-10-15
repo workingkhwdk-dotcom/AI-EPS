@@ -141,7 +141,8 @@ function showDetail(title, html) {
   $("#detail").classList.remove("hidden");
   $("#detail").scrollIntoView({ behavior: "smooth", block: "start" });
 }
-const guardTag = (g) => !g || g.ok ? "" : ` <span class="tag ${g.how === "fixed" ? "y" : "r"}">감독자 ${g.how === "fixed" ? "수정" : "대체"} · ${esc(g.category)}</span>`;
+const guardTag = (g) => (!g || g.ok ? "" : ` <span class="tag ${g.how === "fixed" ? "y" : "r"}">감독자 ${g.how === "fixed" ? "수정" : "대체"} · ${esc(g.category)}</span>`)
+  + (g?.trimmed ? ` <span class="tag x" title="마지막의 되묻는 문장을 서버가 지움">되묻기 삭제</span>` : "");
 
 async function loadChat(uid) {
   workGid = null;
@@ -151,7 +152,7 @@ async function loadChat(uid) {
   const html = rows.map((l) => `<div class="logline">
     <div class="q">학생 ${esc(l.input)}</div>
     <div class="a">${esc(m?.nickname || "")} ↔ ${esc(personaLabels[l.personaId] || l.personaId)}: ${esc(l.output)}${guardTag(l.guard)}</div>
-    ${l.guard && !l.guard.ok ? `<details><summary class="meta-line">감독자 판정 보기</summary><div class="meta-line">사유: ${esc(l.guard.reason)}<br>인물의 원래 응답: ${esc(l.guard.original || "")}</div></details>` : ""}
+    ${l.guard && (!l.guard.ok || l.guard.trimmed) ? `<details><summary class="meta-line">감독자 판정 보기</summary><div class="meta-line">사유: ${esc(l.guard.reason)}<br>인물의 원래 응답: ${esc(l.guard.original || "")}</div></details>` : ""}
     <div class="meta-line">${fmt(l.createdAt)} · ${esc(l.model)}</div></div>`).join("") || `<div class="meta-line">대화가 없습니다.</div>`;
   showDetail(`${m?.nickname || ""} · ${personaLabels[m?.personaId] || ""} 대화`, html);
 }

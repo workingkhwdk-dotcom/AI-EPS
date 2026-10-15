@@ -267,7 +267,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
       await Promise.all([
         ref.set({
           uid: auth.uid, nickname, personaId, input, output: out.text, model: baseModel,
-          guard: { ok: verdict.ok, category: verdict.category, reason: verdict.reason, how: out.how || null, original: out.replaced ? reply : null },
+          guard: { ok: verdict.ok, category: verdict.category, reason: verdict.reason, how: out.how || null, original: out.replaced || out.trimmed ? reply : null, trimmed: !!out.trimmed },
           createdAt: FieldValue().serverTimestamp(),
         }),
         groupRef.update(bump),
