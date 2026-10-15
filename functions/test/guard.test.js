@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert");
-const { guardMessages, parseVerdict, fallbackFor, resolveOutput, FALLBACKS, FIXABLE } = require("../guard");
+const { guardMessages, parseVerdict, fallbackFor, resolveOutput, stripBackQuestion, FALLBACKS, FIXABLE } = require("../guard");
 const { CHARTER, charterText } = require("../charter");
 const { PERSONAS } = require("../case");
 
@@ -90,4 +90,34 @@ test("학생에게 입장을 강요한 경우(advice)는 대체 안내가 아니
   assert.equal(r.how, "fixed");
   assert.equal(r.text, "저는 보호가 필요하다고 봐요 🤝");
   assert.doesNotMatch(Object.values(FALLBACKS).join(" "), /정할 일이 아니|직접 생각해 보/);
+});
+
+test("마지막에 학생의 생각을 되묻는 문장은 지우고, 확인 질문 하나뿐인 응답이나 다른 질문은 남긴다", () => {
+  const r = stripBackQuestion("결혼은 아직 계획 없어요. 누군가와 함께 살면 좋겠다는 생각은 해요 😊\n학생은 결혼에 대해 어떻게 생각해요?");
+  assert.equal(r.trimmed, true);
+  assert.equal(r.text, "결혼은 아직 계획 없어요. 누군가와 함께 살면 좋겠다는 생각은 해요 😊");
+  assert.equal(stripBackQuestion("저는 불안했어요. 학생이라면 어땠을 것 같아요? 🙂").text, "저는 불안했어요.");
+  // 한 문장짜리 확인 질문은 그대로
+  assert.equal(stripBackQuestion("어떤 배를 말하는 거예요?").trimmed, false);
+  // 질문이 아닌 끝맺음, 인용된 질문은 그대로
+  assert.equal(stripBackQuestion("딸이 '난민이 뭐야?'라고 물었어요. 대답을 못 했어요.").trimmed, false);
+  // 최종 출력에 적용되고 교사 기록용으로 표시된다
+  const out = resolveOutput({ ok: true }, "저는 살려고 왔어요. 학생은 어떻게 생각해요?");
+  assert.equal(out.text, "저는 살려고 왔어요.");
+  assert.equal(out.trimmed, true);
+  assert.equal(out.replaced, false);
+});
+
+test("사적인 질문과 되묻기 규칙이 인물 프롬프트·규범·감독자 기준에 모두 있다", () => {
+  const { personaPrompt } = require("../prompts");
+  const { EVENTS } = require("../case");
+  const p = PERSONAS[0];
+  const prompt = personaPrompt(EVENTS.jeju2018, p);
+  assert.match(prompt, /학생에게 되묻지 않는다/);
+  assert.match(prompt, /사적인 질문\(연애, 결혼/);
+  assert.doesNotMatch(prompt, /되물어도 된다/);
+  assert.match(CHARTER.rules.join(" "), /되묻지 않는다/);
+  const [sys] = guardMessages({ persona: p, claims: p.claims, studentMessage: "결혼할 거야?", reply: "..." });
+  assert.match(sys.content, /사적인 질문\(연애, 결혼, 취미 등\)에 지어내서 자세히 답했다/);
+  assert.match(sys.content, /되묻는 질문으로 끝내지 않는다/);
 });
