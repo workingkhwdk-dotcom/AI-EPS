@@ -211,11 +211,15 @@ async function loadCheck(eventId) {
   try {
     const data = await refreshCase(eventId);
     $("#check-mode").innerHTML = data.allowUnverified ? `<div class="notice yellow">리허설 모드: 원문 대조 전 인물·자료도 학생에게 보입니다 (ALLOW_UNVERIFIED_PERSONAS=true). 실제 수업 전에는 false로 바꾸세요.</div>` : "";
-    $("#check-note").innerHTML = `<div class="notice muted">교사 메모: ${esc(data.event.teacherNote)}</div>`;
+    $("#check-note").innerHTML = `<div class="notice muted">교사 메모: ${esc(data.event.teacherNote)}</div>
+      <div class="notice muted"><b>모든 인물이 아는 사건 공통 배경</b> (인물은 자기 진술과 이 배경에 있는 핵심 사실만 말합니다)${(data.event.background || []).map((c) =>
+        `<div style="margin-top:4px"><span class="tag ${c.kind === "주장" || c.kind === "의견" ? "y" : ""}">${esc(c.kind)}</span> ${esc(c.text)} <span class="tag ${c.verified ? "" : "x"}">${esc(c.src)}</span></div>`).join("")}</div>
+      <div class="notice muted">인물 ${data.personas.length}명은 네 축(당사자·도민·시민사회·제도)으로 나뉩니다. 학생이 입장하면 모둠 안에서 축이 겹치지 않게 무작위로 배정됩니다. 배정은 수업 현황의 '인물(교사용)' 열에서 봅니다.</div>`;
     $("#persona-check").innerHTML = data.personas.map((p) => {
       const ok = p.sources.every((s) => s.verified);
-      return `<details class="fold"><summary><span>${esc(p.name)} <span class="meta-line">· ${esc(p.label)}</span></span> <span class="tag ${ok ? "" : "y"}">${ok ? "원문 대조 완료" : "대조 필요"}</span></summary><div class="inner">
+      return `<details class="fold"><summary><span><span class="tag b">${esc(p.axis || "")}</span> ${esc(p.name)} <span class="meta-line">· ${esc(p.label)}</span></span> <span class="tag ${ok ? "" : "y"}">${ok ? "원문 대조 완료" : "대조 필요"}</span></summary><div class="inner">
         <div class="meta-line">입장: ${esc(p.stance)}</div><div class="meta-line">설정: ${esc(p.setting)}</div><div class="meta-line">말투: ${esc(p.voice)}</div><div class="meta-line">융합 근거: ${esc(p.basis)}</div>
+        <div style="margin-top:10px"><b>인물의 생각 (학생이 물으면 말하는 의견)</b>${(p.views || []).map((v) => `<div class="meta-line" style="color:var(--ink);margin-top:4px">· ${esc(v)}</div>`).join("")}</div>
         <div style="margin-top:10px"><b>학생에게 보이는 편지</b><div class="ai-out">${p.letter.map(esc).join("\n\n")}</div></div>
         <div style="margin-top:10px"><b>근거 진술</b>${p.claims.map((c) => `<div class="meta-line" style="color:var(--ink);margin-top:4px"><span class="tag ${c.kind === "주장" || c.kind === "의견" ? "y" : ""}">${esc(c.kind)}</span> ${esc(c.text)} <span class="tag x">${esc(c.src)}</span></div>`).join("")}</div>
         <div style="margin-top:10px"><b>출처 (원문을 열어 진술과 대조)</b>${p.sources.map((s) => `<div style="margin-top:8px"><span class="tag ${s.verified ? "" : "x"}">${s.id}</span>

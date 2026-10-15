@@ -7,8 +7,12 @@ out.push("> 근거 진술은 AI가 웹 검색 결과 요약을 바탕으로 정�
 out.push("**확인 방법**: 진술이 원문에 있는가 / 표현이 과장·왜곡되지 않았는가 / 누구의 발언·주장인가(기자 서술, 인터뷰, 칼럼 의견) / 날짜와 수치가 맞는가 / **진술 종류(증언·사실·주장·의견)가 맞는가**(주장을 사실로 쓰지 않았는가)", "");
 for (const ev of Object.values(EVENTS)) {
   out.push(`## ${ev.title}`, "", ev.summary, "", `> 교사 메모: ${ev.teacherNote}`, "");
+  out.push("### 사건 공통 배경 (모든 인물이 아는 사실)", "");
+  (ev.background || []).forEach(([t, id, kind]) => out.push(`  - [ ] **[${kind}]** ${t} **(${id})**`));
+  out.push("");
   for (const p of PERSONAS.filter((x) => x.events.includes(ev.id))) {
-    out.push(`### ${p.name} (${p.label})`, `- 역할: ${p.role}`, `- 입장: ${p.stance}`, `- 설정(지어낼 수 있는 범위의 기준): ${p.setting}`, `- 말투: ${p.voice}`, `- 융합 근거: ${p.basis}`,
+    out.push(`### ${p.name} (${p.axis} · ${p.label})`, `- 역할: ${p.role}`, `- 입장: ${p.stance}`, `- 설정(지어낼 수 있는 범위의 기준): ${p.setting}`, `- 말투: ${p.voice}`, `- 융합 근거: ${p.basis}`,
+      "- 인물의 생각 (학생이 물으면 말하는 의견, 창작이므로 입장·근거와 어긋나지 않는지 검토):", ...(p.views || []).map((v) => `  - ${v}`),
       "- 학생에게 보이는 편지:", ...p.letter.map((t) => `  > ${t}`), "- 근거 진술 (종류 / 출처):");
     p.claims.forEach(([t, id, kind]) => out.push(`  - [ ] **[${kind}]** ${t} **(${id})**`));
     out.push("");

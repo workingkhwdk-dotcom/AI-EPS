@@ -112,14 +112,17 @@ test("교사가 아니면 수업을 만들 수 없다", async () => {
   await assert.rejects(api.createSession({ ...student("S0"), data: {} }), /교사/);
 });
 
-test("입장: 같은 모둠의 학생들에게 서로 다른 인물이 배정되고(교사 기록에만), 재입장해도 유지된다", async () => {
+test("입장: 같은 모둠 학생들에게 축(당사자·도민·시민사회·제도)이 겹치지 않게 서로 다른 인물이 무작위 배정되고(교사 기록에만), 재입장해도 유지된다", async () => {
   for (const [i, uid] of ["S1", "S2", "S3", "S4", "S5"].entries()) {
     const r = await api.joinSession({ ...student(uid), data: { code, groupNo: 1, nickname: "별" + i } });
     assert.deepEqual(Object.keys(r), ["groupId"], "학생에게 인물 배정을 알려 주면 안 된다");
   }
+  const { PERSONAS } = require("../case");
   const ids = ["S1", "S2", "S3", "S4", "S5"].map((u) => store.get(`sessions/${code}/members/${u}`).personaId);
-  assert.deepEqual(ids.slice(0, 4).sort(), ["j_applicant", "j_officer", "j_resident", "j_supporter"]);
-  assert.equal(ids[4], ids[0]);
+  const axisOf = (id) => PERSONAS.find((p) => p.id === id).axis;
+  assert.deepEqual(ids.slice(0, 4).map(axisOf).sort(), ["당사자", "도민", "시민사회", "제도"]);
+  assert.equal(new Set(ids).size, 5, "다섯 명 모두 다른 인물");
+  assert.deepEqual(store.get(`sessions/${code}/groups/g1`).personaIds, ids);
   const m = store.get(`sessions/${code}/members/S1`);
   assert.equal(m.stage, 1);
   assert.equal(m.aiCount, 0);
@@ -132,7 +135,8 @@ test("입장: 같은 모둠의 학생들에게 서로 다른 인물이 배정되
 
 test("getCase(학생): 객관적 사건 개요, 내 인물의 이름·편지, 실제 자료만. 역할·근거·출처·다른 인물은 없다", async () => {
   const data = await api.getCase({ ...student("S1"), data: { code } });
-  assert.equal(data.me.name, "아델");
+  const { PERSONAS: PS } = require("../case");
+  assert.equal(data.me.name, PS.find((p) => p.id === store.get(`sessions/${code}/members/S1`).personaId).name);
   assert.ok(data.me.letter.length >= 3);
   assert.match(data.summary, /2018년/);
   assert.equal(data.stakeholders.length, 4);
@@ -147,8 +151,9 @@ test("getCase(학생): 객관적 사건 개요, 내 인물의 이름·편지, �
 
 test("getCase(교사): 인물별 역할·근거 진술·출처와 자료 전체(출처 ID 포함)", async () => {
   const data = await api.getCase({ ...teacher, data: { eventId: "jeju2018" } });
-  assert.equal(data.personas.length, 4);
-  assert.ok(data.personas[0].claims.length >= 8 && data.personas[0].basis && data.personas[0].label);
+  assert.equal(data.personas.length, 9);
+  assert.ok(data.personas[0].claims.length >= 6 && data.personas[0].basis && data.personas[0].label && data.personas[0].views.length >= 3 && data.personas[0].axis);
+  assert.ok(data.event.background.length >= 5);
   assert.ok(data.materials.every((c) => c.items.every((i) => Array.isArray(i.src) && typeof i.verified === "boolean")));
   await assert.rejects(api.getCase({ ...student("S1"), data: { eventId: "jeju2018" } }), /교사/);
 });
@@ -211,7 +216,7 @@ test("상위 AI 감독: 가벼운 위반(묻지 않은 정보)은 같은 인물 
 test("상위 AI 감독: 범위 이탈은 인물 말투의 안내로 대체한다", async () => {
   guardReply = '{"ok":false,"category":"scope","reason":"다른 난민 사건","fixed":""}';
   const r = await ask("S3", "시리아 난민은 어떻게 됐어요?");
-  assert.match(r.result, /잘 아는 얘기가 아니에요/);
+  assert.match(r.result, /잘 아는 얘기가 아니라서요/);
   assert.doesNotMatch(r.result, /AI|수업|자료/);
   const log = chatDocs("S3").pop();
   assert.equal(log.guard.how, "fallback");
@@ -287,4 +292,18 @@ test("선행 사고가 없으면 4·5단계 AI는 열리지 않고, 2·6·7단�
   setWork({});
   await assert.rejects(api.aiRequest({ ...student("S3"), data: { code, stage: 4, type: "proposal_feedback", payload: { proposalId: "a1" } } }), /대안/);
   await assert.rejects(api.aiRequest({ ...student("S3"), data: { code, stage: 2, type: "persona_chat", payload: { message: "x" } } }), /스스로/);
+});
+
+test("무작위 배정: 같은 축이 다 차기 전에는 겹치지 않고, 모든 인물이 쓰이기 전에는 같은 인물이 다시 나오지 않는다", () => {
+  const { PERSONAS } = require("../case");
+  for (let trial = 0; trial < 50; trial++) {
+    const used = [];
+    for (let k = 0; k < PERSONAS.length; k++) used.push(api._pickPersona(PERSONAS, used).id);
+    assert.equal(new Set(used).size, PERSONAS.length);
+    const axes = used.slice(0, 4).map((id) => PERSONAS.find((p) => p.id === id).axis);
+    assert.equal(new Set(axes).size, 4);
+  }
+  // 무작위성: 첫 배정이 매번 같은 인물이 아니다
+  const firsts = new Set(Array.from({ length: 60 }, () => api._pickPersona(PERSONAS, []).id));
+  assert.ok(firsts.size >= 4);
 });

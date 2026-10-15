@@ -84,6 +84,23 @@ exports.createSession = onCall(opts, async (req) => {
   return { code };
 });
 
+// 모둠에 아직 없는 축을 먼저, 그 축 안에서는 아직 안 쓴 인물을 무작위로 고른다. 모두 쓰였으면 가장 적게 쓰인 인물 중에서 고른다.
+function pickPersona(personas, used, rand = Math.random) {
+  const count = (pred) => used.filter((id) => pred(personas.find((p) => p.id === id))).length;
+  const pickOne = (xs) => xs[Math.floor(rand() * xs.length)];
+  const fresh = personas.filter((p) => !used.includes(p.id));
+  // 아직 안 쓴 인물이 남은 축만 후보로 한다(모두 썼으면 전체가 후보)
+  const axes = [...new Set((fresh.length ? fresh : personas).map((p) => p.axis))];
+  const axisUse = (a) => count((p) => p && p.axis === a);
+  const minAxis = Math.min(...axes.map(axisUse));
+  const axis = pickOne(axes.filter((a) => axisUse(a) === minAxis));
+  const inAxis = personas.filter((p) => p.axis === axis);
+  const personUse = (p) => used.filter((id) => id === p.id).length;
+  const minUse = Math.min(...inAxis.map(personUse));
+  return pickOne(inAxis.filter((p) => personUse(p) === minUse));
+}
+exports._pickPersona = pickPersona; // 테스트용
+
 // 학생: 수업 코드 + 모둠 번호 + 닉네임으로 입장
 exports.joinSession = onCall(opts, async (req) => {
   const auth = requireAuth(req);
@@ -100,7 +117,8 @@ exports.joinSession = onCall(opts, async (req) => {
   if (!personas.length) throw new HttpsError("failed-precondition", "아직 사용할 수 있는 인물이 없습니다. 선생님께 문의하세요.");
   const memberRef = db.doc(`sessions/${code}/members/${auth.uid}`);
   const groupRef = db.doc(`sessions/${code}/groups/${groupId}`);
-  // 모둠원마다 서로 다른 인물을 순서대로 배정한다(직소). 배정은 교사에게만 보이며 학생은 모른다. 재입장 시에는 유지한다.
+  // 모둠원마다 서로 다른 인물을 무작위로 배정한다(직소). 모둠 안에서 축(당사자·도민·시민사회·제도)이 겹치지 않게 고른다.
+  // 배정은 교사에게만 보이며 학생은 모른다. 재입장 시에는 유지한다.
   await db.runTransaction(async (tx) => {
     const [m, g] = await Promise.all([tx.get(memberRef), tx.get(groupRef)]);
     if (m.exists && m.data().groupId === groupId && personas.some((p) => p.id === m.data().personaId)) {
@@ -108,9 +126,11 @@ exports.joinSession = onCall(opts, async (req) => {
       return;
     }
     const n = g.data()?.memberCount || 0;
-    tx.update(groupRef, { memberCount: n + 1 });
+    const used = g.data()?.personaIds || [];
+    const persona = pickPersona(personas, used);
+    tx.update(groupRef, { memberCount: n + 1, personaIds: [...used, persona.id] });
     tx.set(memberRef, {
-      groupId, nickname, personaId: personas[n % personas.length].id,
+      groupId, nickname, personaId: persona.id,
       stage: 1, aiCount: 0, joinedAt: FieldValue().serverTimestamp(), lastSeen: FieldValue().serverTimestamp(),
     });
   });
@@ -128,7 +148,7 @@ exports.getCase = onCall(opts, async (req) => {
     const ev = EVENTS[req.data.eventId];
     if (!ev) throw new HttpsError("not-found", "사건을 찾을 수 없습니다.");
     const full = (p) => ({
-      id: p.id, label: p.label, name: p.name, role: p.role, stance: p.stance, setting: p.setting, voice: p.voice, basis: p.basis, letter: p.letter,
+      id: p.id, axis: p.axis, label: p.label, name: p.name, role: p.role, stance: p.stance, setting: p.setting, voice: p.voice, basis: p.basis, letter: p.letter, views: p.views,
       sources: personaSourceIds(p).map(toPublicSource),
       claims: p.claims.map(([text, src, kind]) => ({ text, src, kind })),
     });
@@ -137,7 +157,8 @@ exports.getCase = onCall(opts, async (req) => {
       items: c.items.map((it) => ({ ...it, verified: it.src.every((id) => toPublicSource(id).verified) })),
     }));
     return {
-      event: { id: ev.id, title: ev.title, summary: ev.summary, teacherNote: ev.teacherNote },
+      event: { id: ev.id, title: ev.title, summary: ev.summary, teacherNote: ev.teacherNote,
+        background: (ev.background || []).map(([text, src, kind]) => ({ text, src, kind, verified: toPublicSource(src).verified })) },
       personas: PERSONAS.filter((p) => p.events.includes(ev.id)).map(full),
       materials,
       allowUnverified: allowUnverified(),
@@ -217,7 +238,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
       const past = (await chatCol.get()).docs
         .map((d) => d.data())
         .sort((a, b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0))
-        .slice(-12);
+        .slice(-16);
       const input = String(payload.message).trim();
       const messages = [{ role: "system", content: prompts.personaPrompt(ev, persona) }];
       past.forEach((l) => {
@@ -226,14 +247,14 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
       });
       messages.push({ role: "user", content: input });
 
-      const reply = await callModel({ apiKey, model: baseModel, messages, maxTokens: 300, efforts: [effort] });
+      const reply = await callModel({ apiKey, model: baseModel, messages, maxTokens: 400, efforts: [effort] });
 
       // 상위 AI(규범 감독자): 학생에게 보내기 전에 검사. 가벼운 위반은 고쳐 쓰고, 무거운 위반·검사 실패는 안내로 대체
       let verdict;
       try {
         const verdictText = await callModel({
-          apiKey, model: GUARD_MODEL.value() || baseModel, json: true, maxTokens: 400, efforts: ["low"],
-          messages: guardMessages({ persona, claims: persona.claims, studentMessage: input, reply }),
+          apiKey, model: GUARD_MODEL.value() || baseModel, json: true, maxTokens: 700, efforts: ["low"],
+          messages: guardMessages({ persona, claims: persona.claims, background: ev.background, history: past.slice(-3), studentMessage: input, reply }),
         });
         verdict = parseVerdict(verdictText);
       } catch (e) {

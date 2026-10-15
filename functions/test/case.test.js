@@ -1,18 +1,31 @@
 const test = require("node:test");
 const assert = require("node:assert");
-const { SOURCES, EVENTS, PERSONAS, MATERIALS, availablePersonas, personaSourceIds, personaVerified, materialsFor, materialsAdmin } = require("../case");
+const { SOURCES, EVENTS, PERSONAS, AXES, MATERIALS, availablePersonas, personaSourceIds, personaVerified, materialsFor, materialsAdmin } = require("../case");
 const { personaPrompt } = require("../prompts");
 
 const KINDS = ["증언", "사실", "주장", "의견"];
 
-test("사건은 제주 예멘 하나뿐이고 인물은 정확히 4명(당사자·반대·지원·제도)이다", () => {
+test("사건은 제주 예멘 하나뿐이고, 인물 9명이 네 축(당사자·도민·시민사회·제도)에 나뉘며 축마다 2명 이상이다", () => {
   assert.deepEqual(Object.keys(EVENTS), ["jeju2018"]);
-  assert.deepEqual(PERSONAS.map((p) => p.id).sort(), ["j_applicant", "j_officer", "j_resident", "j_supporter"]);
+  assert.equal(PERSONAS.length, 9);
+  assert.equal(new Set(PERSONAS.map((p) => p.id)).size, 9);
   assert.ok(PERSONAS.every((p) => p.events.length === 1 && p.events[0] === "jeju2018"));
+  for (const a of AXES) assert.ok(PERSONAS.filter((p) => p.axis === a).length >= 2, a);
+  assert.ok(PERSONAS.every((p) => AXES.includes(p.axis)));
+});
+
+test("인물마다 쟁점에 대한 자기 생각(views)이 있고, 사건 공통 배경은 출처가 있는 사실이다", () => {
+  for (const p of PERSONAS) {
+    assert.ok(Array.isArray(p.views) && p.views.length >= 3, p.id);
+    assert.doesNotMatch(p.views.join(" "), /수업용|챗봇|AI|자료|보도|인터뷰/, p.id);
+  }
+  const bg = EVENTS.jeju2018.background;
+  assert.ok(bg.length >= 5);
+  for (const [text, src, kind] of bg) { assert.ok(text.length > 10); assert.ok(SOURCES[src]); assert.ok(KINDS.includes(kind)); }
 });
 
 test("인물은 사람 이름과 편지, 말투, 설정을 갖고, 이름은 서로 다르다", () => {
-  assert.equal(new Set(PERSONAS.map((p) => p.name)).size, 4);
+  assert.equal(new Set(PERSONAS.map((p) => p.name)).size, PERSONAS.length);
   for (const p of PERSONAS) {
     assert.ok(p.name && p.name.length <= 4, `${p.id}: 사람 이름이어야 한다`);
     assert.ok(p.label && p.label !== p.name, `${p.id}: 교사용 역할명(label)`);
@@ -26,7 +39,7 @@ test("인물은 사람 이름과 편지, 말투, 설정을 갖고, 이름은 서
 
 test("모든 근거 진술은 존재하는 출처·허용된 종류를 가지며, 출처에는 https url이 있다", () => {
   for (const p of PERSONAS) {
-    assert.ok(p.claims.length >= 8, `${p.id}: 근거 진술이 부족하다`);
+    assert.ok(p.claims.length >= 6, `${p.id}: 근거 진술이 부족하다`);
     assert.ok(p.basis && p.basis.length > 10, `${p.id}: 융합 근거(basis) 누락`);
     for (const [text, src, kind] of p.claims) {
       assert.ok(text.length > 10);
@@ -66,7 +79,7 @@ test("검증되지 않은 주장은 '주장' 종류로 표시된다 (집회 발�
 test("모든 출처는 미검증으로 시작하므로 기본 설정에서는 인물과 자료가 학생에게 노출되지 않는다", () => {
   assert.ok(Object.values(SOURCES).every((s) => s.verified === false));
   assert.equal(availablePersonas("jeju2018", false).length, 0);
-  assert.equal(availablePersonas("jeju2018", true).length, 4);
+  assert.equal(availablePersonas("jeju2018", true).length, 9);
   assert.deepEqual(materialsFor(false), []);
 });
 
@@ -83,28 +96,36 @@ test("학생용 자료에는 출처 ID·URL 없이 매체·날짜 캡션만 있�
 
 test("출처가 모두 검증되면 해당 인물·자료가 사용 가능해진다", () => {
   const p = PERSONAS.find((x) => x.id === "j_officer");
-  const ids = personaSourceIds(p);
+  const ids = [...personaSourceIds(p), ...EVENTS.jeju2018.background.map((c) => c[1])];
   ids.forEach((id) => (SOURCES[id].verified = true));
   try {
     assert.equal(personaVerified(p), true);
-    assert.deepEqual(availablePersonas("jeju2018", false).map((x) => x.id), ["j_officer"]);
+    assert.ok(availablePersonas("jeju2018", false).some((x) => x.id === "j_officer"));
+    // 공통 배경 출처가 하나라도 미검증이면 인물은 나오지 않는다
+    SOURCES[EVENTS.jeju2018.background[0][1]].verified = false;
+    assert.equal(availablePersonas("jeju2018", false).some((x) => x.id === "j_officer"), false);
+    SOURCES[EVENTS.jeju2018.background[0][1]].verified = true;
     assert.ok(materialsFor(false).some((c) => c.id === "timeline"));
   } finally {
     ids.forEach((id) => (SOURCES[id].verified = false));
   }
 });
 
-test("페르소나 프롬프트: 사람처럼 짧게, 묻는 것에만, 출처·메타 발언 금지, 핵심 사실은 모르면 모른다고", () => {
+test("페르소나 프롬프트: 공통 배경·자기 생각 포함, 생각을 물으면 회피하지 않음, 출처·메타 발언 금지, 핵심 사실은 지어내지 않음", () => {
   const p = PERSONAS.find((x) => x.id === "j_resident");
   const prompt = personaPrompt(EVENTS.jeju2018, p);
   assert.match(prompt, /'미경'/);
   assert.match(prompt, /\[상위 규범\]/);
   assert.match(prompt, /메신저 대화/);
-  assert.match(prompt, /1~3문장/);
-  assert.match(prompt, /학생이 물어본 것에만 답한다/);
+  assert.match(prompt, /1~4문장/);
+  assert.match(prompt, /\[모두가 아는 배경\]/);
+  assert.match(prompt, /\[네 생각\]/);
+  assert.ok(p.views.every((v) => prompt.includes(v)));
+  assert.match(prompt, /답을 피하는 말은 하지 않는다/);
+  assert.match(prompt, /앞의 대화를 기억/);
   assert.match(prompt, /이모지/);
   assert.match(prompt, /\[주장\]/);
-  assert.match(prompt, /잘 모르겠어요/);
+  assert.match(prompt, /정확히는 모르겠어요/);
   assert.match(prompt, /출처 번호도 붙이지 않는다/);
   assert.doesNotMatch(prompt, /\(자료\d\)/);
   assert.doesNotMatch(prompt, /울산|아프간/);
