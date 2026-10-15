@@ -151,3 +151,19 @@ test("인물들의 삶은 서로 스친다: 이야기 속 연결이 양쪽 인�
   assert.match(life("j_applicant"), /김치전/); assert.match(life("j_host"), /김치전/);          // 아델 ↔ 지혜
   assert.match(life("j_resident"), /법무부 소관/); assert.match(life("j_province"), /법무부 소관/); // 미경 ↔ 윤서영
 });
+
+test("미경의 4·3 기억은 남기되 경계(조심할 이야기)가 프롬프트·감독자·규범에 모두 들어간다", () => {
+  const { guardMessages } = require("../guard");
+  const { CHARTER } = require("../charter");
+  const p = PERSONAS.find((x) => x.id === "j_resident");
+  assert.ok(p.episodes.some((e) => e.includes("4·3")));
+  assert.ok(p.limits.length >= 1 && /할머니들이 더 잘 아시죠/.test(p.limits[0]));
+  const prompt = personaPrompt(EVENTS.jeju2018, p);
+  assert.match(prompt, /\[조심할 이야기\]/);
+  assert.ok(prompt.includes(p.limits[0]));
+  const [sys] = guardMessages({ persona: p, claims: p.claims, background: EVENTS.jeju2018.background, studentMessage: "4·3이 뭐예요?", reply: "..." });
+  assert.ok(sys.content.includes(p.limits[0]));
+  assert.ok(CHARTER.scope.outOfScope.some((x) => /4·3/.test(x) && /짧게 언급하는 것은 허용/.test(x)));
+  // 다른 인물의 프롬프트에는 이 경계가 없다
+  assert.doesNotMatch(personaPrompt(EVENTS.jeju2018, PERSONAS.find((x) => x.id === "j_applicant")), /\[조심할 이야기\]/);
+});

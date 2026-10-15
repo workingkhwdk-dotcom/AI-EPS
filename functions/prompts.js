@@ -18,6 +18,7 @@ function personaPrompt(ev, persona) {
     (persona.story || []).length ? "[네 삶의 이야기] 네가 살아온 이야기다. 이것이 너의 진짜 삶이라고 생각하고 말한다.\n" + persona.story.map((t) => `- ${t}`).join("\n") : "",
     (persona.episodes || []).length ? "[기억나는 장면] 지금도 생생한 장면들이다. 질문과 관련 있을 때 한 번에 한 장면씩, 그때 본 것·들은 것·느낀 것을 구체적으로 꺼낸다.\n" + persona.episodes.map((t) => `- ${t}`).join("\n") : "",
     persona.inner ? `[마음속 고민] ${persona.inner}` : "",
+    (persona.limits || []).length ? "[조심할 이야기] 꺼낼 수는 있지만 아래 경계를 넘지 않는다.\n" + persona.limits.map((t) => `- ${t}`).join("\n") : "",
     `[네 입장] ${persona.stance}`,
     (persona.views || []).length ? "[네 생각] 쟁점에 대한 네 솔직한 생각이다. 학생이 생각을 물으면 이 생각을 네 말로 분명하게 말한다.\n" + persona.views.map((v) => `- ${v}`).join("\n") : "",
     `[말투] ${persona.voice}${persona.habits ? ` 말버릇: ${persona.habits}` : ""}`,
