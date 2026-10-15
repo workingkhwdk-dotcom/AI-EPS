@@ -29,7 +29,18 @@ service cloud.firestore {
 
       match /members/{uid} {
         allow read: if signedIn() && (request.auth.uid == uid || isTeacher(code));
-        allow write: if false;
+        // 학생은 자기 접속 신호(현재 단계, 마지막 접속 시각)만 갱신할 수 있다. 인물 배정 등은 서버만 쓴다.
+        allow update: if signedIn() && request.auth.uid == uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stage', 'lastSeen']) &&
+          request.resource.data.stage is int && request.resource.data.stage >= 1 && request.resource.data.stage <= 7 &&
+          request.resource.data.lastSeen == request.time;
+        allow create, delete: if false;
+
+        // 1단계 인물과의 대화: 본인과 교사만 읽을 수 있다(다른 학생은 누가 누구와 대화하는지 모른다). 기록은 서버만.
+        match /chat/{chatId} {
+          allow read: if signedIn() && (request.auth.uid == uid || isTeacher(code));
+          allow write: if false;
+        }
       }
 
       match /groups/{gid} {

@@ -1,5 +1,5 @@
 // case.js 의 인물·출처를 원문 대조용 마크다운 점검표로 내보낸다: node scripts/export-sources.js > ../docs/PERSONA_SOURCES.md
-const { SOURCES, EVENTS, PERSONAS, personaSourceIds } = require("../case");
+const { SOURCES, EVENTS, PERSONAS, MATERIALS, personaSourceIds } = require("../case");
 const out = [];
 out.push("# 페르소나 근거 자료 점검표", "");
 out.push("> 이 문서는 `functions/case.js`에서 자동 생성됩니다 (`cd functions && npm run export-sources`).");
@@ -8,10 +8,18 @@ out.push("**확인 방법**: 진술이 원문에 있는가 / 표현이 과장·�
 for (const ev of Object.values(EVENTS)) {
   out.push(`## ${ev.title}`, "", ev.summary, "", `> 교사 메모: ${ev.teacherNote}`, "");
   for (const p of PERSONAS.filter((x) => x.events.includes(ev.id))) {
-    out.push(`### ${p.name}`, `- 역할: ${p.role}`, `- 입장: ${p.stance}`, `- 융합 근거: ${p.basis}`, "- 근거 진술 (종류 / 출처):");
+    out.push(`### ${p.name} (${p.label})`, `- 역할: ${p.role}`, `- 입장: ${p.stance}`, `- 설정(지어낼 수 있는 범위의 기준): ${p.setting}`, `- 말투: ${p.voice}`, `- 융합 근거: ${p.basis}`,
+      "- 학생에게 보이는 편지:", ...p.letter.map((t) => `  > ${t}`), "- 근거 진술 (종류 / 출처):");
     p.claims.forEach(([t, id, kind]) => out.push(`  - [ ] **[${kind}]** ${t} **(${id})**`));
     out.push("");
   }
+}
+out.push("## 2단계 실제 자료 (학생에게 보이는 카테고리별 정리)", "", "> 출처가 모두 검증된 항목만 학생에게 보입니다. 학생에게는 출처 ID 대신 매체·날짜만 표시됩니다.", "");
+for (const c of MATERIALS) {
+  out.push(`### ${c.title}`);
+  if (c.stats) out.push(`- 통계 타일: ${c.stats.map((x) => `${x.label} ${x.value}`).join(" / ")} **(${c.statsSrc.join(", ")})**`);
+  c.items.forEach((it) => out.push(`  - [ ] **[${it.kind}]** ${it.date ? `${it.date} ` : ""}${it.text} **(${it.src.join(", ")})**`));
+  out.push("");
 }
 out.push("## 출처 목록", "", "| ID | 제목 | 매체 | 날짜 | 확인할 것 | 확인 |", "|---|---|---|---|---|---|");
 for (const [id, s] of Object.entries(SOURCES)) {
