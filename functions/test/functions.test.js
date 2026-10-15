@@ -50,20 +50,27 @@ const fakes = {
   },
   "firebase-functions/params": {
     defineSecret: () => ({ value: () => "sk-test" }),
-    defineString: (name, o) => ({ value: () => ({ TEACHER_EMAILS: "t@school.kr", ALLOW_UNVERIFIED_PERSONAS: "true", OPENAI_MODEL: "gpt-test" }[name] ?? o?.default ?? "") }),
+    defineString: (name, o) => ({ value: () => ({ TEACHER_EMAILS: "t@school.kr", ALLOW_UNVERIFIED_PERSONAS: "true", OPENAI_MODEL: "gpt-5-test" }[name] ?? o?.default ?? "") }),
   },
 };
 const origLoad = Module._load;
 Module._load = function (req, ...rest) { return fakes[req] || origLoad.call(this, req, ...rest); };
 
 // OpenAI 가짜: 시스템 프롬프트로 호출 종류를 구분한다
+let scenarioEmptyFirst = 0;
 let guardReply = '{"ok":true,"category":"ok","reason":""}';
 const calls = [];
 global.fetch = async (_url, init) => {
   const body = JSON.parse(init.body);
   const sys = body.messages[0].content;
   calls.push({ kind: sys.includes("상위 감독자") ? "guard" : sys.includes("[역할] 너는 실제 보도") ? "persona" : "other", body });
-  const content = sys.includes("상위 감독자") ? guardReply : "저는 집회에서 불안하다는 이야기가 나왔다고 알고 있어요. (자료1)";
+  const isScenario = sys.includes("시뮬레이션 도우미");
+  if (isScenario && scenarioEmptyFirst > 0) {
+    scenarioEmptyFirst--; // 추론에 한도를 다 써서 빈 답이 온 상황
+    return { ok: true, json: async () => ({ choices: [{ message: { content: "" }, finish_reason: "length" }] }) };
+  }
+  const content = isScenario ? '{"scenarios":[{"title":"A","story":"s","newProblems":["p"]},{"title":"B","story":"s","newProblems":["p"]}]}'
+    : sys.includes("상위 감독자") ? guardReply : "저는 집회에서 불안하다는 이야기가 나왔다고 알고 있어요. (자료1)";
   return { ok: true, json: async () => ({ choices: [{ message: { content } }] }) };
 };
 
@@ -168,4 +175,34 @@ test("상위 AI 감독: 감독자 응답이 깨지면 안전 쪽(차단)으로 �
   const r = await ask("S3", mine);
   assert.match(r.result, /문제가 생겼어요/);
   guardReply = '{"ok":true,"category":"ok","reason":""}';
+});
+
+test("5단계 시뮬레이션: 첫 시도가 빈 답이면 사고량을 낮춰 다시 시도해 성공한다", async () => {
+  store.set(`sessions/${code}/groups/g1`, {
+    ...store.get(`sessions/${code}/groups/g1`),
+    work: {
+      s4: { proposals: [{ id: "a1", text: "가".repeat(40) }] },
+      s5: { predictions: [{ stakeholder: "도민", text: "가".repeat(12) }, { stakeholder: "신청자", text: "나".repeat(12) }] },
+    },
+  });
+  scenarioEmptyFirst = 1;
+  calls.length = 0;
+  const r = await api.aiRequest({ ...student("S3"), data: { code, stage: 5, type: "scenario", payload: { proposalId: "a1", round: 5 } } });
+  assert.equal(r.result.scenarios.length, 2);
+  const sc = calls.filter((c) => c.body.messages[0].content.includes("시뮬레이션 도우미"));
+  assert.equal(sc.length, 2);
+  assert.equal(sc[0].body.reasoning_effort, "medium");
+  assert.equal(sc[1].body.reasoning_effort, "low");
+});
+
+test("5단계 시뮬레이션: 두 번 다 실패하면 오류를 돌려주고 원인을 모둠 문서에 남긴다", async () => {
+  scenarioEmptyFirst = 2;
+  await assert.rejects(
+    api.aiRequest({ ...student("S3"), data: { code, stage: 5, type: "scenario", payload: { proposalId: "a1", round: 3 } } }),
+    /AI 응답을 받지 못했습니다/,
+  );
+  const g = store.get(`sessions/${code}/groups/g1`);
+  assert.equal(g.lastAiError.stage, 5);
+  assert.match(g.lastAiError.message, /빈 응답/);
+  scenarioEmptyFirst = 0;
 });

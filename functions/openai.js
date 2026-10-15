@@ -8,10 +8,13 @@
 
 const isReasoning = (model) => /^(gpt-5|o\d)/.test(model) && !/chat/.test(model);
 const supportsTemperature = (model) => /^gpt-(3|4)/.test(model);
-const REASONING_HEADROOM = 1500;
+// 추론 모델은 보이는 답을 쓰기 전에 '사고'에 토큰을 쓴다. 사고량(effort)이 클수록 여유를 더 둔다.
+// 여유가 모자라면 답이 비어 버린다(finish_reason=length). 실제로 쓴 토큰만 과금된다.
+const HEADROOM = { minimal: 800, low: 2500, medium: 8000, high: 16000 };
+const headroom = (effort) => HEADROOM[effort] ?? 2500;
 
 function buildBody({ model, messages, json = false, maxTokens = 700, effort }) {
-  const body = { model, messages, max_completion_tokens: maxTokens + (isReasoning(model) ? REASONING_HEADROOM : 0) };
+  const body = { model, messages, max_completion_tokens: maxTokens + (isReasoning(model) ? headroom(effort) : 0) };
   if (supportsTemperature(model)) body.temperature = 0.8;
   if (isReasoning(model) && effort) body.reasoning_effort = effort;
   if (json) body.response_format = { type: "json_object" };
@@ -46,4 +49,4 @@ async function chat(opts) {
   return content;
 }
 
-module.exports = { chat, buildBody, extractJson, isReasoning };
+module.exports = { chat, buildBody, extractJson, isReasoning, headroom };

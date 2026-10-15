@@ -29,7 +29,8 @@ const MAX_AI_CALLS_PER_GROUP = 150;
 const MAX_GROUPS = 12;
 
 const opts = { region: REGION, cors: true };
-const aiOpts = { ...opts, secrets: [OPENAI_API_KEY], timeoutSeconds: 90 };
+// 추론 모델(특히 5단계 시뮬레이션)은 응답에 1분 넘게 걸릴 수 있어 넉넉히 둔다.
+const aiOpts = { ...opts, secrets: [OPENAI_API_KEY], timeoutSeconds: 300 };
 
 function requireAuth(req) {
   if (!req.auth) throw new HttpsError("unauthenticated", "로그인이 필요합니다.");
@@ -232,11 +233,23 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
     maxTokens = 1400;
   }
 
-  let output;
-  try {
-    output = await chat({ apiKey, model, messages, json, maxTokens, effort });
-  } catch (e) {
-    console.error(e);
+  // 5단계는 사고량을 낮춰 한 번 더 시도한다(사고에 한도를 다 쓰거나 시간이 오래 걸린 경우 대비)
+  let output, lastErr;
+  for (const ef of [...new Set(s === 5 ? [effort, "low"] : [effort])]) {
+    try {
+      output = await chat({ apiKey, model, messages, json, maxTokens, effort: ef });
+      lastErr = null;
+      break;
+    } catch (e) {
+      lastErr = e;
+      console.error(`AI 호출 실패 stage=${s} model=${model} effort=${ef}:`, e.message);
+    }
+  }
+  if (lastErr) {
+    // 교사 화면에서 원인을 볼 수 있도록 모둠 문서에 남긴다
+    await groupRef.update({
+      lastAiError: { stage: s, model, message: String(lastErr.message).slice(0, 300), at: admin.firestore.FieldValue.serverTimestamp() },
+    }).catch(() => {});
     throw new HttpsError("unavailable", "AI 응답을 받지 못했습니다. 잠시 후 다시 시도하세요.");
   }
 
