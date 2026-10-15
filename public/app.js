@@ -377,6 +377,7 @@ const renderStage = {
            <div class="mat">${cur.items.map(itemHtml).join("")}</div>`;
     return `${roleBox(2)}${problemBar()}
     <details class="fold" open><summary>실제 사건 자료</summary><div class="inner">
+      <div class="overview"><b>${esc(S.info.title)}</b><p>${esc(S.info.summary)}</p></div>
       <p class="desc">인물에게 들은 말과 비교할 자료입니다. <span class="kind">사실</span> <span class="kind k-증언">증언</span>은 일어난 일, <span class="kind k-주장">주장</span> <span class="kind k-의견">의견</span>은 누군가의 생각입니다.</p>
       <div class="chipbar scroll">${cats.map((c) => `<button class="chip ${cur && c.id === cur.id ? "on" : ""}" data-act="mat-tab" data-id="${c.id}">${esc(c.title)}</button>`).join("")}</div>
       ${matBody}</div></details>
@@ -559,11 +560,10 @@ const renderStage = {
 
 const sub1 = {
   chat() {
-    const info = S.info, me = S.me;
-    return `<div class="card"><h2>${esc(info.title)}</h2><p>${esc(info.summary)}</p></div>
-    <details class="letter" ${S.chat.length ? "" : "open"}>
-      <summary>${esc(me.name)}에게서 온 편지</summary>
-      <div class="body">${me.letter.map((p) => `<p>${esc(p)}</p>`).join("")}<div class="sign">${esc(me.name)} 드림</div></div>
+    const me = S.me;
+    return `<details class="letter" ${S.chat.length ? "" : "open"}>
+      <summary>${esc(me.name)}에게서 편지가 왔어요</summary>
+      <div class="body">${me.letter.map((p) => `<p>${esc(p)}</p>`).join("")}<div class="sign">2018년 12월, 제주에서<br>${esc(me.name)} 드림</div></div>
     </details>
     <div class="notice muted"><b>할 일</b> ${esc(me.name)}에게 질문해 세 가지를 알아내세요: <b>① 누구인지 ② 무엇이 힘든지 ③ 무엇을 바라는지</b>. 다 알아냈으면 아래 '다음'을 누르세요.</div>
     <div class="card chat-card">
