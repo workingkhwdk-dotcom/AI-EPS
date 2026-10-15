@@ -194,6 +194,9 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
   const group = (await groupRef.get()).data() || {};
   const work = group.work || {};
   const s = Number(stage);
+  // 모둠이 1단계에서 함께 정한 문제(있으면 3~5단계 AI가 기준으로 삼는다)
+  const pb = work.s1?.problem || {};
+  evCtx.problem = [pb.situation, pb.hmw].map((x) => String(x || "").trim()).filter(Boolean).join(" / ").slice(0, 400);
 
   const gate = checkGate({ stage: s, type, work, payload });
   if (!gate.ok) throw new HttpsError("failed-precondition", gate.reason);
@@ -257,7 +260,8 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
     let model = baseModel;
     if (s === 3) {
       const c = toList(work.s2.checks).find((x) => x.id === payload.checkId);
-      input = `학생들이 인터뷰에서 들은 이야기: ${c.heard || "(적지 않음)"}\n이 이야기가 사실인지 확인하려는 검증 질문: ${c.question}`;
+      input = `학생들이 인터뷰에서 들은 말: ${c.heard || "(적지 않음)"}\n검증 질문: ${c.question}` +
+        (c.srcType ? `\n학생들이 확인하려는 자료 종류: ${c.srcType}` : "");
       messages = [{ role: "system", content: prompts.verifyPrompt(evCtx) }, { role: "user", content: input }];
       output = await callModel({ apiKey, model, messages, maxTokens: 700, efforts: [effort] });
       result = output;
