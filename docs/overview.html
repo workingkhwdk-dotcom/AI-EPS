@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AI-EPS 수업 도구</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@700&display=swap" rel="stylesheet">
+<style>
+/* 레이아웃: 좁은 읽기 칼럼 + 표·도식은 칼럼 안에서 가로 스크롤. 파랑 계열 앱 디자인 토큰을 그대로 사용 */
+:root{
+  --bg:#F4F7FC; --surface:#FFFFFF; --ink:#0F172A; --ink-2:#475569; --ink-3:#64748B;
+  --sep:rgba(15,23,42,0.10); --fill:rgba(15,23,42,0.05);
+  --accent:#2F6BFF; --accent-tint:rgba(47,107,255,0.11);
+  --mint:#00796E; --mint-tint:rgba(0,163,149,0.13);
+  --warn:#9A5B00; --warn-tint:rgba(245,158,11,0.16);
+  --danger:#E11D48; --danger-tint:rgba(225,29,72,0.10);
+  --grad:linear-gradient(135deg,#2F6BFF 0%,#4E86FF 42%,#00B8A9 100%);
+  --wash:radial-gradient(1100px 380px at 10% -6%, rgba(47,107,255,0.10), transparent 60%), radial-gradient(800px 320px at 94% -4%, rgba(0,184,169,0.10), transparent 62%);
+  --shadow:0 1px 2px rgba(15,23,42,0.04), 0 10px 28px -14px rgba(47,107,255,0.28);
+  --ui:-apple-system,BlinkMacSystemFont,'SF Pro Text','Pretendard','Apple SD Gothic Neo','Segoe UI',system-ui,sans-serif;
+  --title:'Gowun Batang','Apple SD Gothic Neo',serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0A0F1A; --surface:#141C2A; --ink:#E8EDF6; --ink-2:#B4C0D2; --ink-3:#8C9BB0;
+    --sep:rgba(255,255,255,0.12); --fill:rgba(255,255,255,0.07);
+    --accent:#6E9BFF; --accent-tint:rgba(110,155,255,0.18);
+    --mint:#2FD4C6; --mint-tint:rgba(47,212,198,0.16);
+    --warn:#F5B84A; --warn-tint:rgba(245,184,74,0.16);
+    --danger:#FF6B85; --danger-tint:rgba(255,107,133,0.15);
+    --wash:radial-gradient(1100px 380px at 10% -6%, rgba(47,107,255,0.16), transparent 60%), radial-gradient(800px 320px at 94% -4%, rgba(0,184,169,0.13), transparent 62%);
+    --shadow:0 1px 2px rgba(0,0,0,0.45); color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0A0F1A; --surface:#141C2A; --ink:#E8EDF6; --ink-2:#B4C0D2; --ink-3:#8C9BB0;
+  --sep:rgba(255,255,255,0.12); --fill:rgba(255,255,255,0.07);
+  --accent:#6E9BFF; --accent-tint:rgba(110,155,255,0.18);
+  --mint:#2FD4C6; --mint-tint:rgba(47,212,198,0.16);
+  --warn:#F5B84A; --warn-tint:rgba(245,184,74,0.16);
+  --danger:#FF6B85; --danger-tint:rgba(255,107,133,0.15);
+  --wash:radial-gradient(1100px 380px at 10% -6%, rgba(47,107,255,0.16), transparent 60%), radial-gradient(800px 320px at 94% -4%, rgba(0,184,169,0.13), transparent 62%);
+  --shadow:0 1px 2px rgba(0,0,0,0.45); color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);background-image:var(--wash);color:var(--ink);font-family:var(--ui);font-size:15px;line-height:1.7;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 72px}
+.wrap{max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:28px}
+.wrap>*{min-width:0}
+h1,h2,h3{font-family:var(--title);margin:0;text-wrap:balance;line-height:1.35}
+h1{font-size:clamp(26px,5.4vw,36px)}
+h2{font-size:22px;margin-bottom:10px}
+h3{font-size:17px;margin-bottom:6px}
+p{margin:0 0 10px}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.eyebrow{font-size:12px;letter-spacing:.08em;font-weight:700;color:var(--accent);margin-bottom:6px}
+.lead{font-size:16.5px;color:var(--ink-2);max-width:62ch}
+.grad{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.card{background:var(--surface);border-radius:20px;box-shadow:var(--shadow);padding:20px}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.grid>*{min-width:0}
+.grid.four{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.grid.two{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.stat{display:flex;flex-direction:column;gap:2px}
+.stat b{font-size:26px;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.stat span{font-size:13px;color:var(--ink-3)}
+.tag{display:inline-block;font-size:11.5px;font-weight:700;padding:1px 9px;border-radius:20px;background:var(--mint-tint);color:var(--mint);white-space:nowrap}
+.tag.y{background:var(--warn-tint);color:var(--warn)}
+.tag.b{background:var(--accent-tint);color:var(--accent)}
+.tag.x{background:var(--fill);color:var(--ink-3)}
+.notice{border-radius:14px;padding:13px 16px;font-size:14px;line-height:1.65;background:var(--fill);color:var(--ink-2)}
+.notice.warn{background:var(--warn-tint);color:var(--warn)}
+.notice.warn b{color:inherit}
+.notice.bad{background:var(--danger-tint);color:var(--danger)}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;min-width:560px;font-size:13.5px;line-height:1.55}
+th,td{text-align:left;vertical-align:top;padding:10px 10px;box-shadow:inset 0 -0.5px 0 var(--sep)}
+th{font-size:12px;color:var(--ink-3);font-weight:700;letter-spacing:.03em;white-space:nowrap}
+td b{font-weight:700}
+ul{margin:0;padding-left:1.2em;display:flex;flex-direction:column;gap:5px}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.88em;background:var(--fill);padding:1px 6px;border-radius:6px;word-break:break-all}
+.flow{display:flex;gap:8px;flex-wrap:wrap;align-items:stretch}
+.flow .box{flex:1 1 150px;min-width:0;background:var(--surface);box-shadow:var(--shadow);border-radius:14px;padding:12px 14px;font-size:13.5px;line-height:1.55}
+.flow .box b{display:block;font-size:14px;margin-bottom:2px}
+.flow .arr{align-self:center;color:var(--ink-3);font-size:18px}
+.flow .box.g{background:var(--accent-tint);box-shadow:none}
+.flow .box.s{background:var(--mint-tint);box-shadow:none}
+.persona{display:flex;flex-direction:column;gap:8px}
+.persona .role{font-size:13px;color:var(--ink-3)}
+.persona ul{font-size:13.5px}
+.step{display:flex;gap:12px;align-items:flex-start}
+.step .n{flex:0 0 auto;width:28px;height:28px;border-radius:50%;background:var(--grad);color:#fff;font-weight:700;font-size:13.5px;display:flex;align-items:center;justify-content:center}
+.step>div{min-width:0}
+.steps{display:flex;flex-direction:column;gap:14px}
+.toc{display:flex;gap:6px;flex-wrap:wrap}
+.toc a{font-size:13px;font-weight:600;text-decoration:none;color:var(--ink-2);background:var(--surface);box-shadow:var(--shadow);padding:6px 12px;border-radius:20px}
+.toc a:hover{color:var(--accent)}
+footer{font-size:12.5px;color:var(--ink-3)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">제주 예멘 난민 사건 · 중등 사회과 · 시범 수업용 MVP</div>
+  <h1><span class="grad">AI-EPS</span> 수업 도구</h1>
+  <p class="lead" style="margin-top:10px">AI 활용 확장된 경험 기반 문제해결학습 모형을 한 학급이 실제로 수업에서 쓸 수 있는 웹 서비스로 만들었습니다. 학생은 실제 보도에 근거한 인물 4명과 대화하며 사건을 입체적으로 이해하고, AI는 모형이 정한 규칙 안에서만 개입합니다.</p>
+  <nav class="toc" style="margin-top:14px" aria-label="목차">
+    <a href="#why">출발점</a><a href="#struct">구조</a><a href="#stages">7단계와 규칙</a><a href="#persona">인물 4명</a><a href="#guard">상위 AI</a><a href="#status">현황</a><a href="#todo">남은 일</a>
+  </nav>
+</header>
+
+<section class="grid four" aria-label="현황 요약">
+  <div class="card stat"><b>4명</b><span>실제 보도 기반 인물(당사자·반대·지원·제도)</span></div>
+  <div class="card stat"><b>24건</b><span>출처 (전부 원문 대조 전)</span></div>
+  <div class="card stat"><b>2층</b><span>인물 AI + 상위 AI(규범 감독자)</span></div>
+  <div class="card stat"><b>57개</b><span>자동 테스트 통과</span></div>
+</section>
+
+<div class="notice warn"><b>먼저 알아 둘 것.</b> 인물의 근거 진술은 웹 검색 결과 요약을 바탕으로 정리했고 <b>기사 원문은 열람하지 못했습니다.</b> 그래서 모든 출처가 &ldquo;미검증&rdquo;이며, 이 상태에서는 학생에게 인물이 보이지 않도록 서버가 막습니다. 원문 대조가 수업 전 필수 작업입니다.</div>
+
+<section id="why" class="card">
+  <h2>1. 출발점: 델파이 결과가 요구한 것</h2>
+  <p>1·2차 델파이에서 전문가들이 반복해서 지적한 문제를 서비스 기능으로 옮겼습니다. 모형의 취지는 지키되, 설문 의견이 가리킨 약점을 구현에서 보완하는 방향입니다.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>전문가 지적</th><th>서비스에서의 대응</th></tr></thead>
+    <tbody>
+      <tr><td>AI 페르소나가 기존 영상 자료와 무엇이 다른가</td><td><b>실제 보도·인터뷰에 근거한 인물</b>에게 학생이 질문하고, 질문에 따라 사건이 구체화됩니다. 말마다 근거 자료 번호가 붙습니다.</td></tr>
+      <tr><td>가상 인물의 편향, 한 가지 유형에 그친 인물</td><td>입장이 다른 <b>인물 4명</b>(당사자·반대·지원·제도), 인종·종교 비하 금지 규범, 상위 AI의 검사</td></tr>
+      <tr><td>협력·소통 역량을 구조로 강제할 방법</td><td><b>모둠원마다 서로 다른 인물을 자동 배정</b>(직소). 알아낸 점을 내 말로 정리해 모둠에 공유해야 전체 그림이 완성됩니다.</td></tr>
+      <tr><td>&ldquo;AI가 매개·협업에만 개입한다&rdquo;는 서술이 실제와 다름</td><td>단계별 AI 역할과 <b>선행 사고 게이트</b>를 서버가 강제(아래 표)</td></tr>
+      <tr><td>AI의 판단이 권위를 갖게 되는 문제</td><td>피드백에 &ldquo;수용·수정·기각 + 내 말로 이유&rdquo;를 요구, 모든 로그 자동 저장</td></tr>
+      <tr><td>연결고리(사건과 나)가 공감에 그침</td><td>2단계에 연결고리 작성 칸(개인·학교·제도 층위 선택), 인물의 말과 실제 자료의 <b>대조표</b></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="struct" class="card">
+  <h2>2. 서비스 구조</h2>
+  <p>학생 브라우저는 OpenAI를 직접 부르지 않습니다. 모든 AI 호출은 Cloud Functions의 한 관문(<code>aiRequest</code>)을 거치며, 이곳에서 모형의 규칙이 실행됩니다.</p>
+  <div class="flow" role="group" aria-label="구조도">
+    <div class="box"><b>학생 화면</b>수업 코드·모둠·별명으로 입장 (로그인 없음). 1~7단계 워크스페이스</div>
+    <div class="arr" aria-hidden="true">→</div>
+    <div class="box g"><b>Cloud Functions</b>인증 → 모둠 확인 → GYR 게이트 → 인물 AI → 상위 AI 검사 → 로그</div>
+    <div class="arr" aria-hidden="true">→</div>
+    <div class="box"><b>OpenAI GPT</b>인물 응답, 감독 검사, 피드백, 시나리오</div>
+  </div>
+  <div class="flow" style="margin-top:10px">
+    <div class="box s"><b>Firestore</b>수업, 모둠 산출물, AI 로그. 학생은 자기 모둠의 산출물만 수정, 로그는 서버만 기록</div>
+    <div class="box"><b>교사 화면</b>수업 생성, 모둠별 진행 현황(1~7), AI 로그, 근거 진술 점검, CSV</div>
+    <div class="box"><b>Firebase Hosting</b>정적 웹. 서울 리전, 파랑 계열 모바일 UI</div>
+  </div>
+</section>
+
+<section id="stages" class="card">
+  <h2>3. 7단계와 AI 규칙 (GYR)</h2>
+  <p>모형의 신호등 규칙을 &ldquo;지켜야 할 약속&rdquo;이 아니라 &ldquo;지킬 수밖에 없는 기능&rdquo;으로 만들었습니다. 2, 6, 7단계는 AI 호출 자체가 막히고, 나머지는 학생이 먼저 쓴 내용이 서버에 저장되어 있어야 AI가 열립니다.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>단계</th><th>AI</th><th>서버가 확인하는 선행 조건</th><th>AI가 하는 일</th></tr></thead>
+    <tbody>
+      <tr><td><b>1</b> 사건 경험</td><td><span class="tag y">Yellow</span></td><td>메시지 입력 (사전 질문 없이 바로 대화)</td><td>인물과 메신저 대화. 모둠원마다 다른 인물이며 학생은 누구인지 모름</td></tr>
+      <tr><td><b>2</b> 원인 탐색</td><td><span class="tag x">사용 안 함</span></td><td>호출 자체 차단</td><td>없음. 실제 자료(카테고리별)와 대조, 들은 이야기→검증 질문, 구조화된 연결고리, 원인 추측</td></tr>
+      <tr><td><b>3</b> 검증</td><td><span class="tag y">Yellow</span></td><td>2단계에서 만든 검증 질문만 가능</td><td>검증 질문에 일반 지식을 정리하고 &ldquo;직접 확인할 점&rdquo;을 제시. 학생은 직접 찾은 자료로 수용·보류·불수용, 근거→해석→원인 정리</td></tr>
+      <tr><td><b>4</b> 대안 구상</td><td><span class="tag y">Yellow</span></td><td>모둠 대안 30자 이상 저장</td><td>관점이 다른 독립 검토자 3명(실행 가능성·이해관계자·부작용). 학생이 비교해 판단</td></tr>
+      <tr><td><b>5</b> 미래 시나리오</td><td><span class="tag y">Yellow</span></td><td>이해관계자 반응 예측 2개 이상 저장</td><td>1·3·5년 후 시나리오 2개와 <b>작동 기제</b>, 의도하지 않은 결과. 학생이 기제를 비판</td></tr>
+      <tr><td><b>6</b> 행동계획</td><td><span class="tag x">사용 안 함</span></td><td>호출 자체 차단</td><td>없음. 행동 계획 또는 대안 보완안 선택, 이전 단계로 돌아가는 순환 경로</td></tr>
+      <tr><td><b>7</b> 공유·성찰</td><td><span class="tag x">사용 안 함</span></td><td>호출 자체 차단</td><td>없음. 우리 모둠의 AI 사용 기록과 10문항 성찰 체크리스트</td></tr>
+    </tbody>
+  </table></div>
+  <p class="notice" style="margin-top:12px">게이트는 &ldquo;썼는가&rdquo;를 검사하지 &ldquo;잘 썼는가&rdquo;를 검사하지 못합니다. 글자 수만 채운 입력도 통과하므로, 교사 화면에서 저장된 선행 사고를 확인하는 것이 보완책입니다.</p>
+</section>
+
+<section id="persona" class="card">
+  <h2>4. 실제 보도에 근거한 인물 4명</h2>
+  <p>같은 사건을 서로 다른 당사자의 자리에서 보도록 <b>당사자 · 반대 · 지원 · 제도</b> 네 축에서 한 명씩 골랐습니다. 같은 처지의 여러 인터뷰는 한 인물로 융합했고, 사람 이름(아델, 미경, 서진, 정민호)과 말투를 붙였습니다. 학생에게는 이름과 인물의 입장을 담은 <b>가상 편지</b>만 보이고, 역할·근거·출처·배정은 교사에게만 보입니다. 학생은 대화하며 누구인지 알아냅니다. </p>
+  <div class="grid two" style="margin:14px 0">
+    <div class="persona"><span class="tag">당사자</span><h3>예멘에서 온 난민신청자</h3><div class="role">서울신문·머니투데이·알자지라 인터뷰, 인권위 상담 결과를 융합 (진술 11개)</div>
+      <ul><li>안전하게 살기 위해 왔다</li><li>징집을 피해 말레이시아를 거쳐 제주로</li><li>출도 제한과 단기 노무</li></ul></div>
+    <div class="persona"><span class="tag y">반대·우려</span><h3>불안해하는 제주 도민</h3><div class="role">상인 인터뷰, 집회 발언, 청원·여론 보도 (진술 8개)</div>
+      <ul><li>치안과 무사증 제도 우려</li><li>결정 과정에서 도민이 빠졌다는 느낌</li><li>청원 71만 4875명</li></ul></div>
+    <div class="persona"><span class="tag b">지원</span><h3>난민 지원 단체 활동가</h3><div class="role">대책위, 이주민센터, 난민인권센터, 앰네스티 (진술 10개)</div>
+      <ul><li>자립을 도와야 갈등이 풀린다</li><li>민간 중심 지원의 한계</li><li>현장의 신중론(&ldquo;구별 어렵다&rdquo;)도 반영</li></ul></div>
+    <div class="persona"><span class="tag x">제도</span><h3>출입국·행정 담당자</h3><div class="role">출입국청장 일문일답, 법무부 발표, 제주도 대응 (진술 9개)</div>
+      <ul><li>출도 제한, 무사증 불허국 지정</li><li>심사 절차와 최종 결과</li><li>인도적 체류의 의미</li></ul></div>
+  </div>
+  <h3>진술 종류 구분</h3>
+  <p>모든 근거 진술에 종류가 붙어 있고(<span class="tag">증언 8</span> <span class="tag">사실 19</span> <span class="tag y">주장 5</span> <span class="tag y">의견 6</span>), 인물은 주장과 의견을 사실처럼 말하지 않습니다. 검증되지 않은 집회 발언과 도민 설문은 &ldquo;확인된 사실은 아니에요&rdquo;라고 밝히게 했고, 이 구분이 3단계 검증 활동의 재료가 됩니다.</p>
+  <h3>보류·제외한 후보</h3>
+  <ul>
+    <li><b>어선·양식장 고용주</b>: 일자리 갈등의 축이지만 직접 인터뷰 자료가 부족해 보류. 자료를 찾으면 5번째 인물로 추가</li>
+    <li><b>난민 인정된 언론인 출신 2명</b>: 대표성이 낮고 신원이 특정될 위험</li>
+    <li><b>전문가·학자</b>: 관찰자 위치라 당사자성이 낮음</li>
+  </ul>
+</section>
+
+<section id="guard" class="card">
+  <h2>5. 상위 AI: 사건 범위를 지키는 규범 감독자</h2>
+  <p>인물 AI 위에 규범을 가진 감독 층을 두었습니다. 전문가가 제안한 &ldquo;상위 AI와 하위 인물 AI&rdquo; 이중 구조를 사건 범위 관리에 적용한 것입니다.</p>
+  <div class="steps">
+    <div class="step"><div class="n">1</div><div><b>규범</b> (<code>charter.js</code>)<br>사건 범위는 2018년 제주 예멘 사건. 다른 난민 사건, 현재 정치 예측, 종교·민족 일반 논쟁은 범위 밖. 근거 진술 밖의 사실을 만들지 않고, 집단을 비하하지 않으며, 결론을 권하지 않습니다.</div></div>
+    <div class="step"><div class="n">2</div><div><b>생성 단계</b><br>규범이 모든 인물 프롬프트에 들어갑니다. 인물은 끝까지 그 사람으로서 1~3문장으로 짧게, 이모지와 함께, <b>묻는 것에만</b> 답하며 출처 번호나 &ldquo;수업용 인물&rdquo; 같은 말은 하지 않습니다. 사소한 일상은 지어낼 수 있지만 수치·제도·결정 같은 핵심 사실은 근거 진술에 있는 것만 말하고, 없으면 &ldquo;잘 모르겠어요&rdquo;라고 답합니다.</div></div>
+    <div class="step"><div class="n">3</div><div><b>검사 단계</b> (<code>guard.js</code>)<br>응답이 학생에게 가기 전에 감독자 AI가 <code>범위 이탈</code> <code>근거 없는 사실</code> <code>주장 단정</code> <code>비하</code> <code>결론 유도</code> <code>개인정보</code>를 검사합니다.</div></div>
+    <div class="step"><div class="n">4</div><div><b>위반 시</b><br>가벼운 위반(근거 없는 핵심 사실, 주장 단정, 묻지 않은 정보, 정체 노출)은 감독자가 <b>같은 인물 말투로 고쳐 쓰고</b>, 무거운 위반(범위 이탈, 비하, 결론 유도, 개인정보)이나 검사 실패는 인물 말투의 짧은 안내로 대체합니다. 원래 응답과 사유는 교사용 기록에만 남습니다.</div></div>
+  </div>
+  <p class="notice" style="margin-top:12px">감독자도 AI라 오판할 수 있고, 1단계 대화는 호출이 2번이라 비용이 약 2배입니다. 수업 전 리허설에서 범위 밖 질문, 비하 유도, 자료에 없는 질문을 직접 던져 보고 교사 로그의 위반 기록을 확인하세요.</p>
+</section>
+
+<section id="status" class="card">
+  <h2>6. 확인한 것과 못 한 것</h2>
+  <div class="grid">
+    <div>
+      <h3>확인함</h3>
+      <ul>
+        <li>자동 테스트 57개 통과: GYR 게이트, 자료 구조, 감독자 판정 해석</li>
+        <li>가짜 Firestore·OpenAI로 서버 전체 흐름 시험: 수업 생성 → 입장·인물 배정 → 1단계 대화 → 감독자 차단 → 로그</li>
+        <li>가짜 Firebase로 학생 화면(1~7단계)을 헤드리스 브라우저에서 시험, 화면 확인</li>
+        <li>미검증 출처의 인물은 학생에게 노출되지 않음</li>
+      </ul>
+    </div>
+    <div>
+      <h3>못 함</h3>
+      <ul>
+        <li><b>기사 원문 열람</b>: 네트워크 정책으로 차단되어 모든 근거 진술이 미검증</li>
+        <li>실제 Firebase 배포, 실제 OpenAI 호출, Firestore 보안 규칙 시험(에뮬레이터 없음)</li>
+        <li>학생 기기·학교 네트워크 접속 시험</li>
+        <li>교사 화면의 구글 로그인 흐름</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="todo" class="card">
+  <h2>7. 남은 일</h2>
+  <div class="steps">
+    <div class="step"><div class="n">1</div><div><b>원문 대조 (필수)</b><br><code>docs/PERSONA_SOURCES.md</code> 또는 교사 화면의 &ldquo;점검 (교사 전용)&rdquo; 탭에서 링크를 열어 인물 진술과 2단계 실제 자료를 원문과 대조하고, 맞는 출처만 <code>verified: true</code>로 바꿔 배포합니다. 인물의 편지와 이름·설정은 연구자의 창작이므로 연구 의도에 맞는지도 확인하세요.</div></div>
+    <div class="step"><div class="n">2</div><div><b>리허설 시험 항목</b><br>범위 밖·비하 유도·자료에 없는 질문, &ldquo;너 AI야?&rdquo; 같은 질문에 인물이 자연스럽게 반응하는지, 감독자가 과하게 막지 않는지 교사 기록의 <code>guard</code>로 확인합니다.</div></div>
+    <div class="step"><div class="n">3</div><div><b>리허설</b><br><code>ALLOW_UNVERIFIED_PERSONAS=true</code>로 학생 기기 접속, 범위 밖·비하 유도 질문 시험. 수업 전에는 이 설정을 끕니다.</div></div>
+    <div class="step"><div class="n">4</div><div><b>모형 쪽 과제 (델파이 후속)</b><br>5단계 시나리오를 &ldquo;AI 창작&rdquo;에서 &ldquo;실제 사례 비교 + 작동 기제 비판&rdquo;으로 재설계할지, 6단계 실천의 범위, 연결고리 활동의 구체적 순서를 정해야 합니다.</div></div>
+    <div class="step"><div class="n">5</div><div><b>자료 보강</b><br>고용주, 난민 인정자의 장기 정착 증언 등 빠진 관점을 찾아 인물과 출처를 추가합니다. 학생 입력의 자동 편향·안전 필터도 후속 과제입니다.</div></div>
+  </div>
+  <p style="margin-top:14px">첫 수업은 7단계를 모두 돌리기 어려우므로 <b>1~2~4단계</b>로 범위를 줄여 시험하는 것을 권합니다.</p>
+</section>
+
+<section class="card">
+  <h2>배포 순서</h2>
+  <div class="steps">
+    <div class="step"><div class="n">1</div><div>Firebase 프로젝트 생성, <b>Blaze 요금제</b> 전환, Authentication(익명·구글)과 Firestore(서울) 사용 설정</div></div>
+    <div class="step"><div class="n">2</div><div>웹 앱 설정(<code>public/firebase-config.js</code>)과 프로젝트 ID(<code>.firebaserc</code>)는 <b>연결 완료</b>: <code>knue-socialstudies-ai-eps</code></div></div>
+    <div class="step"><div class="n">3</div><div><code>firebase functions:secrets:set OPENAI_API_KEY</code>, <code>functions/.env</code>에 <code>TEACHER_EMAILS</code>와 <code>OPENAI_MODEL</code> 입력</div></div>
+    <div class="step"><div class="n">4</div><div><code>firebase deploy</code> → <code>/teacher.html</code>에서 수업 생성 → 수업 코드와 모둠 번호를 학생에게 안내</div></div>
+  </div>
+</section>
+
+<footer>
+  코드: <code>workingkhwdk-dotcom/AI-EPS</code> 저장소 · 브랜치 <code>claude/loving-fermat-vslak3</code> · 상세 설명은 <code>README.md</code>와 <code>docs/PERSONA_SOURCES.md</code>.
+  인물과 사건 설명은 언론 보도에 근거한 수업용 구성이며 특정 실존 인물을 나타내지 않습니다.
+</footer>
+
+</div>
+
+</body>
+</html>

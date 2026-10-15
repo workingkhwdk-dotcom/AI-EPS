@@ -3,14 +3,16 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#06226B" />
 <title>AI-EPS 교사용</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-<header class="hdr"><div class="hdr-in"><span class="logo">AI-EPS 교사용</span><span class="meta-line" id="who"></span></div></header>
+<header class="hdr"><div class="hdr-in">
+  <div class="brand"><span class="logo">AI-EPS 교사용</span><small>한국교원대학교 · Teacher of Teachers</small></div>
+  <span class="who" id="who"></span>
+</div></header>
+
 <main class="wrap">
   <section id="login" class="card">
     <h2>교사 로그인</h2>
@@ -19,20 +21,59 @@
   </section>
 
   <section id="main" class="hidden">
-    <div class="card">
-      <h2>새 수업 만들기</h2>
-      <label class="lbl" for="t-title">수업 이름</label><input type="text" id="t-title" value="국내에 정착한 난민 문제 해결 방안 제안하기" />
-      <label class="lbl" for="t-groups">모둠 수 (최대 12)</label><input type="number" id="t-groups" value="6" min="1" max="12" />
-      <div style="margin-top:14px"><button class="btn btn-primary" id="create-btn">수업 만들기</button></div>
+    <div class="seg" id="tabs">
+      <button data-tab="live" class="on">수업 현황</button>
+      <button data-tab="new">새 수업</button>
+      <button data-tab="check">점검 (교사 전용)</button>
     </div>
-    <div class="card"><h2>내 수업</h2><div id="sessions" class="group"></div></div>
-    <div id="monitor" class="hidden">
-      <div class="card">
-        <div class="row" style="justify-content:space-between"><h2 id="m-title" style="margin:0"></h2><button class="btn btn-tinted btn-sm" id="csv-btn">로그 CSV 내려받기</button></div>
-        <p class="desc" id="m-code"></p>
-        <div id="groups"></div>
+
+    <!-- 수업 현황: 내 수업 목록 → 선택하면 접속·진행 현황 -->
+    <div id="tab-live">
+      <div class="card" id="sessions-card"><h2>내 수업</h2><div id="sessions" class="group"></div></div>
+      <div id="dash" class="hidden">
+        <div class="card">
+          <div class="row" style="justify-content:space-between;align-items:flex-start">
+            <div><div class="meta-line" id="d-title"></div><div class="code-big" id="d-code"></div><div class="meta-line">학생에게 이 코드와 모둠 번호를 알려 주세요</div></div>
+            <div class="row"><button class="btn btn-tinted btn-sm" id="copy-btn">코드 복사</button><button class="btn btn-plain btn-sm" id="csv-btn">기록 CSV</button></div>
+          </div>
+          <div class="kpis" id="kpis"></div>
+        </div>
+        <div class="card"><h3>학생 현황</h3>
+          <div class="chipbar" id="g-filter" style="margin-bottom:10px"></div>
+          <div class="tbl-wrap"><table class="tbl"><thead><tr><th>별명</th><th>모둠</th><th>인물(교사용)</th><th>현재 단계</th><th>상태</th><th>AI 대화</th><th></th></tr></thead><tbody id="students"></tbody></table></div>
+          <div class="meta-line" id="no-students"></div>
+        </div>
+        <div class="card"><h3>모둠 진행</h3>
+          <div class="tbl-wrap"><table class="tbl"><thead><tr><th>모둠</th><th>인원</th><th>산출물 진행 (1~7단계)</th><th>AI 호출</th><th>감독 개입</th><th></th></tr></thead><tbody id="groups"></tbody></table></div>
+        </div>
+        <div class="card hidden" id="detail"><div class="row" style="justify-content:space-between"><h3 id="detail-title" style="margin:0"></h3><button class="btn btn-plain btn-sm" id="detail-close">닫기</button></div><div id="detail-body" style="margin-top:10px"></div></div>
       </div>
-      <div class="card" id="log-card"><h3 id="log-title">AI 사용 로그</h3><div id="logs"></div></div>
+    </div>
+
+    <!-- 새 수업 -->
+    <div id="tab-new" class="hidden">
+      <div class="card">
+        <h2>새 수업 만들기</h2>
+        <label class="lbl" for="t-event">사건</label>
+        <select id="t-event"><option value="jeju2018">제주 예멘 난민 신청 논란 (2018)</option></select>
+        <label class="lbl" for="t-title">수업 이름</label><input type="text" id="t-title" value="제주 예멘 난민 사건, 갈등 해결 방안 제안하기" />
+        <label class="lbl" for="t-groups">모둠 수 (최대 12)</label><input type="number" id="t-groups" value="6" min="1" max="12" />
+        <div style="margin-top:14px"><button class="btn btn-primary" id="create-btn">수업 만들기</button></div>
+      </div>
+    </div>
+
+    <!-- 점검: 인물·자료의 근거. 수업 중에는 볼 필요가 없어 별도 탭에 접어 둔다 -->
+    <div id="tab-check" class="hidden">
+      <div class="card">
+        <h2>인물·자료 점검</h2>
+        <p class="desc">인물과 실제 자료는 아래 출처의 보도 내용에만 근거합니다. <b>수업 전에 원문 링크를 열어 확인</b>하고, 확인한 출처는 <code>functions/case.js</code>에서 <code>verified</code>를 true로 바꿔 배포하세요. 확인 전 인물과 자료는 학생에게 보이지 않습니다. 이 탭의 내용은 학생에게 공개되지 않습니다.</p>
+        <div id="check-mode"></div>
+        <div id="check-note"></div>
+      </div>
+      <h3 style="margin:6px 4px 8px">인물 (학생에게는 이름과 편지만 보입니다)</h3>
+      <div id="persona-check"></div>
+      <h3 style="margin:14px 4px 8px">2단계 실제 자료</h3>
+      <div id="material-check"></div>
     </div>
   </section>
 </main>

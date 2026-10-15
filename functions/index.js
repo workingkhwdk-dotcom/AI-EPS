@@ -2,35 +2,51 @@ const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { defineSecret, defineString } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 
-const { CASE, REAL_CASE_MATERIALS } = require("./case");
-const { checkGate } = require("./policy");
+const { EVENTS, PERSONAS, availablePersonas, personaSourceIds, toPublicSource, materialsFor, materialsAdmin } = require("./case");
+const { checkGate, toList } = require("./policy");
 const prompts = require("./prompts");
-const { chat } = require("./openai");
+const { chat, extractJson } = require("./openai");
+const { guardMessages, parseVerdict, resolveOutput } = require("./guard");
+const { isTeacherEmail } = require("./teachers");
 
 admin.initializeApp();
 const db = admin.firestore();
 
 const OPENAI_API_KEY = defineSecret("OPENAI_API_KEY");
-const OPENAI_MODEL = defineString("OPENAI_MODEL", { default: "gpt-4o-mini" });
+// 기본 모델과 용도별 모델. 비워 두면 OPENAI_MODEL 을 쓴다.
+const OPENAI_MODEL = defineString("OPENAI_MODEL", { default: "gpt-5-mini" });
+const SCENARIO_MODEL = defineString("SCENARIO_MODEL", { default: "" }); // 5단계 시뮬레이션 전용(더 강한 모델 지정 가능)
+const GUARD_MODEL = defineString("GUARD_MODEL", { default: "" }); // 상위 AI(규범 감독) 전용
+const FEEDBACK_MODELS = defineString("FEEDBACK_MODELS", { default: "" }); // 4단계 독립 검토에 쓸 모델들(쉼표). 비우면 OPENAI_MODEL 로 3회
+const REASONING_EFFORT = defineString("REASONING_EFFORT", { default: "low" }); // 추론 모델의 사고량: minimal|low|medium|high
 const TEACHER_EMAILS = defineString("TEACHER_EMAILS", { default: "" });
+// true 이면 출처 원문 대조 전(verified:false) 페르소나·자료도 사용 가능. 리허설 전용, 실제 수업에서는 false 로 둔다.
+const ALLOW_UNVERIFIED = defineString("ALLOW_UNVERIFIED_PERSONAS", { default: "false" });
+const allowUnverified = () => ALLOW_UNVERIFIED.value() === "true";
+const DEFAULT_EVENT = "jeju2018";
 
 const REGION = "asia-northeast3"; // 서울
 const MAX_AI_CALLS_PER_GROUP = 150;
 const MAX_GROUPS = 12;
 
 const opts = { region: REGION, cors: true };
-const aiOpts = { ...opts, secrets: [OPENAI_API_KEY], timeoutSeconds: 90 };
+// 추론 모델(특히 5단계 시뮬레이션)은 응답에 1분 넘게 걸릴 수 있어 넉넉히 둔다.
+const aiOpts = { ...opts, secrets: [OPENAI_API_KEY], timeoutSeconds: 300 };
+
+const FieldValue = () => admin.firestore.FieldValue;
 
 function requireAuth(req) {
   if (!req.auth) throw new HttpsError("unauthenticated", "로그인이 필요합니다.");
   return req.auth;
 }
 
-function requireTeacher(req) {
+async function requireTeacher(req) {
   const auth = requireAuth(req);
-  const allow = TEACHER_EMAILS.value().split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-  const email = (auth.token.email || "").toLowerCase();
-  if (!email || !allow.includes(email)) throw new HttpsError("permission-denied", "교사 계정이 아닙니다.");
+  const ok = await isTeacherEmail(auth.token.email, {
+    envList: TEACHER_EMAILS.value(),
+    readDoc: async () => (await db.doc("config/teachers").get()).data(),
+  });
+  if (!ok) throw new HttpsError("permission-denied", "교사 계정이 아닙니다.");
   return auth;
 }
 
@@ -46,24 +62,23 @@ async function newCode() {
 
 // 교사: 수업 만들기 (모둠 문서 함께 생성)
 exports.createSession = onCall(opts, async (req) => {
-  const auth = requireTeacher(req);
+  const auth = await requireTeacher(req);
   const groupCount = Math.min(Math.max(parseInt(req.data?.groupCount, 10) || 6, 1), MAX_GROUPS);
-  const title = String(req.data?.title || CASE.title).slice(0, 80);
+  const eventId = EVENTS[req.data?.eventId] ? req.data.eventId : DEFAULT_EVENT;
+  if (!availablePersonas(eventId, allowUnverified()).length)
+    throw new HttpsError("failed-precondition", "원문 대조가 끝난 페르소나가 없습니다. case.js 의 출처 verified 를 확인하세요.");
+  const title = String(req.data?.title || EVENTS[eventId].title).slice(0, 80);
   const code = await newCode();
   const batch = db.batch();
   batch.set(db.doc(`sessions/${code}`), {
     teacherUid: auth.uid,
     title,
-    caseId: CASE.id,
+    eventId,
     groupCount,
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdAt: FieldValue().serverTimestamp(),
   });
   for (let i = 1; i <= groupCount; i++) {
-    batch.set(db.doc(`sessions/${code}/groups/g${i}`), {
-      name: `${i}모둠`,
-      aiCount: 0,
-      work: {},
-    });
+    batch.set(db.doc(`sessions/${code}/groups/g${i}`), { name: `${i}모둠`, aiCount: 0, memberCount: 0, guardCount: 0, work: {} });
   }
   await batch.commit();
   return { code };
@@ -75,139 +90,223 @@ exports.joinSession = onCall(opts, async (req) => {
   const code = String(req.data?.code || "").trim().toUpperCase();
   const groupNo = parseInt(req.data?.groupNo, 10);
   const nickname = String(req.data?.nickname || "").trim().slice(0, 12);
-  if (!nickname) throw new HttpsError("invalid-argument", "닉네임을 입력하세요. (이름 대신 별명을 쓰세요)");
+  if (!nickname) throw new HttpsError("invalid-argument", "별명을 입력하세요. (이름 대신 별명을 쓰세요)");
   const session = await db.doc(`sessions/${code}`).get();
   if (!session.exists) throw new HttpsError("not-found", "수업 코드를 찾을 수 없습니다.");
   if (!(groupNo >= 1 && groupNo <= session.data().groupCount))
     throw new HttpsError("invalid-argument", "모둠 번호가 올바르지 않습니다.");
   const groupId = `g${groupNo}`;
-  await db.doc(`sessions/${code}/members/${auth.uid}`).set({
-    groupId,
-    nickname,
-    joinedAt: admin.firestore.FieldValue.serverTimestamp(),
+  const personas = availablePersonas(session.data().eventId, allowUnverified());
+  if (!personas.length) throw new HttpsError("failed-precondition", "아직 사용할 수 있는 인물이 없습니다. 선생님께 문의하세요.");
+  const memberRef = db.doc(`sessions/${code}/members/${auth.uid}`);
+  const groupRef = db.doc(`sessions/${code}/groups/${groupId}`);
+  // 모둠원마다 서로 다른 인물을 순서대로 배정한다(직소). 배정은 교사에게만 보이며 학생은 모른다. 재입장 시에는 유지한다.
+  await db.runTransaction(async (tx) => {
+    const [m, g] = await Promise.all([tx.get(memberRef), tx.get(groupRef)]);
+    if (m.exists && m.data().groupId === groupId && personas.some((p) => p.id === m.data().personaId)) {
+      tx.update(memberRef, { nickname });
+      return;
+    }
+    const n = g.data()?.memberCount || 0;
+    tx.update(groupRef, { memberCount: n + 1 });
+    tx.set(memberRef, {
+      groupId, nickname, personaId: personas[n % personas.length].id,
+      stage: 1, aiCount: 0, joinedAt: FieldValue().serverTimestamp(), lastSeen: FieldValue().serverTimestamp(),
+    });
   });
   return { groupId };
 });
 
-// 학생/교사 화면이 쓰는 수업 설정(사건·페르소나·실제 자료). 시스템 프롬프트는 포함하지 않는다.
+// 화면이 쓰는 수업 설정.
+//  - 학생: { code } → 사건 개요(객관적 설명), 내 인물의 이름과 편지, 실제 자료. 인물의 역할·근거·출처는 보내지 않는다.
+//  - 교사: { eventId } → 인물별 근거 진술·출처 검증 현황, 자료 전체
 exports.getCase = onCall(opts, async (req) => {
-  requireAuth(req);
+  const auth = requireAuth(req);
+
+  if (req.data?.eventId) {
+    await requireTeacher(req);
+    const ev = EVENTS[req.data.eventId];
+    if (!ev) throw new HttpsError("not-found", "사건을 찾을 수 없습니다.");
+    const full = (p) => ({
+      id: p.id, label: p.label, name: p.name, role: p.role, stance: p.stance, setting: p.setting, voice: p.voice, basis: p.basis, letter: p.letter,
+      sources: personaSourceIds(p).map(toPublicSource),
+      claims: p.claims.map(([text, src, kind]) => ({ text, src, kind })),
+    });
+    const materials = materialsAdmin().map((c) => ({
+      ...c,
+      items: c.items.map((it) => ({ ...it, verified: it.src.every((id) => toPublicSource(id).verified) })),
+    }));
+    return {
+      event: { id: ev.id, title: ev.title, summary: ev.summary, teacherNote: ev.teacherNote },
+      personas: PERSONAS.filter((p) => p.events.includes(ev.id)).map(full),
+      materials,
+      allowUnverified: allowUnverified(),
+    };
+  }
+
+  const code = String(req.data?.code || "").toUpperCase();
+  const [sess, mem] = await Promise.all([db.doc(`sessions/${code}`).get(), db.doc(`sessions/${code}/members/${auth.uid}`).get()]);
+  if (!sess.exists || !mem.exists) throw new HttpsError("permission-denied", "이 수업의 참여자가 아닙니다.");
+  const ev = EVENTS[sess.data().eventId];
+  const mine = availablePersonas(ev.id, allowUnverified()).find((p) => p.id === mem.data().personaId);
   return {
-    title: CASE.title,
-    premise: CASE.premise,
-    stakeholders: CASE.stakeholders,
-    personas: CASE.personas.map(({ id, name, role }) => ({ id, name, role })),
-    realCaseMaterials: REAL_CASE_MATERIALS,
+    title: ev.title,
+    summary: ev.summary,
+    stakeholders: ev.stakeholders,
+    me: mine ? { name: mine.name, letter: mine.letter } : null,
+    materials: materialsFor(allowUnverified()),
   };
 });
 
-// AI 호출의 단일 관문: 인증 → 모둠 확인 → GYR 게이트 → OpenAI → 로그
+// ---------- AI 호출 ----------
+
+// 사고량을 바꿔 가며 시도한다(사고에 한도를 다 쓰거나 시간이 오래 걸린 경우 대비). 모두 실패하면 마지막 오류를 던진다.
+async function callModel({ apiKey, model, messages, json = false, maxTokens, efforts }) {
+  let lastErr;
+  for (const effort of [...new Set(efforts)]) {
+    try {
+      return await chat({ apiKey, model, messages, json, maxTokens, effort });
+    } catch (e) {
+      lastErr = e;
+      console.error(`AI 호출 실패 model=${model} effort=${effort}:`, e.message);
+    }
+  }
+  throw lastErr;
+}
+
+const REVIEW_LABELS = { feasibility: "실행 가능성", stakeholders: "이해관계자 영향", sideEffects: "부작용·장기 영향" };
+
+// AI 호출의 단일 관문: 인증 → 모둠 확인 → GYR 게이트 → OpenAI → (1단계) 상위 AI 감독 → 로그
 exports.aiRequest = onCall(aiOpts, async (req) => {
   const auth = requireAuth(req);
   const { code, stage, type, payload = {} } = req.data || {};
   if (!code) throw new HttpsError("invalid-argument", "수업 코드가 없습니다.");
 
-  const memberSnap = await db.doc(`sessions/${code}/members/${auth.uid}`).get();
+  const memberRef = db.doc(`sessions/${code}/members/${auth.uid}`);
+  const memberSnap = await memberRef.get();
   if (!memberSnap.exists) throw new HttpsError("permission-denied", "이 수업의 참여자가 아닙니다.");
-  const { groupId, nickname } = memberSnap.data();
+  const { groupId, nickname, personaId } = memberSnap.data();
+  const sessData = (await db.doc(`sessions/${code}`).get()).data();
+  const ev = EVENTS[sessData.eventId];
+  const evCtx = { summary: ev.summary, premise: ev.summary };
+  const personas = availablePersonas(ev.id, allowUnverified());
   const groupRef = db.doc(`sessions/${code}/groups/${groupId}`);
   const group = (await groupRef.get()).data() || {};
   const work = group.work || {};
+  const s = Number(stage);
 
-  const gate = checkGate({
-    stage: Number(stage),
-    type,
-    work,
-    payload,
-    personaIds: CASE.personas.map((p) => p.id),
-  });
+  const gate = checkGate({ stage: s, type, work, payload });
   if (!gate.ok) throw new HttpsError("failed-precondition", gate.reason);
   if ((group.aiCount || 0) >= MAX_AI_CALLS_PER_GROUP)
     throw new HttpsError("resource-exhausted", "이 모둠의 AI 사용 한도에 도달했습니다. 선생님께 문의하세요.");
 
-  const model = OPENAI_MODEL.value();
   const apiKey = OPENAI_API_KEY.value();
-  let messages, json = false, input, threadKey = null, maxTokens = 700;
-  const s = Number(stage);
+  const baseModel = OPENAI_MODEL.value();
+  const effort = REASONING_EFFORT.value();
+  const bump = { aiCount: FieldValue().increment(1) };
 
-  if (s === 1) {
-    const persona = CASE.personas.find((p) => p.id === payload.personaId);
-    threadKey = `${groupId}:p:${persona.id}`;
-    const hist = await db
-      .collection(`sessions/${code}/groups/${groupId}/logs`)
-      .where("threadKey", "==", threadKey)
-      .get();
-    const past = hist.docs
-      .map((d) => d.data())
-      .sort((a, b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0))
-      .slice(-10);
-    messages = [{ role: "system", content: prompts.personaPrompt(CASE, persona) }];
-    past.forEach((l) => {
-      messages.push({ role: "user", content: l.input });
-      messages.push({ role: "assistant", content: l.output });
-    });
-    input = String(payload.message).trim();
-    messages.push({ role: "user", content: input });
-    maxTokens = 400;
-  } else if (s === 3) {
-    input = String(payload.question).trim();
-    messages = [
-      { role: "system", content: prompts.verifyPrompt(CASE) },
-      { role: "user", content: input },
-    ];
-  } else if (s === 4) {
-    const p = work.s4.proposals.find((x) => x.id === payload.proposalId);
-    input = p.text.trim();
-    messages = [
-      { role: "system", content: prompts.feedbackPrompt(CASE) },
-      { role: "user", content: `우리 모둠의 대안:\n${input}` },
-    ];
-  } else if (s === 5) {
-    const p = work.s4.proposals.find((x) => x.id === payload.proposalId);
-    const preds = work.s5.predictions
-      .map((x) => `- ${x.stakeholder || "이해관계자"}: ${x.text}`)
-      .join("\n");
-    input = `대안: ${p.text}\n시점: ${payload.round}년 후\n학생들의 예측:\n${preds}`;
-    messages = [
-      { role: "system", content: prompts.scenarioPrompt(CASE, payload.round) },
-      { role: "user", content: input },
-    ];
-    json = true;
-    maxTokens = 1400;
-  }
-
-  let output;
   try {
-    output = await chat({ apiKey, model, messages, json, maxTokens });
+    // ---- 1단계: 학생별 메신저 대화 ----
+    if (s === 1) {
+      const persona = personas.find((p) => p.id === personaId);
+      if (!persona) throw new HttpsError("failed-precondition", "배정된 인물이 없습니다. 선생님께 알려 주세요.");
+      const chatCol = db.collection(`sessions/${code}/members/${auth.uid}/chat`);
+      const past = (await chatCol.get()).docs
+        .map((d) => d.data())
+        .sort((a, b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0))
+        .slice(-12);
+      const input = String(payload.message).trim();
+      const messages = [{ role: "system", content: prompts.personaPrompt(ev, persona) }];
+      past.forEach((l) => {
+        messages.push({ role: "user", content: l.input });
+        messages.push({ role: "assistant", content: l.output });
+      });
+      messages.push({ role: "user", content: input });
+
+      const reply = await callModel({ apiKey, model: baseModel, messages, maxTokens: 300, efforts: [effort] });
+
+      // 상위 AI(규범 감독자): 학생에게 보내기 전에 검사. 가벼운 위반은 고쳐 쓰고, 무거운 위반·검사 실패는 안내로 대체
+      let verdict;
+      try {
+        const verdictText = await callModel({
+          apiKey, model: GUARD_MODEL.value() || baseModel, json: true, maxTokens: 400, efforts: ["low"],
+          messages: guardMessages({ persona, claims: persona.claims, studentMessage: input, reply }),
+        });
+        verdict = parseVerdict(verdictText);
+      } catch (e) {
+        verdict = { ok: false, category: "error", reason: "감독자 호출 실패", fixed: "" };
+      }
+      const out = resolveOutput(verdict, reply);
+      if (out.replaced) bump.guardCount = FieldValue().increment(1);
+
+      const ref = chatCol.doc();
+      await Promise.all([
+        ref.set({
+          uid: auth.uid, nickname, personaId, input, output: out.text, model: baseModel,
+          guard: { ok: verdict.ok, category: verdict.category, reason: verdict.reason, how: out.how || null, original: out.replaced ? reply : null },
+          createdAt: FieldValue().serverTimestamp(),
+        }),
+        groupRef.update(bump),
+        memberRef.update({ aiCount: FieldValue().increment(1) }),
+      ]);
+      return { logId: ref.id, result: out.text };
+    }
+
+    // ---- 3~5단계: 모둠 로그 ----
+    let messages, input, output, result, logPayload = {};
+    let model = baseModel;
+    if (s === 3) {
+      const c = toList(work.s2.checks).find((x) => x.id === payload.checkId);
+      input = `학생들이 인터뷰에서 들은 이야기: ${c.heard || "(적지 않음)"}\n이 이야기가 사실인지 확인하려는 검증 질문: ${c.question}`;
+      messages = [{ role: "system", content: prompts.verifyPrompt(evCtx) }, { role: "user", content: input }];
+      output = await callModel({ apiKey, model, messages, maxTokens: 700, efforts: [effort] });
+      result = output;
+      logPayload = { checkId: c.id };
+    } else if (s === 4) {
+      const p = toList(work.s4.proposals).find((x) => x.id === payload.proposalId);
+      input = p.text.trim();
+      const models = FEEDBACK_MODELS.value().split(",").map((m) => m.trim()).filter(Boolean);
+      const lenses = Object.keys(REVIEW_LABELS);
+      // 서로 다른 관점의 독립 검토 3개. AI의 판단이 하나의 권위가 되지 않도록 학생이 비교하게 한다.
+      const settled = await Promise.allSettled(
+        lenses.map((lens, i) => {
+          const m = models.length ? models[i % models.length] : baseModel;
+          return callModel({
+            apiKey, model: m, maxTokens: 500, efforts: [effort],
+            messages: [{ role: "system", content: prompts.feedbackPrompt(evCtx, lens) }, { role: "user", content: `우리 모둠의 대안:\n${input}` }],
+          }).then((text) => ({ lens, label: REVIEW_LABELS[lens], text, model: m }));
+        }),
+      );
+      const reviews = settled.filter((r) => r.status === "fulfilled").map((r) => r.value);
+      if (!reviews.length) throw settled[0].reason;
+      output = JSON.stringify({ reviews });
+      result = { reviews };
+      model = [...new Set(reviews.map((r) => r.model))].join(",");
+      logPayload = { proposalId: p.id };
+    } else if (s === 5) {
+      const p = toList(work.s4.proposals).find((x) => x.id === payload.proposalId);
+      const preds = toList(work.s5.predictions).map((x) => `- ${x.stakeholder || "이해관계자"}: ${x.text}`).join("\n");
+      input = `대안: ${p.text}\n시점: ${payload.round}년 후\n학생들의 예측:\n${preds}`;
+      messages = [{ role: "system", content: prompts.scenarioPrompt(evCtx, payload.round) }, { role: "user", content: input }];
+      model = SCENARIO_MODEL.value() || baseModel;
+      // 사고량을 낮춰 한 번 더 시도한다
+      output = await callModel({ apiKey, model, messages, json: true, maxTokens: 1800, efforts: ["medium", "low"] });
+      try { result = extractJson(output); } catch { throw new HttpsError("internal", "시나리오 형식 오류입니다. 다시 시도하세요."); }
+      logPayload = { proposalId: p.id, round: payload.round };
+    }
+
+    const logRef = groupRef.collection("logs").doc();
+    await Promise.all([
+      logRef.set({ uid: auth.uid, nickname, stage: s, type, input, output, payload: logPayload, model, createdAt: FieldValue().serverTimestamp() }),
+      groupRef.update(bump),
+      memberRef.update({ aiCount: FieldValue().increment(1) }),
+    ]);
+    return { logId: logRef.id, result };
   } catch (e) {
-    console.error(e);
+    if (e instanceof HttpsError) throw e;
+    console.error(`aiRequest 실패 stage=${s}:`, e.message);
+    // 교사 화면에서 원인을 볼 수 있도록 모둠 문서에 남긴다
+    await groupRef.update({ lastAiError: { stage: s, message: String(e.message).slice(0, 300), at: FieldValue().serverTimestamp() } }).catch(() => {});
     throw new HttpsError("unavailable", "AI 응답을 받지 못했습니다. 잠시 후 다시 시도하세요.");
   }
-
-  const logRef = groupRef.collection("logs").doc();
-  await Promise.all([
-    logRef.set({
-      uid: auth.uid,
-      nickname,
-      stage: s,
-      type,
-      input,
-      output,
-      payload: {
-        personaId: payload.personaId || null,
-        proposalId: payload.proposalId || null,
-        round: payload.round || null,
-      },
-      model,
-      threadKey,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    }),
-    groupRef.update({ aiCount: admin.firestore.FieldValue.increment(1) }),
-  ]);
-
-  let result = output;
-  if (json) {
-    try { result = JSON.parse(output); } catch { throw new HttpsError("internal", "시나리오 형식 오류입니다. 다시 시도하세요."); }
-  }
-  return { logId: logRef.id, result };
 });

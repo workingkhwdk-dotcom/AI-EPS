@@ -16,6 +16,11 @@ service cloud.firestore {
         myGroup(code) == gid;
     }
 
+    // 서버 설정(교사 목록 등): 클라이언트는 읽기·쓰기 모두 불가. Firebase 콘솔(관리자 권한)에서만 수정한다.
+    match /config/{doc} {
+      allow read, write: if false;
+    }
+
     match /sessions/{code} {
       // 교사는 자기 수업 목록 조회(쿼리)도 가능해야 하므로 resource 기준으로 판정
       allow read: if signedIn() && (resource.data.teacherUid == request.auth.uid ||
@@ -24,7 +29,18 @@ service cloud.firestore {
 
       match /members/{uid} {
         allow read: if signedIn() && (request.auth.uid == uid || isTeacher(code));
-        allow write: if false;
+        // 학생은 자기 접속 신호(현재 단계, 마지막 접속 시각)만 갱신할 수 있다. 인물 배정 등은 서버만 쓴다.
+        allow update: if signedIn() && request.auth.uid == uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stage', 'lastSeen']) &&
+          request.resource.data.stage is int && request.resource.data.stage >= 1 && request.resource.data.stage <= 7 &&
+          request.resource.data.lastSeen == request.time;
+        allow create, delete: if false;
+
+        // 1단계 인물과의 대화: 본인과 교사만 읽을 수 있다(다른 학생은 누가 누구와 대화하는지 모른다). 기록은 서버만.
+        match /chat/{chatId} {
+          allow read: if signedIn() && (request.auth.uid == uid || isTeacher(code));
+          allow write: if false;
+        }
       }
 
       match /groups/{gid} {

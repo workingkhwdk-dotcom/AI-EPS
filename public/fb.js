@@ -9,7 +9,8 @@ export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 const functions = getFunctions(app, "asia-northeast3");
-export const call = (name) => httpsCallable(functions, name);
+// 기본 제한 시간(70초)보다 길게: 추론 모델의 시뮬레이션은 오래 걸릴 수 있다.
+export const call = (name) => httpsCallable(functions, name, { timeout: 300000 });
 
 export const esc = (s) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
