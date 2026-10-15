@@ -251,7 +251,7 @@ footer{font-size:12.5px;color:var(--ink-3)}
   <h2>배포 순서</h2>
   <div class="steps">
     <div class="step"><div class="n">1</div><div>Firebase 프로젝트 생성, <b>Blaze 요금제</b> 전환, Authentication(익명·구글)과 Firestore(서울) 사용 설정</div></div>
-    <div class="step"><div class="n">2</div><div><code>public/firebase-config.js</code>에 웹 앱 설정값 입력, <code>.firebaserc</code>에 프로젝트 ID 입력</div></div>
+    <div class="step"><div class="n">2</div><div>웹 앱 설정(<code>public/firebase-config.js</code>)과 프로젝트 ID(<code>.firebaserc</code>)는 <b>연결 완료</b>: <code>knue-socialstudies-ai-eps</code></div></div>
     <div class="step"><div class="n">3</div><div><code>firebase functions:secrets:set OPENAI_API_KEY</code>, <code>functions/.env</code>에 <code>TEACHER_EMAILS</code>와 <code>OPENAI_MODEL</code> 입력</div></div>
     <div class="step"><div class="n">4</div><div><code>firebase deploy</code> → <code>/teacher.html</code>에서 수업 생성 → 수업 코드와 모둠 번호를 학생에게 안내</div></div>
   </div>

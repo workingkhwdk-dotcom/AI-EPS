@@ -33,28 +33,42 @@ firestore.rules    학생은 자기 모둠의 work만 수정, AI 로그는 서�
 
 학생 브라우저는 OpenAI를 직접 호출하지 않습니다. 모든 호출은 `aiRequest`를 거치며, 입력과 응답이 모두 로그로 저장됩니다.
 
-## 준비 (한 번만)
+## 배포 (Firebase 프로젝트: `knue-socialstudies-ai-eps`)
 
-1. Firebase 콘솔에서 프로젝트를 만들고 **Blaze(종량제) 요금제**로 전환 (Cloud Functions 필요). 예산 알림을 설정하세요.
-2. 콘솔에서 사용 설정: **Authentication**(익명, Google), **Firestore**(서울 `asia-northeast3` 권장).
-3. 웹 앱을 등록하고 설정값을 `public/firebase-config.example.js`를 복사한 `public/firebase-config.js`에 붙여 넣기.
-4. `.firebaserc`의 `YOUR-FIREBASE-PROJECT-ID`를 프로젝트 ID로 바꾸기.
-5. 도구 설치와 로그인:
-   ```bash
-   npm i -g firebase-tools && firebase login
-   cd functions && npm install && cd ..
-   ```
-6. OpenAI API 키를 비밀값으로 저장 (코드에 넣지 마세요):
-   ```bash
-   firebase functions:secrets:set OPENAI_API_KEY
-   ```
-7. 교사 계정과 모델 설정: `functions/.env` 파일을 만들어 아래처럼 작성
-   ```
-   TEACHER_EMAILS=교사구글계정@gmail.com
-   OPENAI_MODEL=gpt-4o-mini
-   ```
-   (`OPENAI_MODEL`은 사용 가능한 모델명으로 바꿀 수 있습니다.)
-8. 배포: `firebase deploy`
+웹 앱 설정(`public/firebase-config.js`)과 프로젝트 ID(`.firebaserc`)는 이미 연결되어 있습니다. 아래는 **선생님 PC에서 한 번만** 하면 되는 작업입니다.
+
+### 1. 콘솔에서 설정 (https://console.firebase.google.com/project/knue-socialstudies-ai-eps)
+1. **요금제를 Blaze(종량제)로 전환** — Cloud Functions 배포에 필요합니다. 결제 예산 알림도 설정하세요.
+2. **Authentication → 로그인 방법**: *익명*과 *Google*을 사용 설정 (학생은 익명, 교사는 구글 로그인).
+3. **Firestore Database 만들기**: 위치는 `asia-northeast3`(서울) 권장, 프로덕션 모드로 시작 (보안 규칙은 배포 시 적용됩니다).
+4. Authentication → 설정 → **승인된 도메인**에 `knue-socialstudies-ai-eps.web.app`, `knue-socialstudies-ai-eps.firebaseapp.com`이 있는지 확인 (보통 자동 등록).
+
+### 2. 터미널에서 배포
+```bash
+git clone https://github.com/workingkhwdk-dotcom/AI-EPS.git && cd AI-EPS
+git checkout claude/loving-fermat-vslak3
+
+npm i -g firebase-tools
+firebase login
+cd functions && npm install && cd ..
+
+# OpenAI API 키를 비밀값으로 저장 (코드·저장소에 넣지 않습니다)
+firebase functions:secrets:set OPENAI_API_KEY
+
+# 교사 계정·모델·리허설 설정
+cp functions/.env.example functions/.env     # 열어서 TEACHER_EMAILS 를 본인 구글 계정으로 수정
+
+firebase deploy
+```
+배포가 끝나면 학생용 주소는 `https://knue-socialstudies-ai-eps.web.app/`, 교사용은 `/teacher.html`입니다.
+
+### 3. 첫 점검
+1. `/teacher.html`에서 구글 로그인 → "인물·출처 점검"에 인물 4명이 보이는지 확인
+2. 수업 만들기 → 6자리 코드 확인 → 다른 기기(휴대폰)에서 `/` 접속해 코드·모둠 번호·별명으로 입장
+3. 사전 질문 3개를 만들고 인물과 대화, 교사 화면에서 로그와 감독자 판정(`guard`) 확인
+4. 리허설이 끝나면 `functions/.env`의 `ALLOW_UNVERIFIED_PERSONAS`를 지우거나 `false`로 바꾸고 `firebase deploy --only functions`
+
+> Analytics는 연결하지 않았습니다(학생 대상 서비스). 웹 설정값의 `apiKey`는 프로젝트 식별용 공개 값이며, 접근 통제는 Firestore 보안 규칙과 Cloud Functions가 담당합니다.
 
 ## 수업 진행
 
