@@ -30,7 +30,7 @@ test("인물은 사람 이름과 편지, 말투, 설정을 갖고, 이름은 서
     assert.ok(p.name && p.name.length <= 4, `${p.id}: 사람 이름이어야 한다`);
     assert.ok(p.label && p.label !== p.name, `${p.id}: 교사용 역할명(label)`);
     assert.ok(p.voice.length > 10 && p.setting.length > 10, p.id);
-    assert.ok(Array.isArray(p.letter) && p.letter.length >= 3, `${p.id}: 편지 문단`);
+    assert.ok(Array.isArray(p.letter) && p.letter.length >= 7 && p.letter.join("").length >= 500, `${p.id}: 편지는 7문단 이상, 충분히 길게`);
     assert.ok(p.letter[0].includes(p.name), `${p.id}: 편지 첫머리에 이름`);
     // 편지는 인물 목소리여야 하므로 개발자·수업 관점의 말이 없어야 한다
     assert.doesNotMatch(p.letter.join(" "), /수업용|챗봇|AI|자료|보도|인터뷰/, p.id);

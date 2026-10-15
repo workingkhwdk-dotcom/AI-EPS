@@ -283,6 +283,11 @@ details.fold .inner{ margin-top:12px; }
 .fl > div{ white-space:pre-wrap; word-break:break-word; }
 .fl.miss > div{ color:var(--danger); font-weight:700; }
 
+/* 2단계 사건 개요 */
+.overview{ background:var(--accent-tint); border-radius:14px; padding:12px 14px; margin-bottom:12px; font-size:14px; }
+.overview b{ display:block; margin-bottom:4px; }
+.overview p{ margin:0; }
+
 /* 단계 끝 이동 버튼 */
 .nav-foot{ display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:6px; }
 .nav-foot .btn{ min-width:0; }
