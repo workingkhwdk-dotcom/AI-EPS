@@ -43,6 +43,12 @@ service cloud.firestore {
         }
       }
 
+      // 대화 규칙 위반 신호: 교사만 읽는다. 기록은 서버만
+      match /alerts/{alertId} {
+        allow read: if isTeacher(code);
+        allow write: if false;
+      }
+
       match /groups/{gid} {
         allow read: if isTeacher(code) || isMember(code, gid);
         // 학생은 모둠 산출물(work)만 수정할 수 있다

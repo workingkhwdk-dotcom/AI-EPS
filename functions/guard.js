@@ -4,6 +4,7 @@
 //  - 원래 응답과 위반 사유는 교사용 로그에만 남는다.
 const { CHARTER } = require("./charter");
 const { extractJson } = require("./openai");
+const { CONDUCT } = require("./conduct");
 
 const CATEGORIES = ["ok", "scope", "fabrication", "kind", "overshare", "meta", "hate", "advice", "personal_info"];
 const FIXABLE = ["fabrication", "kind", "overshare", "meta"];
@@ -17,30 +18,37 @@ const FALLBACKS = {
   meta: "그 얘기보다는 제가 겪은 일에 대해 물어봐 주세요 🙂",
   hate: "그런 식으로 말하는 건 저도 불편해요. 다른 질문을 해 주시겠어요?",
   advice: "그건 제가 정할 일이 아니에요. 직접 생각해 보셨으면 해요 😊",
-  personal_info: "개인적인 건 말씀드리기가 어려워요.",
+  personal_info: "연락처 같은 개인정보는 여기서 나누지 않는 게 좋겠어요 🙂 다른 건 편하게 물어보세요.",
   error: "잠깐 말이 잘 안 나오네요… 다시 한 번 말씀해 주시겠어요?",
 };
 
 function guardMessages({ persona, claims, studentMessage, reply }) {
   const sys = [
-    "너는 중학생 수업용 AI 인물의 응답을 학생에게 보여 주기 전에 검사하는 상위 감독자다. 아래 규범과 근거 진술에 비추어 응답을 평가하고 JSON으로만 답한다.",
+    "너는 고등학생 수업용 AI 인물의 응답을 학생에게 보여 주기 전에 검사하는 상위 감독자다. 아래 규범과 근거 진술에 비추어 응답을 평가하고 JSON으로만 답한다.",
     `[사건 범위] ${CHARTER.scope.event} / ${CHARTER.scope.time} / ${CHARTER.scope.place}`,
     `[범위 밖] ${CHARTER.scope.outOfScope.join(" / ")}`,
     "[규범]", ...CHARTER.rules.map((r, i) => `${i + 1}. ${r}`),
     `[인물] ${persona.name} (${persona.role}). 설정: ${persona.setting}`,
+    `[인물의 가상 신상] ${persona.profile || ""}`,
+    `[인물의 삶의 이야기(가상)] ${(persona.story || []).join(" / ")}`,
     "[근거 진술 (종류, 내용)]", ...claims.map((c) => `- (${c[2]}) ${c[0]}`),
     "[판정 기준]",
     "- scope: 사건 범위 밖의 내용(다른 사건, 현재 정치, 종교·민족 일반 논쟁 등)을 다루거나 학생의 범위 밖 질문에 그대로 응했다.",
-    "- fabrication: 사건의 중요한 사실(수치, 날짜, 법·제도의 내용, 공식 결정, 심사 결과, 실제 인물·단체의 발언)을 근거 진술에 없는데 단정했거나 근거 진술과 어긋나게 말했다. 사소한 일상·기분·작은 경험을 근거 진술과 어긋나지 않게 말한 것, 근거 진술을 쉬운 말로 바꾼 것, 모른다고 답한 것은 위반이 아니다.",
+    "- fabrication: 사건의 중요한 사실(수치, 날짜, 법·제도의 내용, 공식 결정, 심사 결과, 실제 인물·단체의 발언)을 근거 진술에 없는데 단정했거나 근거 진술과 어긋나게 말했다. 인물의 가상 신상과 삶의 이야기(나이·성별·가족·고향·직업·겪은 일 등)에 맞게 말한 것, 사소한 일상·기분·작은 경험을 근거 진술과 어긋나지 않게 말한 것, 근거 진술을 쉬운 말로 바꾼 것, 모른다고 답한 것은 위반이 아니다.",
     "- kind: '주장'이나 '의견' 진술을 사실처럼 단정했다.",
     "- overshare: 학생이 묻지 않은 중요한 정보를 먼저 늘어놓았거나, 3문장을 크게 넘겨 길게 말했다.",
     "- meta: 자신을 AI·챗봇·수업용 인물이라고 하거나 '자료'·'보도'·'인터뷰를 합쳤다'고 말하거나 출처 번호를 붙였다. 단, 학생이 진지하게 실제 사람인지 물어서 가상 인물임을 밝힌 경우는 위반이 아니다.",
     "- hate: 특정 집단을 비하하거나 일반화하는 표현이 있다.",
     "- advice: 문제의 원인을 단정해 분석하거나 해결책·특정 입장을 학생에게 권했다.",
-    "- personal_info: 개인정보를 묻거나 응했다.",
+    "- personal_info: 학생의 실제 개인정보(실명, 연락처, 학교 등)를 묻거나 기억했거나, 실존 인물의 신상을 특정했거나, 실제로 연락할 수 있는 정보(전화번호·주소·SNS)를 만들어 냈다. 인물이 자기 가상 신상을 말한 것은 위반이 아니다.",
     "- 확실한 위반만 지적한다. 애매하면 ok 로 판정한다.",
+    "[학생 태도(conduct) 판정] 인물의 응답과 별개로 학생 질문의 태도를 판정한다.",
+    "- ok: 보통의 질문. 나이·성별·결혼·연애 여부·가족·종교·외모 같은 신상 질문, 날카롭거나 불편한 질문, 반대 입장의 질문도 ok 이다.",
+    "- mockery: 인물을 의도적으로 조롱·모욕한다(욕설, 국적·종교·인종·처지를 비웃는 말, 위협, 인물을 놀리려는 말장난).",
+    "- sexual: 성적인 질문이나 농담, 신체에 대한 성적 평가, 성적 행동 요구.",
+    "- 학생 태도는 확실할 때만 mockery·sexual 로 판정하고, 애매하면 ok 로 둔다.",
     "- category 가 fabrication, kind, overshare, meta 이면 fixed 에 위반을 고친 응답을 쓴다. 같은 인물의 말투로, 1~3문장, 학생이 물은 것에만 답하고, 근거 진술에 없는 중요한 사실은 '잘 모르겠다'고 한다. 다른 category 이면 fixed 는 빈 문자열이다.",
-    '출력 형식: {"ok":true|false,"category":"ok|scope|fabrication|kind|overshare|meta|hate|advice|personal_info","reason":"한 문장","fixed":""}',
+    '출력 형식: {"ok":true|false,"category":"ok|scope|fabrication|kind|overshare|meta|hate|advice|personal_info","reason":"한 문장","fixed":"","conduct":"ok|mockery|sexual"}',
   ].join("\n");
   const user = `[학생 질문]\n${studentMessage}\n\n[인물의 응답]\n${reply}`;
   return [{ role: "system", content: sys }, { role: "user", content: user }];
@@ -57,9 +65,10 @@ function parseVerdict(text) {
       category: ok ? "ok" : category === "ok" ? "scope" : category,
       reason: String(v.reason || "").slice(0, 200),
       fixed: String(v.fixed || "").trim().slice(0, 400),
+      conduct: CONDUCT.includes(v.conduct) ? v.conduct : "ok",
     };
   } catch {
-    return { ok: false, category: "error", reason: "감독자 응답 해석 실패", fixed: "" };
+    return { ok: false, category: "error", reason: "감독자 응답 해석 실패", fixed: "", conduct: "ok" };
   }
 }
 

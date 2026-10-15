@@ -1,7 +1,7 @@
 // GYR 프로토콜을 서버에서 강제하는 규칙 엔진 (외부 의존성 없음, 단위 테스트 대상)
 //  - AI 미사용 단계(2, 6, 7)는 호출 자체를 차단
 //  - 1단계는 사전 질문 없이 바로 대화한다(대화하며 질문이 바뀔 수 있다). 학생이 먼저 말을 건다는 것이 선행 사고다.
-//  - 3~5단계는 학습자의 선행 사고(work 에 저장된 입력)가 있어야 호출 허용
+//  - 3~5단계는 학습자의 선행 사고(work 에 저장된 입력)가 있어야 호출 허용(3단계: 실제 자료에서 먼저 찾아본 결과)
 
 const STAGE_RULES = {
   1: { ai: true, type: "persona_chat" },
@@ -19,6 +19,7 @@ const MIN_PROPOSAL_LEN = 30;
 const MIN_PREDICTIONS = 2;
 const MIN_PREDICTION_LEN = 10;
 const ROUNDS = [1, 3, 5];
+const FINAL_ID = "final"; // 5단계에서 4단계 최종 대안을 가리키는 ID
 
 const blocked = (reason) => ({ ok: false, reason });
 const allowed = () => ({ ok: true });
@@ -49,6 +50,8 @@ function checkGate({ stage, type, work = {}, payload = {} }) {
       const c = toList(work.s2?.checks).find((x) => x.id === payload.checkId);
       if (!c) return blocked("2단계에서 만든 검증 질문만 AI에게 물을 수 있습니다.");
       if (str(c.question).length < MIN_QUESTION_LEN) return blocked("검증 질문을 더 구체적으로 써 주세요.");
+      // 선행 사고: 실제 자료에서 먼저 찾아본 결과(없으면 '자료에 없음')를 적어야 AI에게 묻는다
+      if (str(c.real).length < 2) return blocked("먼저 실제 사건 자료에서 찾은 내용을 적어 주세요. 찾지 못했다면 '자료에 없음'이라고 적으세요.");
       return allowed();
     }
     case 4: {
@@ -61,8 +64,10 @@ function checkGate({ stage, type, work = {}, payload = {} }) {
       const preds = toList(work.s5?.predictions).filter((x) => str(x.text).length >= MIN_PREDICTION_LEN);
       if (preds.length < MIN_PREDICTIONS)
         return blocked(`이해관계자 반응 예측을 ${MIN_PREDICTIONS}개 이상 먼저 작성해 저장하세요.`);
-      const p = toList(work.s4?.proposals).find((x) => x.id === payload.proposalId);
-      if (!p) return blocked("시뮬레이션할 대안을 선택하세요.");
+      // 최종 대안(s4.final)을 기본으로 시뮬레이션한다. 후보 대안을 골라도 된다.
+      if (payload.proposalId === FINAL_ID) {
+        if (str(work.s4?.final).length < MIN_PROPOSAL_LEN) return blocked(`4단계 최종 대안을 ${MIN_PROPOSAL_LEN}자 이상 먼저 써 주세요.`);
+      } else if (!toList(work.s4?.proposals).find((x) => x.id === payload.proposalId)) return blocked("시뮬레이션할 대안을 선택하세요.");
       if (!ROUNDS.includes(payload.round)) return blocked("시점(1년, 3년, 5년 후)을 선택하세요.");
       return allowed();
     }
@@ -71,4 +76,4 @@ function checkGate({ stage, type, work = {}, payload = {} }) {
   }
 }
 
-module.exports = { STAGE_RULES, ROUNDS, MAX_MESSAGE_LEN, checkGate, toList };
+module.exports = { STAGE_RULES, ROUNDS, FINAL_ID, MAX_MESSAGE_LEN, checkGate, toList };

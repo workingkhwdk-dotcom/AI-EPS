@@ -1,6 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert");
-const { SOURCES, EVENTS, PERSONAS, MATERIALS, availablePersonas, personaSourceIds, personaVerified, materialsFor, materialsAdmin } = require("../case");
+const {
+  SOURCES, EVENTS, PERSONAS, MATERIALS, CASES, AFTERMATH, availablePersonas, personaSourceIds, personaVerified, materialsFor, materialsAdmin,
+  casesFor, aftermathFor,
+} = require("../case");
 const { personaPrompt } = require("../prompts");
 
 const KINDS = ["증언", "사실", "주장", "의견"];
@@ -20,7 +23,9 @@ test("인물은 사람 이름과 편지, 말투, 설정을 갖고, 이름은 서
     assert.ok(Array.isArray(p.letter) && p.letter.length >= 3, `${p.id}: 편지 문단`);
     assert.ok(p.letter[0].includes(p.name), `${p.id}: 편지 첫머리에 이름`);
     // 편지는 인물 목소리여야 하므로 개발자·수업 관점의 말이 없어야 한다
-    assert.doesNotMatch(p.letter.join(" "), /수업용|챗봇|AI|자료|보도|인터뷰/, p.id);
+    assert.doesNotMatch([...p.letter, p.ps || ""].join(" "), /수업용|챗봇|AI|자료|보도|인터뷰/, p.id);
+    // 가상 신상이 있어야 나이·가족 같은 질문에 실감 나게 답한다
+    assert.ok(p.profile && /\d+세/.test(p.profile), `${p.id}: 가상 신상(나이 포함)`);
   }
 });
 
@@ -41,6 +46,8 @@ test("사용되지 않는 출처가 없다 (인물 진술 또는 실제 자료 �
   const used = new Set([
     ...PERSONAS.flatMap(personaSourceIds),
     ...MATERIALS.flatMap((m) => [...(m.statsSrc || []), ...m.items.flatMap((i) => i.src)]),
+    ...CASES.flatMap((c) => c.src),
+    ...AFTERMATH.flatMap((a) => a.src),
   ]);
   for (const id of Object.keys(SOURCES)) assert.ok(used.has(id), `미사용 출처 ${id}`);
 });
@@ -108,4 +115,34 @@ test("페르소나 프롬프트: 사람처럼 짧게, 묻는 것에만, 출처·
   assert.match(prompt, /출처 번호도 붙이지 않는다/);
   assert.doesNotMatch(prompt, /\(자료\d\)/);
   assert.doesNotMatch(prompt, /울산|아프간/);
+});
+
+test("인물마다 가상 신상과 삶의 이야기·생각이 미리 만들어져 있고, 프롬프트에 들어간다", () => {
+  for (const p of PERSONAS) {
+    assert.ok(Array.isArray(p.story) && p.story.length >= 6, `${p.id}: 삶의 이야기`);
+    assert.ok(Array.isArray(p.views) && p.views.length >= 3, `${p.id}: 생각`);
+    assert.doesNotMatch([...p.story, ...p.views, p.profile].join(" "), /수업용|챗봇|AI/, p.id);
+    const sys = personaPrompt(EVENTS.jeju2018, p);
+    assert.ok(sys.includes(p.story[0]) && sys.includes(p.views[0]) && sys.includes(p.profile));
+    assert.match(sys, /조롱·모욕하거나 성적인 말/);
+  }
+});
+
+test("4단계 해외 사례 카드: 여는 정책과 막는 정책이 섞여 있고, 출처 링크가 있으며 검증 전에는 숨는다", () => {
+  assert.ok(CASES.length >= 4);
+  assert.ok(CASES.some((c) => c.id === "australia") && CASES.some((c) => c.id === "canada"));
+  for (const c of CASES) {
+    assert.ok(c.country && c.title && c.what.length > 30 && c.result.length > 30 && c.think.length > 20, c.id);
+    for (const id of c.src) assert.match(SOURCES[id].url, /^https:\/\//, `${c.id}: ${id}`);
+  }
+  assert.equal(casesFor(false).length, 0);
+  const shown = casesFor(true);
+  assert.ok(shown.every((c) => c.links.length && !("src" in c) && c.links.every((l) => l.url && !("verified" in l))));
+});
+
+test("7단계 이후 전개 자료: 종류와 출처가 있고 검증 전에는 숨는다", () => {
+  assert.ok(AFTERMATH.length >= 4);
+  for (const a of AFTERMATH) { assert.ok(KINDS.includes(a.kind)); assert.ok(a.src.every((id) => SOURCES[id])); }
+  assert.equal(aftermathFor(false).length, 0);
+  assert.ok(aftermathFor(true).every((a) => a.caption && a.links.length));
 });
