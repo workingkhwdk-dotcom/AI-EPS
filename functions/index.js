@@ -118,7 +118,7 @@ exports.joinSession = onCall(opts, async (req) => {
 });
 
 // 화면이 쓰는 수업 설정.
-//  - 학생: { code } → 사건 개요(객관적 설명), 내 인물의 이름과 편지, 실제 자료. 인물의 역할·근거·출처는 보내지 않는다.
+//  - 학생: { code } → 내 인물의 이름과 편지, 실제 자료(사건 개요는 화면에 보이지 않지만 함께 보낸다). 인물의 역할·근거·출처는 보내지 않는다.
 //  - 교사: { eventId } → 인물별 근거 진술·출처 검증 현황, 자료 전체
 exports.getCase = onCall(opts, async (req) => {
   const auth = requireAuth(req);
@@ -128,7 +128,7 @@ exports.getCase = onCall(opts, async (req) => {
     const ev = EVENTS[req.data.eventId];
     if (!ev) throw new HttpsError("not-found", "사건을 찾을 수 없습니다.");
     const full = (p) => ({
-      id: p.id, label: p.label, name: p.name, role: p.role, stance: p.stance, setting: p.setting, voice: p.voice, basis: p.basis, letter: p.letter,
+      id: p.id, label: p.label, name: p.name, role: p.role, stance: p.stance, setting: p.setting, voice: p.voice, basis: p.basis, profile: p.profile, letter: p.letter, ps: p.ps || "",
       sources: personaSourceIds(p).map(toPublicSource),
       claims: p.claims.map(([text, src, kind]) => ({ text, src, kind })),
     });
@@ -153,7 +153,7 @@ exports.getCase = onCall(opts, async (req) => {
     title: ev.title,
     summary: ev.summary,
     stakeholders: ev.stakeholders,
-    me: mine ? { name: mine.name, letter: mine.letter } : null,
+    me: mine ? { name: mine.name, letter: mine.letter, ps: mine.ps || "" } : null,
     materials: materialsFor(allowUnverified()),
   };
 });

@@ -111,7 +111,7 @@ onAuthStateChanged(auth, async (u) => {
 // ---------- 공통 렌더 ----------
 function renderTabs() {
   $("#tabs").innerHTML = STAGES.map((s) =>
-    `<button class="stage-tab ${S.stage === s.n ? "on" : ""}" data-stage="${s.n}"><b>${s.n}</b><span>${s.name}</span></button>`).join("");
+    `<button class="stage-tab ${S.stage === s.n ? "on" : ""} ${s.n < S.stage ? "past" : ""}" data-stage="${s.n}" aria-current="${S.stage === s.n ? "step" : "false"}"><b>${s.n}</b><span>${s.name}</span></button>`).join("");
 }
 $("#tabs").onclick = (e) => {
   const b = e.target.closest("[data-stage]"); if (!b) return;
@@ -201,10 +201,12 @@ const renderStage = {
     const mine = w(`s1.findings.${S.uid}`)?.text || "";
     const others = notes.filter((n) => n.id !== S.uid && (n.text || "").trim());
     return `${gyrBanner(1)}
-    <div class="card"><h2>${esc(info.title)}</h2><p>${esc(info.summary)}</p></div>
     <details class="letter" ${S.chat.length ? "" : "open"}>
       <summary>${esc(me.name)}에게서 온 편지</summary>
-      <div class="body">${me.letter.map((p) => `<p>${esc(p)}</p>`).join("")}<div class="sign">${esc(me.name)} 드림</div></div>
+      <div class="body">${me.letter.map((p) => `<p>${esc(p)}</p>`).join("")}
+        <div class="sign"><span>2018년 12월, 제주에서</span>${esc(me.name)} 드림</div>
+        ${me.ps ? `<p class="ps">추신. ${esc(me.ps)}</p>` : ""}</div>
+      <div class="letter-note">${esc(info.title)} · 실제 보도를 바탕으로 만든 가상 인물의 편지예요.</div>
     </details>
     <div class="card chat-card">
       <div class="chat-head"><div class="avatar">${esc(me.name.slice(0, 1))}</div><div><div class="nm">${esc(me.name)}</div><div class="st">대화 중</div></div></div>

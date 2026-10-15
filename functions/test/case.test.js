@@ -20,7 +20,9 @@ test("인물은 사람 이름과 편지, 말투, 설정을 갖고, 이름은 서
     assert.ok(Array.isArray(p.letter) && p.letter.length >= 3, `${p.id}: 편지 문단`);
     assert.ok(p.letter[0].includes(p.name), `${p.id}: 편지 첫머리에 이름`);
     // 편지는 인물 목소리여야 하므로 개발자·수업 관점의 말이 없어야 한다
-    assert.doesNotMatch(p.letter.join(" "), /수업용|챗봇|AI|자료|보도|인터뷰/, p.id);
+    assert.doesNotMatch([...p.letter, p.ps || ""].join(" "), /수업용|챗봇|AI|자료|보도|인터뷰/, p.id);
+    // 가상 신상이 있어야 나이·가족 같은 질문에 실감 나게 답한다
+    assert.ok(p.profile && /\d+세/.test(p.profile), `${p.id}: 가상 신상(나이 포함)`);
   }
 });
 
