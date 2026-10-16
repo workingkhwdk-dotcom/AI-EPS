@@ -4,3 +4,6 @@ node_modules/
 .env*
 !.env.example
 .runtimeconfig.json
+# 화면·규칙 테스트는 CI에서 npm install 로 설치한다(잠금 파일을 두지 않음)
+ui-test/package-lock.json
+rules-test/package-lock.json
