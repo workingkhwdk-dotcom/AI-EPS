@@ -56,8 +56,9 @@ async function chat(opts) {
 }
 
 // Responses API: 웹 검색 도구(web_search)를 쓸 수 있다. 검색은 추론 사고량 minimal 과 함께 쓸 수 없어 low 이상으로 올린다.
-function buildResponsesBody({ model, instructions, input, maxTokens = 1200, effort = "low" }) {
-  const body = { model, instructions, input, tools: [{ type: "web_search" }], max_output_tokens: maxTokens + (isReasoning(model) ? headroom(effort) : 0) };
+function buildResponsesBody({ model, instructions, input, maxTokens = 1200, effort = "low", domains = [] }) {
+  const tool = { type: "web_search", ...(domains.length ? { filters: { allowed_domains: domains } } : {}) };
+  const body = { model, instructions, input, tools: [tool], max_output_tokens: maxTokens + (isReasoning(model) ? headroom(effort) : 0) };
   if (isReasoning(model)) body.reasoning = { effort: effort === "minimal" ? "low" : effort };
   return body;
 }

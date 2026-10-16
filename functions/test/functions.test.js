@@ -5,7 +5,7 @@ const Module = require("node:module");
 
 // ---------- 메모리 Firestore ----------
 const store = new Map();
-const TS = { toMillis: () => 1 };
+const TS = { toMillis: () => Date.now(), toJSON: () => Date.now() };
 const DEL = { __del: true };
 const FV = { serverTimestamp: () => TS, increment: (n) => ({ __inc: n }), delete: () => DEL };
 // 점(.)이 든 필드 경로는 중첩 객체로 풀어서 갱신하고, FieldValue.delete() 는 그 키를 지운다
@@ -612,4 +612,64 @@ test("AI 한도: 모둠 한도에 도달하면 막히고, 실패한 호출은 �
   await assert.rejects(chatOnce(c, "A1", "실패할 질문"), /AI 응답/);
   global.fetch = realFetch;
   assert.equal(store.get(`sessions/${c}/groups/g1`).aiCount, 10, "실패한 호출은 사용 횟수에서 뺀다");
+});
+
+// ---------- 수업 설정·복제·자동 닫힘 ----------
+test("수업 설정: AI 한도·웹 검색·자동 닫힘을 교사만, 올바른 값으로만 바꿀 수 있다", async () => {
+  const c = await mk();
+  assert.equal(store.get(`sessions/${c}`).aiLimit, 150);
+  const upd = (data) => api.updateSession({ ...teacher, data: { code: c, ...data } });
+  await upd({ aiLimit: 20, webSearch: false, autoCloseHours: 4 });
+  assert.deepEqual([store.get(`sessions/${c}`).aiLimit, store.get(`sessions/${c}`).webSearch, store.get(`sessions/${c}`).autoCloseHours], [20, false, 4]);
+  await assert.rejects(upd({ aiLimit: 5 }), /10~500/);
+  await assert.rejects(upd({ aiLimit: 9999 }), /10~500/);
+  await assert.rejects(upd({ autoCloseHours: 3 }), /자동 닫힘/);
+  await assert.rejects(api.updateSession({ ...student("A1"), data: { code: c, aiLimit: 500 } }), /교사/);
+});
+
+test("수업별 AI 한도와 웹 검색 끄기가 실제로 적용된다", async () => {
+  const c = await mk();
+  await join("A1", c, "가람", "sesame1");
+  await api.updateSession({ ...teacher, data: { code: c, aiLimit: 10, webSearch: false } });
+  store.set(`sessions/${c}/groups/g1`, { ...store.get(`sessions/${c}/groups/g1`), aiCount: 10 });
+  await assert.rejects(chatOnce(c, "A1", "안녕하세요"), /한도/);
+  store.set(`sessions/${c}/groups/g1`, { ...store.get(`sessions/${c}/groups/g1`), aiCount: 0 });
+  calls.length = 0; personaToolCalls = 5; personaReply = "네.";
+  await chatOnce(c, "A1", "인도적 체류는 몇 명이에요?");
+  personaToolCalls = 0;
+  assert.equal(calls.some((x) => x.kind === "search"), false, "검색이 꺼져 있으면 도구를 주지 않는다");
+  assert.equal(calls[0].body.tools, undefined);
+  assert.doesNotMatch(calls[0].body.messages[0].content, /9-1\./);
+});
+
+test("수업 복제: 설정과 고친 자료는 가져오고 학생·기록은 가져오지 않는다(내 수업만)", async () => {
+  const c = await mk(3);
+  await api.updateSession({ ...teacher, data: { code: c, aiLimit: 40, autoCloseHours: 2, title: "원본" } });
+  await join("A1", c, "가람", "sesame1");
+  const cats = (await api.getMaterials({ ...teacher, data: { code: c } })).categories;
+  await api.saveMaterials({ ...teacher, data: { code: c, categories: [{ ...cats[0], title: "고친 분류" }] } });
+  const other = { auth: { uid: "T9", token: { email: "t@school.kr" } } };
+  await assert.rejects(api.cloneSession({ ...other, data: { code: c } }), /내가 만든/);
+  const r = await api.cloneSession({ ...teacher, data: { code: c } });
+  const n = store.get(`sessions/${r.code}`);
+  assert.equal(n.title, "원본 (복사)");
+  assert.deepEqual([n.groupCount, n.aiLimit, n.autoCloseHours, n.closed], [3, 40, 2, false]);
+  assert.ok(store.get(`sessions/${r.code}/groups/g3`));
+  assert.equal(store.get(`sessions/${r.code}/groups/g1`).memberCount, 0);
+  assert.equal([...store.keys()].some((k) => k.startsWith(`sessions/${r.code}/members/`)), false);
+  assert.equal((await api.getMaterials({ ...teacher, data: { code: r.code } })).categories[0].title, "고친 분류");
+});
+
+test("자동 닫힘: 마지막 접속 후 시간이 지나면 다음 입장 시도에서 닫히고 막히며, 다시 열면 시간을 새로 센다", async () => {
+  const c = await mk();
+  await api.updateSession({ ...teacher, data: { code: c, autoCloseHours: 1 } });
+  await join("A1", c, "가람", "sesame1");
+  const two = Date.now() - 2 * 3600 * 1000;
+  store.set(`sessions/${c}`, { ...store.get(`sessions/${c}`), createdAt: two, openedAt: two });
+  store.set(`sessions/${c}/members/A1`, { ...store.get(`sessions/${c}/members/A1`), lastSeen: two });
+  await assert.rejects(join("B1", c, "나래", "sesame2"), /닫아 둔/);
+  assert.equal(store.get(`sessions/${c}`).closed, true);
+  assert.equal(store.get(`sessions/${c}`).closedAuto, true);
+  await api.updateSession({ ...teacher, data: { code: c, closed: false } });
+  await join("B1", c, "나래", "sesame2"); // 다시 열었으므로 입장 가능
 });

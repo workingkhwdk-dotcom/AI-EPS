@@ -32,9 +32,9 @@ const SEARCH_INSTRUCTIONS = [
 const cleanQuery = (q) => String(q ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
 
 // 실제 검색. 실패해도 대화가 끊기지 않도록 found:false 로 돌려준다.
-async function webSearch({ apiKey, model, query, effort = "low" }) {
+async function webSearch({ apiKey, model, query, effort = "low", domains = [] }) {
   try {
-    const { text, sources } = await respond({ apiKey, model, instructions: SEARCH_INSTRUCTIONS, input: query, effort });
+    const { text, sources } = await respond({ apiKey, model, instructions: SEARCH_INSTRUCTIONS, input: query, effort, domains });
     const found = !!text && !text.toUpperCase().includes(NOT_FOUND);
     return { query, found, summary: found ? text.slice(0, 1200) : "", sources: found ? sources : [] };
   } catch (e) {

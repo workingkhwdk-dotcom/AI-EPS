@@ -105,6 +105,8 @@ function openSession(code, title) {
   $("#d-title").textContent = title;
   $("#d-code").textContent = code;
   renderOpen();
+  piiBy = {};
+  unsubs.push(onSnapshot(collection(db, `sessions/${code}/guardlog`), (s) => { piiBy = {}; s.docs.forEach((d) => { const x = d.data(); if ((x.pii || []).length) piiBy[x.uid] = (piiBy[x.uid] || 0) + 1; }); renderDash(); }));
   unsubs.push(onSnapshot(collection(db, `sessions/${code}/assign`), (s) => { assigns = Object.fromEntries(s.docs.map((d) => [d.id, d.data().personaId])); renderDash(); }));
   unsubs.push(onSnapshot(collection(db, `sessions/${code}/members`), (s) => { members = s.docs.map((d) => ({ uid: d.id, ...d.data() })); renderDash(); }));
   unsubs.push(onSnapshot(collection(db, `sessions/${code}/groups`), (s) => {
@@ -139,6 +141,7 @@ const personaLabels = {}; // 인물 ID → 교사용 역할명 (getCase 로 채�
 
 function renderDash() {
   if (!current) return;
+  renderAlerts();
   const online = members.filter(isOnline).length;
   const ai = groups.reduce((n, g) => n + (g.aiCount || 0), 0);
   const guard = groups.reduce((n, g) => n + (g.guardCount || 0), 0);
@@ -561,12 +564,18 @@ function fillSettings() {
   const r = curRow(); if (!r) return;
   $("#s-title").value = r.title;
   $("#s-groups").value = r.groupCount;
+  $("#s-ailimit").value = r.aiLimit || 150;
+  $("#s-web").value = r.webSearch === false ? "0" : "1";
+  $("#s-auto").value = String(r.autoCloseHours || 0);
   $("#s-guide").style.whiteSpace = "pre-wrap";
   $("#s-guide").textContent = studentGuide();
 }
 $("#s-save").onclick = async () => {
   try {
-    await call("updateSession")({ code: current, title: $("#s-title").value, groupCount: Number($("#s-groups").value) });
+    await call("updateSession")({
+      code: current, title: $("#s-title").value, groupCount: Number($("#s-groups").value),
+      aiLimit: Number($("#s-ailimit").value), webSearch: $("#s-web").value === "1", autoCloseHours: Number($("#s-auto").value),
+    });
     toast("저장했습니다");
     setTimeout(fillSettings, 400);
   } catch (e) { toast(errMsg(e), true); }
@@ -598,3 +607,37 @@ $("#open-btn").onclick = async () => {
   try { await call("updateSession")({ code: current, closed: closing }); toast(closing ? "수업을 닫았습니다" : "수업을 열었습니다"); }
   catch (e) { toast(errMsg(e), true); }
 };
+
+$("#s-clone").onclick = async () => {
+  if (!confirm("이 수업을 복제할까요? 새 수업 코드가 만들어집니다.")) return;
+  try {
+    const { data } = await call("cloneSession")({ code: current });
+    toast(`복제했습니다. 새 코드: ${data.code}`);
+    openSession(data.code, data.title);
+  } catch (e) { toast(errMsg(e), true); }
+};
+
+// ---------- 확인이 필요해요 (수업 중 눈여겨볼 것) ----------
+let piiBy = {}; // 학생 uid → 개인정보 의심 입력 수
+const ALERT_AWAY_MIN = 10;
+function renderAlerts() {
+  const r = curRow(), lim = r?.aiLimit || 150, out = [];
+  for (const g of groups) {
+    if (g.lastAiError) out.push(["r", `${g.name}: AI 오류 (${g.lastAiError.stage}단계) — ${g.lastAiError.message}`]);
+    if ((g.aiCount || 0) >= lim * 0.8) out.push(["y", `${g.name}: AI 사용 ${g.aiCount}/${lim}회 — 한도가 가깝습니다 (수업 설정에서 늘릴 수 있어요)`]);
+    if ((g.guardCount || 0) >= 3) out.push(["y", `${g.name}: 감독자가 ${g.guardCount}번 개입했습니다 — 학생 질문을 확인해 보세요`]);
+  }
+  for (const [uid, n] of Object.entries(piiBy)) {
+    const m = members.find((x) => x.uid === uid);
+    out.push(["r", `${m?.nickname || "학생"}: 개인정보로 보이는 입력 ${n}건 — 대화 보기에서 확인하고 안내해 주세요`]);
+  }
+  // 수업이 진행 중일 때(누군가 접속 중) 오래 자리를 비운 학생
+  if (!r?.closed && members.some(isOnline)) {
+    for (const m of members) {
+      const t = m.lastSeen?.toMillis?.();
+      if (t && !isOnline(m) && Date.now() - t > ALERT_AWAY_MIN * 60000 && (m.stage || 1) < 7) out.push(["x", `${m.nickname}: ${ago(m)}부터 접속이 없습니다 (${m.stage || 1}단계)`]);
+    }
+  }
+  $("#alerts").classList.toggle("hidden", !out.length);
+  $("#alerts-body").innerHTML = out.map(([k, t]) => `<div class="notice ${k === "r" ? "" : k === "y" ? "yellow" : "muted"}" style="margin-bottom:6px">${esc(t)}</div>`).join("");
+}

@@ -11,6 +11,8 @@ const { isTeacherEmail } = require("./teachers");
 const { validatePassword, hashPassword, verifyPassword, normNick, credKey, lockedSeconds, afterFail, afterTotalFail } = require("./password");
 const { defaultMaterials, sanitizeMaterials, toStudentMaterials } = require("./materials");
 const { chatWithLookup, webSearch } = require("./lookup");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { AUTO_CLOSE_CHOICES, autoCloseDue, staleAnonymousUids } = require("./maintenance");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -24,6 +26,8 @@ const GUARD_MODEL = defineString("GUARD_MODEL", { default: "" }); // 상위 AI(�
 const FEEDBACK_MODELS = defineString("FEEDBACK_MODELS", { default: "" }); // 4단계 독립 검토에 쓸 모델들(쉼표). 비우면 OPENAI_MODEL 로 3회
 const REASONING_EFFORT = defineString("REASONING_EFFORT", { default: "low" }); // 추론 모델의 사고량: minimal|low|medium|high
 const PERSONA_WEB_SEARCH = defineString("PERSONA_WEB_SEARCH", { default: "true" }); // 인물이 모르는 사실은 웹에서 찾아 본다(false 로 끄기)
+// 웹 검색을 허용할 도메인(쉼표). 비우면 제한 없음. 예: yna.co.kr,hani.co.kr,moj.go.kr,unhcr.org
+const SEARCH_ALLOWED_DOMAINS = defineString("SEARCH_ALLOWED_DOMAINS", { default: "" });
 const SEARCH_MODEL = defineString("SEARCH_MODEL", { default: "" }); // 웹 검색 호출 전용 모델(비우면 OPENAI_MODEL)
 const TEACHER_EMAILS = defineString("TEACHER_EMAILS", { default: "" });
 // true 이면 출처 원문 대조 전(verified:false) 페르소나·자료도 사용 가능. 리허설 전용, 실제 수업에서는 false 로 둔다.
@@ -32,7 +36,8 @@ const allowUnverified = () => ALLOW_UNVERIFIED.value() === "true";
 const DEFAULT_EVENT = "jeju2018";
 
 const REGION = "asia-northeast3"; // 서울
-const MAX_AI_CALLS_PER_GROUP = 150;
+const MAX_AI_CALLS_PER_GROUP = 150; // 수업별로 정하지 않았을 때의 모둠당 한도
+const AI_LIMIT_RANGE = [10, 500];
 const MAX_GROUPS = 12;
 
 const opts = { region: REGION, cors: true };
@@ -66,6 +71,23 @@ async function ownSession(req) {
   return { auth, code, sess: snap.data() };
 }
 
+// 수업 설정값(AI 한도, 웹 검색, 자동 닫힘)을 검사해 저장할 값으로 바꾼다. 없는 값은 건드리지 않는다.
+function sessionSettings(d) {
+  const out = {};
+  if (d?.aiLimit !== undefined) {
+    const n = parseInt(d.aiLimit, 10);
+    if (!(n >= AI_LIMIT_RANGE[0] && n <= AI_LIMIT_RANGE[1])) throw new HttpsError("invalid-argument", `모둠당 AI 한도는 ${AI_LIMIT_RANGE[0]}~${AI_LIMIT_RANGE[1]}회 사이로 정하세요.`);
+    out.aiLimit = n;
+  }
+  if (d?.webSearch !== undefined) out.webSearch = d.webSearch === true;
+  if (d?.autoCloseHours !== undefined) {
+    const h = Number(d.autoCloseHours);
+    if (!AUTO_CLOSE_CHOICES.includes(h)) throw new HttpsError("invalid-argument", "자동 닫힘 시간이 올바르지 않습니다.");
+    out.autoCloseHours = h;
+  }
+  return out;
+}
+
 // 교사가 닫아 둔 수업인지(closed:true). 닫힌 수업에는 입장·AI 사용·사건 자료 조회가 모두 막힌다.
 const CLOSED_MSG = "수업이 끝났거나 선생님이 닫아 둔 수업입니다. 입장할 수 없습니다.";
 
@@ -95,6 +117,8 @@ exports.createSession = onCall(opts, async (req) => {
     eventId,
     groupCount,
     closed: false,
+    aiLimit: MAX_AI_CALLS_PER_GROUP, webSearch: true, autoCloseHours: 0,
+    ...sessionSettings(req.data),
     createdAt: FieldValue().serverTimestamp(),
   });
   for (let i = 1; i <= groupCount; i++) {
@@ -171,6 +195,10 @@ exports.joinSession = onCall(opts, async (req) => {
   if (pwErr) throw new HttpsError("invalid-argument", pwErr);
   const session = await db.doc(`sessions/${code}`).get();
   if (!session.exists) throw new HttpsError("not-found", "수업 코드를 찾을 수 없습니다.");
+  if (!session.data().closed && session.data().autoCloseHours > 0) {
+    const ms = (await db.collection(`sessions/${code}/members`).get()).docs.map((d) => d.data());
+    if (autoCloseDue(session.data(), ms)) { await db.doc(`sessions/${code}`).update({ closed: true, closedAuto: true }); throw new HttpsError("failed-precondition", CLOSED_MSG); }
+  }
   if (session.data().closed) throw new HttpsError("failed-precondition", CLOSED_MSG);
   if (!(groupNo >= 1 && groupNo <= session.data().groupCount))
     throw new HttpsError("invalid-argument", "모둠 번호가 올바르지 않습니다.");
@@ -276,7 +304,11 @@ exports.updateSession = onCall(opts, async (req) => {
     if (!title) throw new HttpsError("invalid-argument", "수업 이름을 입력하세요.");
     patch.title = title;
   }
-  if (req.data?.closed !== undefined) patch.closed = req.data.closed === true;
+  if (req.data?.closed !== undefined) {
+    patch.closed = req.data.closed === true;
+    if (!patch.closed) patch.openedAt = FieldValue().serverTimestamp(); // 다시 열면 자동 닫힘 시간을 새로 센다
+  }
+  Object.assign(patch, sessionSettings(req.data));
   if (req.data?.groupCount !== undefined) {
     const n = parseInt(req.data.groupCount, 10);
     if (!(n >= 1 && n <= MAX_GROUPS)) throw new HttpsError("invalid-argument", `모둠 수는 1~${MAX_GROUPS} 사이로 정하세요.`);
@@ -296,6 +328,24 @@ exports.updateSession = onCall(opts, async (req) => {
   }
   if (Object.keys(patch).length) await db.doc(`sessions/${code}`).update(patch);
   return { ...patch };
+});
+
+// 수업 복제: 이름·모둠 수·설정과 이 수업에서 고친 자료를 새 수업으로 가져온다(학생과 기록은 가져오지 않는다)
+exports.cloneSession = onCall(opts, async (req) => {
+  const { auth, code, sess } = await ownSession(req);
+  const title = String(req.data?.title || `${sess.title} (복사)`).trim().slice(0, 80);
+  const newCodeStr = await newCode();
+  const batch = db.batch();
+  batch.set(db.doc(`sessions/${newCodeStr}`), {
+    teacherUid: auth.uid, title, eventId: sess.eventId, groupCount: sess.groupCount, closed: false,
+    aiLimit: sess.aiLimit || MAX_AI_CALLS_PER_GROUP, webSearch: sess.webSearch !== false, autoCloseHours: sess.autoCloseHours || 0,
+    createdAt: FieldValue().serverTimestamp(),
+  });
+  for (let i = 1; i <= sess.groupCount; i++) batch.set(db.doc(`sessions/${newCodeStr}/groups/g${i}`), { name: `${i}모둠`, aiCount: 0, memberCount: 0, guardCount: 0, work: {} });
+  const mats = await materialsRef(code).get();
+  if (mats.exists) batch.set(materialsRef(newCodeStr), { categories: mats.data().categories, updatedAt: FieldValue().serverTimestamp() });
+  await batch.commit();
+  return { code: newCodeStr, title };
 });
 
 // 수업과 그 안의 모든 기록(모둠 산출물, AI 기록, 대화)을 지운다
@@ -423,7 +473,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
   // 한도 확인과 횟수 증가를 한 번에 처리한다(동시에 요청이 몰려도 한도를 넘지 않게). 실패하면 아래에서 되돌린다.
   await db.runTransaction(async (tx) => {
     const g = (await tx.get(groupRef)).data() || {};
-    if ((g.aiCount || 0) >= MAX_AI_CALLS_PER_GROUP)
+    if ((g.aiCount || 0) >= (sessData.aiLimit || MAX_AI_CALLS_PER_GROUP))
       throw new HttpsError("resource-exhausted", "이 모둠의 AI 사용 한도에 도달했습니다. 선생님께 문의하세요.");
     tx.update(groupRef, { aiCount: FieldValue().increment(1) });
   });
@@ -444,7 +494,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
         .sort((a, b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0))
         .slice(-16);
       const input = String(payload.message).trim();
-      const lookupOn = PERSONA_WEB_SEARCH.value() !== "false";
+      const lookupOn = PERSONA_WEB_SEARCH.value() !== "false" && sessData.webSearch !== false;
       const messages = [{ role: "system", content: prompts.personaPrompt(ev, persona, { lookup: lookupOn }) }];
       past.forEach((l) => {
         messages.push({ role: "user", content: l.input });
@@ -458,7 +508,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
       if (lookupOn) {
         const r = await chatWithLookup({
           apiKey, model: personaModel, messages, maxTokens: 400, effort,
-          search: (query) => webSearch({ apiKey, model: SEARCH_MODEL.value() || baseModel, query }),
+          search: (query) => webSearch({ apiKey, model: SEARCH_MODEL.value() || baseModel, query, domains: SEARCH_ALLOWED_DOMAINS.value().split(",").map((x) => x.trim()).filter(Boolean) }),
         });
         reply = r.content; lookups = r.lookups;
         if (!String(reply).trim()) throw new Error("인물 응답이 비어 있음");
@@ -560,4 +610,27 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
     await groupRef.update({ lastAiError: { stage: s, message: String(e.message).slice(0, 300), at: FieldValue().serverTimestamp() } }).catch(() => {});
     throw new HttpsError("unavailable", "AI 응답을 받지 못했습니다. 잠시 후 다시 시도하세요.");
   }
+});
+
+// ---------- 정기 작업 ----------
+// 마지막 접속 후 정한 시간이 지난 수업을 자동으로 닫는다(수업이 끝나고 누가 접속하는 것을 막기 위해). 30분마다.
+exports.autoCloseSessions = onSchedule({ region: REGION, schedule: "every 30 minutes", timeZone: "Asia/Seoul" }, async () => {
+  const open = await db.collection("sessions").where("closed", "==", false).get();
+  for (const d of open.docs) {
+    if (!(d.data().autoCloseHours > 0)) continue;
+    const members = (await db.collection(`sessions/${d.id}/members`).get()).docs.map((m) => m.data());
+    if (autoCloseDue(d.data(), members)) await d.ref.update({ closed: true, closedAuto: true });
+  }
+});
+
+// 학생이 로그아웃·재입장하며 쌓인 익명 계정 중 30일 넘게 쓰지 않은 것을 지운다(교사의 구글 계정은 건드리지 않는다). 매주 일요일 새벽.
+exports.cleanAnonymousUsers = onSchedule({ region: REGION, schedule: "every sunday 04:00", timeZone: "Asia/Seoul" }, async () => {
+  let token, removed = 0;
+  do {
+    const page = await admin.auth().listUsers(1000, token);
+    const uids = staleAnonymousUids(page.users);
+    if (uids.length) { await admin.auth().deleteUsers(uids); removed += uids.length; }
+    token = page.pageToken;
+  } while (token);
+  console.log(`오래된 익명 계정 ${removed}개 삭제`);
 });
