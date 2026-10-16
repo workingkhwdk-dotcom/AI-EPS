@@ -27,6 +27,10 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/sessions/$(code)/members/$(request.auth.uid)));
       allow write: if false; // Cloud Functions(Admin SDK)만 생성·수정
 
+      // 학생 비밀번호 해시와 수업별 자료는 서버(Cloud Functions)만 읽고 쓴다
+      match /creds/{id} { allow read, write: if false; }
+      match /private/{doc} { allow read, write: if false; }
+
       match /members/{uid} {
         allow read: if signedIn() && (request.auth.uid == uid || isTeacher(code));
         // 학생은 자기 접속 신호(현재 단계, 마지막 접속 시각)만 갱신할 수 있다. 인물 배정 등은 서버만 쓴다.

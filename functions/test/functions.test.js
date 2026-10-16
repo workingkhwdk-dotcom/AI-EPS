@@ -6,10 +6,19 @@ const Module = require("node:module");
 // ---------- 메모리 Firestore ----------
 const store = new Map();
 const TS = { toMillis: () => 1 };
-const FV = { serverTimestamp: () => TS, increment: (n) => ({ __inc: n }) };
+const DEL = { __del: true };
+const FV = { serverTimestamp: () => TS, increment: (n) => ({ __inc: n }), delete: () => DEL };
+// 점(.)이 든 필드 경로는 중첩 객체로 풀어서 갱신하고, FieldValue.delete() 는 그 키를 지운다
 function applyUpdate(cur, data) {
-  const out = { ...cur };
-  for (const [k, v] of Object.entries(data)) out[k] = v && v.__inc !== undefined ? (out[k] || 0) + v.__inc : v;
+  const out = JSON.parse(JSON.stringify(cur));
+  for (const [k, v] of Object.entries(data)) {
+    const keys = k.split(".");
+    let o = out;
+    for (const kk of keys.slice(0, -1)) { if (o[kk] == null || typeof o[kk] !== "object") o[kk] = {}; o = o[kk]; }
+    const last = keys[keys.length - 1];
+    if (v && v.__del) delete o[last];
+    else o[last] = v && v.__inc !== undefined ? (o[last] || 0) + v.__inc : v;
+  }
   return out;
 }
 let autoId = 0;
@@ -18,20 +27,30 @@ const docRef = (path) => ({
   async get() { const d = store.get(path); return { exists: d !== undefined, data: () => (d === undefined ? undefined : JSON.parse(JSON.stringify(d))), id: path.split("/").pop() }; },
   async set(d) { store.set(path, d); },
   async update(d) { store.set(path, applyUpdate(store.get(path) || {}, d)); },
+  async delete() { store.delete(path); },
   collection: (name) => collRef(`${path}/${name}`),
 });
-const collRef = (path) => ({
+const collRef = (path, filters = []) => ({
   doc: (id) => docRef(`${path}/${id || "auto" + ++autoId}`),
+  where: (f, _op, val) => collRef(path, [...filters, [f, val]]),
   async get() {
     const docs = [...store.entries()].filter(([k]) => k.startsWith(path + "/") && !k.slice(path.length + 1).includes("/"))
-      .map(([k, v]) => ({ id: k.split("/").pop(), data: () => v }));
+      .filter(([, v]) => filters.every(([f, val]) => v[f] === val))
+      .map(([k, v]) => ({ id: k.split("/").pop(), data: () => JSON.parse(JSON.stringify(v)) }));
     return { docs };
   },
 });
 const firestore = () => ({
   doc: docRef,
   collection: collRef,
-  batch: () => { const ops = []; return { set: (r, d) => ops.push(() => r.set(d)), async commit() { for (const o of ops) await o(); } }; },
+  batch: () => {
+    const ops = [];
+    return {
+      set: (r, d) => ops.push(() => r.set(d)), update: (r, d) => ops.push(() => r.update(d)), delete: (r) => ops.push(() => r.delete()),
+      async commit() { for (const o of ops) await o(); },
+    };
+  },
+  async recursiveDelete(r) { for (const k of [...store.keys()]) if (k === r.path || k.startsWith(r.path + "/")) store.delete(k); },
   async runTransaction(fn) {
     const tx = { get: (r) => r.get(), set: (r, d) => r.set(d), update: (r, d) => r.update(d) };
     return fn(tx);
@@ -65,13 +84,24 @@ const kindOf = (sys) =>
     : sys.includes("독립 검토자") ? "review"
     : sys.includes("검색 보조자") ? "verify"
     : sys.includes("메신저 대화") ? "persona" : "other";
-global.fetch = async (_url, init) => {
+let searchReply = "NOT_FOUND"; // 웹 검색 가짜의 답
+let searchSources = [];
+let personaToolCalls = 0; // 인물이 lookup 도구를 부르는 횟수(남은 횟수)
+global.fetch = async (url, init) => {
   const body = JSON.parse(init.body);
+  if (String(url).endsWith("/v1/responses")) {
+    calls.push({ kind: "search", body });
+    return { ok: true, json: async () => ({ output: [{ type: "web_search_call" }, { type: "message", content: [{ type: "output_text", text: searchReply, annotations: searchSources.map((u) => ({ type: "url_citation", url: u, title: "기사 " + u })) }] }] }) };
+  }
   const kind = kindOf(body.messages[0].content);
   calls.push({ kind, body });
   if (kind === "scenario" && scenarioEmptyFirst > 0) {
     scenarioEmptyFirst--; // 추론에 한도를 다 써서 빈 답이 온 상황
     return { ok: true, json: async () => ({ choices: [{ message: { content: "" }, finish_reason: "length" }] }) };
+  }
+  if (kind === "persona" && personaToolCalls > 0 && body.tools?.length) {
+    personaToolCalls--;
+    return { ok: true, json: async () => ({ choices: [{ finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id: "call" + personaToolCalls, type: "function", function: { name: "lookup", arguments: JSON.stringify({ query: "인도적 체류 허가를 받은 예멘인 수" }) } }] } }] }) };
   }
   const content = kind === "guard" ? guardReply
     : kind === "scenario" ? '{"scenarios":[{"title":"A","story":"s","mechanism":"m","unintended":["u"],"newProblems":["p"]},{"title":"B","story":"s","mechanism":"m","unintended":["u"],"newProblems":["p"]}]}'
@@ -114,7 +144,7 @@ test("교사가 아니면 수업을 만들 수 없다", async () => {
 
 test("입장: 같은 모둠 학생들에게 축(당사자·도민·시민사회·제도)이 겹치지 않게 서로 다른 인물이 무작위 배정되고(교사 기록에만), 재입장해도 유지된다", async () => {
   for (const [i, uid] of ["S1", "S2", "S3", "S4", "S5"].entries()) {
-    const r = await api.joinSession({ ...student(uid), data: { code, groupNo: 1, nickname: "별" + i } });
+    const r = await api.joinSession({ ...student(uid), data: { code, groupNo: 1, nickname: "별" + i, password: "pw" + i + "99" } });
     assert.deepEqual(Object.keys(r), ["groupId"], "학생에게 인물 배정을 알려 주면 안 된다");
   }
   const { PERSONAS } = require("../case");
@@ -127,9 +157,9 @@ test("입장: 같은 모둠 학생들에게 축(당사자·도민·시민사회�
   assert.equal(m.stage, 1);
   assert.equal(m.aiCount, 0);
   assert.ok(m.lastSeen);
-  await api.joinSession({ ...student("S2"), data: { code, groupNo: 1, nickname: "바뀐별" } });
+  await api.joinSession({ ...student("S2"), data: { code, groupNo: 1, nickname: "별1", password: "pw199" } });
   assert.equal(store.get(`sessions/${code}/members/S2`).personaId, ids[1]);
-  assert.equal(store.get(`sessions/${code}/members/S2`).nickname, "바뀐별");
+  assert.equal(store.get(`sessions/${code}/members/S2`).nickname, "별1");
   assert.equal(store.get(`sessions/${code}/groups/g1`).memberCount, 5);
 });
 
@@ -306,4 +336,214 @@ test("무작위 배정: 같은 축이 다 차기 전에는 겹치지 않고, 모
   // 무작위성: 첫 배정이 매번 같은 인물이 아니다
   const firsts = new Set(Array.from({ length: 60 }, () => api._pickPersona(PERSONAS, []).id));
   assert.ok(firsts.size >= 4);
+});
+
+// ---------- 학생 비밀번호 ----------
+const mk = async (groupCount = 2) => (await api.createSession({ ...teacher, data: { groupCount } })).code;
+const join = (uid, c, nickname, password, groupNo = 1) => api.joinSession({ ...student(uid), data: { code: c, groupNo, nickname, password } });
+
+test("입장: 비밀번호가 없거나 너무 짧으면 거부한다", async () => {
+  const c = await mk();
+  await assert.rejects(join("P1", c, "가람", ""), /비밀번호/);
+  await assert.rejects(join("P1", c, "가람", "123"), /4자/);
+  assert.equal(store.get(`sessions/${c}/members/P1`), undefined);
+});
+
+test("비밀번호: 해시로만 저장되고, 학생이 읽는 문서에는 들어가지 않는다", async () => {
+  const c = await mk();
+  await join("P1", c, "가람", "sesame1");
+  const creds = [...store.entries()].filter(([k]) => k.startsWith(`sessions/${c}/creds/`));
+  assert.equal(creds.length, 1);
+  assert.ok(creds[0][1].hash && creds[0][1].salt);
+  assert.equal(JSON.stringify([...store.entries()]).includes("sesame1"), false, "평문 비밀번호가 저장되면 안 된다");
+  assert.equal(JSON.stringify(store.get(`sessions/${c}/members/P1`)).includes(creds[0][1].hash), false);
+});
+
+test("로그아웃 후 다시 입장(새 계정): 비밀번호가 맞으면 인물·대화·개인 정리가 이어지고, 옛 계정 자료는 정리된다", async () => {
+  const c = await mk();
+  await join("A1", c, "가람", "sesame1");
+  const persona = store.get(`sessions/${c}/members/A1`).personaId;
+  store.set(`sessions/${c}/members/A1/chat/x1`, { input: "안녕", output: "네", personaId: persona });
+  store.set(`sessions/${c}/groups/g1`, { ...store.get(`sessions/${c}/groups/g1`), work: { s1: { findings: { A1: { who: "난민 신청자" } } }, live: { A1: { path: "x" } } } });
+  await join("A2", c, " 가람 ", "sesame1"); // 새 익명 계정, 별명 앞뒤 공백은 무시
+  assert.equal(store.get(`sessions/${c}/members/A2`).personaId, persona);
+  assert.equal(store.get(`sessions/${c}/members/A1`), undefined);
+  assert.equal(store.get(`sessions/${c}/members/A2/chat/x1`).input, "안녕");
+  assert.equal(store.get(`sessions/${c}/members/A1/chat/x1`), undefined);
+  const w = store.get(`sessions/${c}/groups/g1`).work;
+  assert.equal(w.s1.findings.A2.who, "난민 신청자");
+  assert.equal(w.s1.findings.A1, undefined);
+  assert.equal(w.live?.A1, undefined);
+  assert.equal(store.get(`sessions/${c}/groups/g1`).memberCount, 1, "같은 학생이 두 명으로 세어지면 안 된다");
+});
+
+test("비밀번호가 틀리면 입장할 수 없고, 5번 틀리면 잠시 잠긴다(맞는 비밀번호도 잠금 중에는 거부)", async () => {
+  const c = await mk();
+  await join("A1", c, "가람", "sesame1");
+  for (let i = 0; i < 5; i++) await assert.rejects(join("B1", c, "가람", "wrong" + i), /맞지 않/);
+  assert.equal(store.get(`sessions/${c}/members/B1`), undefined);
+  await assert.rejects(join("B1", c, "가람", "sesame1"), /잠시|초 동안/);
+  const key = [...store.keys()].find((k) => k.startsWith(`sessions/${c}/creds/`));
+  store.set(key, { ...store.get(key), lockUntil: 0 }); // 잠금 시간이 지났다고 본다
+  await join("B1", c, "가람", "sesame1");
+  assert.ok(store.get(`sessions/${c}/members/B1`));
+});
+
+test("같은 별명도 모둠이 다르면 다른 학생이고, 같은 모둠의 같은 별명은 비밀번호가 다르면 들어올 수 없다", async () => {
+  const c = await mk();
+  await join("A1", c, "가람", "sesame1", 1);
+  await join("A2", c, "가람", "other-pw", 2);
+  assert.equal(store.get(`sessions/${c}/members/A2`).groupId, "g2");
+  await assert.rejects(join("A3", c, "가람", "other-pw", 1), /맞지 않/);
+});
+
+test("공용 PC: 다른 학생이 로그인된 화면에서는 다른 별명으로 입장할 수 없다(먼저 로그아웃)", async () => {
+  const c = await mk();
+  await join("A1", c, "가람", "sesame1");
+  await assert.rejects(join("A1", c, "나래", "sesame2"), /로그아웃/);
+  assert.equal(store.get(`sessions/${c}/groups/g1`).memberCount, 1);
+  await join("A1", c, "가람", "sesame1"); // 같은 학생의 재입장은 가능
+});
+
+test("비밀번호 도입 전에 입장한 학생: 같은 별명으로 새 비밀번호를 정하며 이어서 입장하고, 이후에는 그 비밀번호가 필요하다", async () => {
+  const c = await mk();
+  store.set(`sessions/${c}/members/OLD`, { groupId: "g1", nickname: "다솜", personaId: require("../case").PERSONAS[0].id, stage: 3, aiCount: 2 });
+  store.set(`sessions/${c}/groups/g1`, { ...store.get(`sessions/${c}/groups/g1`), memberCount: 1, personaIds: [require("../case").PERSONAS[0].id] });
+  await join("N1", c, "다솜", "newpass1");
+  assert.equal(store.get(`sessions/${c}/members/N1`).stage, 3);
+  assert.equal(store.get(`sessions/${c}/members/OLD`), undefined);
+  await assert.rejects(join("N2", c, "다솜", "guess-it"), /맞지 않/);
+});
+
+test("교사: 비밀번호 초기화 → 학생이 같은 별명으로 새 비밀번호를 정해 이어서 입장한다(내 수업의 학생만)", async () => {
+  const c = await mk();
+  await join("A1", c, "가람", "sesame1");
+  const other = { auth: { uid: "T9", token: { email: "t@school.kr" } } };
+  await assert.rejects(api.resetStudentPassword({ ...other, data: { code: c, uid: "A1" } }), /내가 만든/);
+  await assert.rejects(api.resetStudentPassword({ ...student("A1"), data: { code: c, uid: "A1" } }), /교사/);
+  const r = await api.resetStudentPassword({ ...teacher, data: { code: c, uid: "A1" } });
+  assert.equal(r.nickname, "가람");
+  await join("A2", c, "가람", "brand-new");
+  assert.ok(store.get(`sessions/${c}/members/A2`));
+  await assert.rejects(join("A3", c, "가람", "sesame1"), /맞지 않/);
+});
+
+// ---------- 수업 관리·자료 관리 ----------
+test("교사: 수업 이름 바꾸기, 모둠 늘리기, 학생이 있는 모둠은 줄일 수 없다, 수업 삭제", async () => {
+  const c = await mk(2);
+  const upd = (data) => api.updateSession({ ...teacher, data: { code: c, ...data } });
+  await upd({ title: "  새 이름  " });
+  assert.equal(store.get(`sessions/${c}`).title, "새 이름");
+  await assert.rejects(upd({ title: "  " }), /이름/);
+  await upd({ groupCount: 4 });
+  assert.equal(store.get(`sessions/${c}`).groupCount, 4);
+  assert.ok(store.get(`sessions/${c}/groups/g4`));
+  await join("A1", c, "가람", "sesame1", 4);
+  await assert.rejects(upd({ groupCount: 3 }), /4모둠에 학생/);
+  await upd({ groupCount: 5 });
+  await upd({ groupCount: 4 });
+  assert.equal(store.get(`sessions/${c}/groups/g5`), undefined);
+  await assert.rejects(upd({ groupCount: 99 }), /1~12/);
+  await assert.rejects(api.updateSession({ ...student("A1"), data: { code: c, title: "x" } }), /교사/);
+  await api.deleteSession({ ...teacher, data: { code: c } });
+  assert.equal([...store.keys()].some((k) => k.startsWith(`sessions/${c}`)), false);
+});
+
+test("자료 관리: 처음에는 기본 자료, 추가·수정·삭제하면 이 수업의 학생에게만 바뀐 자료가 보인다", async () => {
+  const c = await mk();
+  const other = await mk();
+  await join("A1", c, "가람", "sesame1");
+  await join("B1", other, "나래", "sesame2");
+  const base = await api.getMaterials({ ...teacher, data: { code: c } });
+  assert.equal(base.isDefault, true);
+  const baseCount = (await api.getCase({ ...student("A1"), data: { code: c } })).materials.length;
+  assert.equal(base.categories.length, baseCount);
+
+  const cats = base.categories.map((x) => ({ ...x }));
+  cats[0] = { ...cats[0], items: [...cats[0].items.slice(1), { date: "2019. 1. 1.", kind: "주장", text: "  교사가 추가한 자료  ", caption: "한겨레 2019.1.1." }] };
+  cats.push({ title: "새 분류", type: "list", items: [{ kind: "의견", text: "새 분류의 자료", caption: "" }] });
+  const saved = await api.saveMaterials({ ...teacher, data: { code: c, categories: cats } });
+  assert.equal(saved.isDefault, false);
+  assert.equal(saved.categories.at(-1).title, "새 분류");
+
+  const mine = (await api.getCase({ ...student("A1"), data: { code: c } })).materials;
+  assert.equal(mine.length, baseCount + 1);
+  assert.equal(mine[0].items.at(-1).text, "교사가 추가한 자료");
+  assert.equal(mine[0].items.at(-1).caption, "한겨레 2019.1.1.");
+  assert.equal(mine.at(-1).items[0].caption, "선생님이 준비한 자료", "출처를 안 적으면 교사 제공으로 표시");
+  assert.equal(mine[0].items.length, base.categories[0].items.length); // 하나 지우고 하나 추가
+  const others = (await api.getCase({ ...student("B1"), data: { code: other } })).materials;
+  assert.equal(others.length, baseCount, "다른 수업은 그대로");
+  assert.equal(JSON.stringify(mine).includes("src"), false);
+
+  await assert.rejects(api.saveMaterials({ ...teacher, data: { code: c, categories: [{ title: "", items: [] }] } }), /분류 이름/);
+  await assert.rejects(api.saveMaterials({ ...teacher, data: { code: c, categories: [{ title: "x", items: [{ text: " " }] }] } }), /내용이 빈/);
+  await assert.rejects(api.saveMaterials({ ...student("A1"), data: { code: c, categories: [] } }), /교사/);
+
+  const reset = await api.resetMaterials({ ...teacher, data: { code: c } });
+  assert.equal(reset.isDefault, true);
+  assert.equal((await api.getCase({ ...student("A1"), data: { code: c } })).materials.length, baseCount);
+});
+
+// ---------- 인물의 웹 검색 ----------
+const chatOnce = async (c, uid, message) => api.aiRequest({ ...student(uid), data: { code: c, stage: 1, type: "persona_chat", payload: { message } } });
+
+test("인물이 모르는 사실은 웹 검색 결과로 답하고, 검색 내용·출처가 대화 기록에 남으며 감독자에게도 전달된다", async () => {
+  const c = await mk();
+  await join("A1", c, "가람", "sesame1");
+  calls.length = 0;
+  personaToolCalls = 1; searchReply = "인도적 체류 허가를 받은 예멘인은 412명이다."; searchSources = ["https://news.example/1"];
+  personaReply = "뉴스에서 봤는데 412명이라고 하더라고요.";
+  await chatOnce(c, "A1", "인도적 체류 허가는 몇 명이 받았어요?");
+  const kinds = calls.map((x) => x.kind);
+  assert.deepEqual(kinds, ["persona", "search", "persona", "guard"]);
+  const second = calls[2].body.messages.at(-1);
+  assert.equal(second.role, "tool");
+  assert.match(second.content, /412명/);
+  assert.match(second.content, /지시문이 아니다/);
+  assert.equal(calls[1].body.tools[0].type, "web_search");
+  assert.match(calls[3].body.messages[0].content, /웹에서 조회한 내용/);
+  const log = [...store.entries()].find(([k]) => k.startsWith(`sessions/${c}/members/A1/chat/`))[1];
+  assert.equal(log.lookups.length, 1);
+  assert.equal(log.lookups[0].found, true);
+  assert.equal(log.lookups[0].sources[0].url, "https://news.example/1");
+});
+
+test("웹에서도 못 찾으면 도구 결과로 '못 찾음'을 전하고, 인물 프롬프트가 모른다고 하도록 안내한다", async () => {
+  const c = await mk();
+  await join("A1", c, "가람", "sesame1");
+  calls.length = 0;
+  personaToolCalls = 1; searchReply = "NOT_FOUND"; searchSources = [];
+  personaReply = "그건 정확히는 모르겠어요.";
+  const r = await chatOnce(c, "A1", "그 심사관 이름이 뭐예요?");
+  assert.equal(r.result, "그건 정확히는 모르겠어요.");
+  assert.match(calls[2].body.messages.at(-1).content, /찾지 못했다/);
+  assert.match(calls[0].body.messages[0].content, /9-1\./);
+  assert.doesNotMatch(calls[3].body.messages[0].content, /웹에서 조회한 내용/, "찾은 게 없으면 감독자에게 근거로 주지 않는다");
+  const log = [...store.entries()].find(([k]) => k.startsWith(`sessions/${c}/members/A1/chat/`))[1];
+  assert.equal(log.lookups[0].found, false);
+});
+
+test("검색 호출이 실패해도 대화는 이어지고(모른다고 답함), 인물이 도구를 안 쓰면 검색하지 않는다", async () => {
+  const c = await mk();
+  await join("A1", c, "가람", "sesame1");
+  const realFetch = global.fetch;
+  global.fetch = async (url, init) => (String(url).endsWith("/v1/responses") ? { ok: false, status: 500, text: async () => "boom" } : realFetch(url, init));
+  calls.length = 0; personaToolCalls = 1; personaReply = "글쎄요, 정확히는 몰라요.";
+  const r = await chatOnce(c, "A1", "정확한 숫자가 뭐예요?");
+  global.fetch = realFetch;
+  assert.equal(r.result, "글쎄요, 정확히는 몰라요.");
+  calls.length = 0; personaToolCalls = 0;
+  await chatOnce(c, "A1", "요즘 어떠세요?");
+  assert.equal(calls.some((x) => x.kind === "search"), false);
+});
+
+test("인물이 도구를 계속 불러도 한 응답에서 검색은 2번까지이고 반드시 답이 나온다", async () => {
+  const c = await mk();
+  await join("A1", c, "가람", "sesame1");
+  calls.length = 0; personaToolCalls = 10; searchReply = "NOT_FOUND"; personaReply = "잘 모르겠어요.";
+  const r = await chatOnce(c, "A1", "이것저것 알려 주세요");
+  personaToolCalls = 0;
+  assert.equal(calls.filter((x) => x.kind === "search").length, 2);
+  assert.equal(r.result, "잘 모르겠어요.");
 });

@@ -8,6 +8,9 @@ const prompts = require("./prompts");
 const { chat, extractJson } = require("./openai");
 const { guardMessages, parseVerdict, resolveOutput } = require("./guard");
 const { isTeacherEmail } = require("./teachers");
+const { validatePassword, hashPassword, verifyPassword, normNick, credKey, lockedSeconds, afterFail } = require("./password");
+const { defaultMaterials, sanitizeMaterials, toStudentMaterials } = require("./materials");
+const { chatWithLookup, webSearch } = require("./lookup");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -20,6 +23,8 @@ const SCENARIO_MODEL = defineString("SCENARIO_MODEL", { default: "" }); // 5단�
 const GUARD_MODEL = defineString("GUARD_MODEL", { default: "" }); // 상위 AI(규범 감독) 전용
 const FEEDBACK_MODELS = defineString("FEEDBACK_MODELS", { default: "" }); // 4단계 독립 검토에 쓸 모델들(쉼표). 비우면 OPENAI_MODEL 로 3회
 const REASONING_EFFORT = defineString("REASONING_EFFORT", { default: "low" }); // 추론 모델의 사고량: minimal|low|medium|high
+const PERSONA_WEB_SEARCH = defineString("PERSONA_WEB_SEARCH", { default: "true" }); // 인물이 모르는 사실은 웹에서 찾아 본다(false 로 끄기)
+const SEARCH_MODEL = defineString("SEARCH_MODEL", { default: "" }); // 웹 검색 호출 전용 모델(비우면 OPENAI_MODEL)
 const TEACHER_EMAILS = defineString("TEACHER_EMAILS", { default: "" });
 // true 이면 출처 원문 대조 전(verified:false) 페르소나·자료도 사용 가능. 리허설 전용, 실제 수업에서는 false 로 둔다.
 const ALLOW_UNVERIFIED = defineString("ALLOW_UNVERIFIED_PERSONAS", { default: "false" });
@@ -49,6 +54,16 @@ async function requireTeacher(req) {
   });
   if (!ok) throw new HttpsError("permission-denied", "교사 계정이 아닙니다.");
   return auth;
+}
+
+// 교사 + 내가 만든 수업인지 확인하고 수업 문서를 돌려준다
+async function ownSession(req) {
+  const auth = await requireTeacher(req);
+  const code = String(req.data?.code || "").trim().toUpperCase();
+  const snap = code ? await db.doc(`sessions/${code}`).get() : null;
+  if (!snap?.exists) throw new HttpsError("not-found", "수업을 찾을 수 없습니다.");
+  if (snap.data().teacherUid !== auth.uid) throw new HttpsError("permission-denied", "내가 만든 수업이 아닙니다.");
+  return { auth, code, sess: snap.data() };
 }
 
 async function newCode() {
@@ -102,13 +117,50 @@ function pickPersona(personas, used, rand = Math.random) {
 }
 exports._pickPersona = pickPersona; // 테스트용
 
-// 학생: 수업 코드 + 모둠 번호 + 닉네임으로 입장
+// 같은 학생이 다른 화면(로그아웃 후 다시 입장 등)에서 들어오면 새 익명 계정으로 바뀌므로,
+// 대화 기록·개인 정리 같은 학생의 데이터를 옛 uid 에서 새 uid 로 옮긴다. 옮길 것이 없으면 false.
+async function moveMember(code, groupId, fromUid, toUid) {
+  const fromRef = db.doc(`sessions/${code}/members/${fromUid}`);
+  const from = await fromRef.get();
+  if (!from.exists) return false;
+  const chats = (await db.collection(`sessions/${code}/members/${fromUid}/chat`).get()).docs;
+  for (let i = 0; i < chats.length; i += 200) {
+    const batch = db.batch();
+    chats.slice(i, i + 200).forEach((d) => batch.set(db.doc(`sessions/${code}/members/${toUid}/chat/${d.id}`), d.data()));
+    await batch.commit();
+  }
+  await db.doc(`sessions/${code}/members/${toUid}`).set({ ...from.data(), lastSeen: FieldValue().serverTimestamp() });
+  // 모둠 산출물에서 이 학생의 개인 칸(1단계 개인 정리)은 새 uid 로 옮기고, '입력 중' 표시는 지운다
+  const groupRef = db.doc(`sessions/${code}/groups/${groupId}`);
+  const work = (await groupRef.get()).data()?.work || {};
+  const upd = {};
+  if (work.s1?.findings?.[fromUid] !== undefined) {
+    upd[`work.s1.findings.${toUid}`] = work.s1.findings[fromUid];
+    upd[`work.s1.findings.${fromUid}`] = FieldValue().delete();
+  }
+  if (work.live?.[fromUid] !== undefined) upd[`work.live.${fromUid}`] = FieldValue().delete();
+  if (Object.keys(upd).length) await groupRef.update(upd);
+  for (let i = 0; i < chats.length; i += 200) {
+    const batch = db.batch();
+    chats.slice(i, i + 200).forEach((d) => batch.delete(db.doc(`sessions/${code}/members/${fromUid}/chat/${d.id}`)));
+    await batch.commit();
+  }
+  await fromRef.delete();
+  return true;
+}
+
+// 학생: 수업 코드 + 모둠 번호 + 별명 + 비밀번호로 입장
+//  - 처음이면 그 비밀번호가 이 별명의 비밀번호가 된다. 다시 들어올 때는 같은 비밀번호가 필요하다.
+//  - 비밀번호가 맞으면 이전에 하던 데이터(인물 배정, 대화, 개인 정리)가 지금 화면으로 이어진다.
 exports.joinSession = onCall(opts, async (req) => {
   const auth = requireAuth(req);
   const code = String(req.data?.code || "").trim().toUpperCase();
   const groupNo = parseInt(req.data?.groupNo, 10);
   const nickname = String(req.data?.nickname || "").trim().slice(0, 12);
+  const password = String(req.data?.password ?? "");
   if (!nickname) throw new HttpsError("invalid-argument", "별명을 입력하세요. (이름 대신 별명을 쓰세요)");
+  const pwErr = validatePassword(password);
+  if (pwErr) throw new HttpsError("invalid-argument", pwErr);
   const session = await db.doc(`sessions/${code}`).get();
   if (!session.exists) throw new HttpsError("not-found", "수업 코드를 찾을 수 없습니다.");
   if (!(groupNo >= 1 && groupNo <= session.data().groupCount))
@@ -118,12 +170,47 @@ exports.joinSession = onCall(opts, async (req) => {
   if (!personas.length) throw new HttpsError("failed-precondition", "아직 사용할 수 있는 인물이 없습니다. 선생님께 문의하세요.");
   const memberRef = db.doc(`sessions/${code}/members/${auth.uid}`);
   const groupRef = db.doc(`sessions/${code}/groups/${groupId}`);
-  // 모둠원마다 서로 다른 인물을 무작위로 배정한다(직소). 모둠 안에서 축(당사자·도민·시민사회·제도)이 겹치지 않게 고른다.
+  const key = credKey(groupNo, nickname);
+  const credRef = db.doc(`sessions/${code}/creds/${key}`);
+
+  // 1) 비밀번호 확인 (틀리면 횟수를 세고, 여러 번 틀리면 잠시 잠근다)
+  const credSnap = await credRef.get();
+  const cred = credSnap.exists ? credSnap.data() : null;
+  if (cred) {
+    const wait = lockedSeconds(cred);
+    if (wait) throw new HttpsError("resource-exhausted", `비밀번호를 여러 번 틀려서 ${wait}초 동안 입장할 수 없습니다.`);
+    if (!verifyPassword(password, cred)) {
+      await credRef.update(afterFail(cred));
+      throw new HttpsError("permission-denied", "비밀번호가 맞지 않습니다. 같은 모둠의 다른 친구가 이 별명을 이미 쓰고 있다면 다른 별명으로 입장하세요.");
+    }
+  }
+
+  // 2) 이 기기에 이미 다른 학생이 로그인되어 있으면 막는다(공용 PC에서 남의 자리를 이어받지 않도록)
+  const mine = await memberRef.get();
+  if (mine.exists) {
+    const d = mine.data();
+    const same = d.credKey ? d.credKey === key : d.groupId === groupId && normNick(d.nickname) === normNick(nickname);
+    if (!same) throw new HttpsError("failed-precondition", "이 화면에는 다른 학생이 로그인되어 있습니다. 먼저 로그아웃한 뒤 다시 입장하세요.");
+  }
+
+  // 3) 이 별명으로 전에 하던 데이터가 다른 계정에 있으면 지금 계정으로 옮긴다
+  let fromUid = null;
+  if (cred) {
+    if (cred.uid !== auth.uid) fromUid = cred.uid;
+  } else {
+    // 비밀번호가 아직 없는 같은 별명의 기존 학생(비밀번호 도입 전 입장자, 교사가 초기화한 경우)
+    const same = (await db.collection(`sessions/${code}/members`).where("groupId", "==", groupId).get()).docs
+      .find((d) => normNick(d.data().nickname) === normNick(nickname));
+    if (same && same.id !== auth.uid) fromUid = same.id;
+  }
+  if (fromUid) await moveMember(code, groupId, fromUid, auth.uid);
+
+  // 4) 입장 처리. 모둠원마다 서로 다른 인물을 무작위로 배정한다(직소). 모둠 안에서 축(당사자·도민·시민사회·제도)이 겹치지 않게 고른다.
   // 배정은 교사에게만 보이며 학생은 모른다. 재입장 시에는 유지한다.
   await db.runTransaction(async (tx) => {
     const [m, g] = await Promise.all([tx.get(memberRef), tx.get(groupRef)]);
     if (m.exists && m.data().groupId === groupId && personas.some((p) => p.id === m.data().personaId)) {
-      tx.update(memberRef, { nickname });
+      tx.update(memberRef, { nickname, credKey: key });
       return;
     }
     const n = g.data()?.memberCount || 0;
@@ -131,11 +218,90 @@ exports.joinSession = onCall(opts, async (req) => {
     const persona = pickPersona(personas, used);
     tx.update(groupRef, { memberCount: n + 1, personaIds: [...used, persona.id] });
     tx.set(memberRef, {
-      groupId, nickname, personaId: persona.id,
+      groupId, nickname, credKey: key, personaId: persona.id,
       stage: 1, aiCount: 0, joinedAt: FieldValue().serverTimestamp(), lastSeen: FieldValue().serverTimestamp(),
     });
   });
+
+  // 5) 비밀번호 저장(처음이면 새로 만들고, 있으면 현재 계정으로 연결만 바꾼다)
+  await credRef.set({ ...(cred ? { salt: cred.salt, hash: cred.hash } : hashPassword(password)), uid: auth.uid, groupId, fails: 0, lockUntil: 0 });
   return { groupId };
+});
+
+// 교사: 학생의 비밀번호를 지운다(잊어버린 경우). 그 학생이 같은 별명으로 다시 입장하면서 새 비밀번호를 정한다.
+exports.resetStudentPassword = onCall(opts, async (req) => {
+  const { code } = await ownSession(req);
+  const uid = String(req.data?.uid || "");
+  const m = uid ? await db.doc(`sessions/${code}/members/${uid}`).get() : null;
+  if (!m?.exists) throw new HttpsError("not-found", "학생을 찾을 수 없습니다.");
+  const d = m.data();
+  await db.doc(`sessions/${code}/creds/${d.credKey || credKey(parseInt(String(d.groupId).slice(1), 10), d.nickname)}`).delete();
+  return { nickname: d.nickname };
+});
+
+// ---------- 교사: 수업 관리 ----------
+
+// 수업 이름·모둠 수 바꾸기. 모둠을 줄일 때는 학생이 없는 뒤쪽 모둠만 지울 수 있다.
+exports.updateSession = onCall(opts, async (req) => {
+  const { code, sess } = await ownSession(req);
+  const patch = {};
+  if (req.data?.title !== undefined) {
+    const title = String(req.data.title).trim().slice(0, 80);
+    if (!title) throw new HttpsError("invalid-argument", "수업 이름을 입력하세요.");
+    patch.title = title;
+  }
+  if (req.data?.groupCount !== undefined) {
+    const n = parseInt(req.data.groupCount, 10);
+    if (!(n >= 1 && n <= MAX_GROUPS)) throw new HttpsError("invalid-argument", `모둠 수는 1~${MAX_GROUPS} 사이로 정하세요.`);
+    const cur = sess.groupCount;
+    const batch = db.batch();
+    if (n > cur) {
+      for (let i = cur + 1; i <= n; i++) batch.set(db.doc(`sessions/${code}/groups/g${i}`), { name: `${i}모둠`, aiCount: 0, memberCount: 0, guardCount: 0, work: {} });
+    } else if (n < cur) {
+      for (let i = n + 1; i <= cur; i++) {
+        const g = (await db.doc(`sessions/${code}/groups/g${i}`).get()).data();
+        if ((g?.memberCount || 0) > 0) throw new HttpsError("failed-precondition", `${i}모둠에 학생이 있어 모둠을 줄일 수 없습니다.`);
+        batch.delete(db.doc(`sessions/${code}/groups/g${i}`));
+      }
+    }
+    await batch.commit();
+    patch.groupCount = n;
+  }
+  if (Object.keys(patch).length) await db.doc(`sessions/${code}`).update(patch);
+  return { ...patch };
+});
+
+// 수업과 그 안의 모든 기록(모둠 산출물, AI 기록, 대화)을 지운다
+exports.deleteSession = onCall(opts, async (req) => {
+  const { code } = await ownSession(req);
+  await db.recursiveDelete(db.doc(`sessions/${code}`));
+  return { ok: true };
+});
+
+// ---------- 교사: 2단계 실제 자료 관리 ----------
+const materialsRef = (code) => db.doc(`sessions/${code}/private/materials`);
+
+exports.getMaterials = onCall(opts, async (req) => {
+  const { code } = await ownSession(req);
+  const snap = await materialsRef(code).get();
+  return snap.exists
+    ? { categories: snap.data().categories || [], isDefault: false }
+    : { categories: defaultMaterials(allowUnverified()), isDefault: true };
+});
+
+exports.saveMaterials = onCall(opts, async (req) => {
+  const { code } = await ownSession(req);
+  let categories;
+  try { categories = sanitizeMaterials(req.data?.categories); } catch (e) { throw new HttpsError("invalid-argument", e.message); }
+  await materialsRef(code).set({ categories, updatedAt: FieldValue().serverTimestamp() });
+  return { categories, isDefault: false };
+});
+
+// 이 수업만의 자료를 지우고 기본 자료로 되돌린다
+exports.resetMaterials = onCall(opts, async (req) => {
+  const { code } = await ownSession(req);
+  await materialsRef(code).delete();
+  return { categories: defaultMaterials(allowUnverified()), isDefault: true };
 });
 
 // 화면이 쓰는 수업 설정.
@@ -171,12 +337,13 @@ exports.getCase = onCall(opts, async (req) => {
   if (!sess.exists || !mem.exists) throw new HttpsError("permission-denied", "이 수업의 참여자가 아닙니다.");
   const ev = EVENTS[sess.data().eventId];
   const mine = availablePersonas(ev.id, allowUnverified()).find((p) => p.id === mem.data().personaId);
+  const custom = await materialsRef(code).get(); // 교사가 이 수업의 자료를 고쳤다면 그 목록, 아니면 기본 자료
   return {
     title: ev.title,
     summary: ev.summary,
     stakeholders: ev.stakeholders,
     me: mine ? { name: mine.name, letter: mine.letter } : null,
-    materials: materialsFor(allowUnverified()),
+    materials: custom.exists ? toStudentMaterials(custom.data().categories) : materialsFor(allowUnverified()),
   };
 });
 
@@ -241,7 +408,8 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
         .sort((a, b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0))
         .slice(-16);
       const input = String(payload.message).trim();
-      const messages = [{ role: "system", content: prompts.personaPrompt(ev, persona) }];
+      const lookupOn = PERSONA_WEB_SEARCH.value() !== "false";
+      const messages = [{ role: "system", content: prompts.personaPrompt(ev, persona, { lookup: lookupOn }) }];
       past.forEach((l) => {
         messages.push({ role: "user", content: l.input });
         messages.push({ role: "assistant", content: l.output });
@@ -249,14 +417,25 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
       messages.push({ role: "user", content: input });
 
       const personaModel = PERSONA_MODEL.value() || baseModel;
-      const reply = await callModel({ apiKey, model: personaModel, messages, maxTokens: 400, efforts: [effort] });
+      // 인물이 자기 자료로 답할 수 없는 사실을 물으면 웹에서 찾아 본다. 못 찾으면 모른다고 답한다.
+      let reply, lookups = [];
+      if (lookupOn) {
+        const r = await chatWithLookup({
+          apiKey, model: personaModel, messages, maxTokens: 400, effort,
+          search: (query) => webSearch({ apiKey, model: SEARCH_MODEL.value() || baseModel, query }),
+        });
+        reply = r.content; lookups = r.lookups;
+        if (!String(reply).trim()) throw new Error("인물 응답이 비어 있음");
+      } else {
+        reply = await callModel({ apiKey, model: personaModel, messages, maxTokens: 400, efforts: [effort] });
+      }
 
       // 상위 AI(규범 감독자): 학생에게 보내기 전에 검사. 가벼운 위반은 고쳐 쓰고, 무거운 위반·검사 실패는 안내로 대체
       let verdict;
       try {
         const verdictText = await callModel({
           apiKey, model: GUARD_MODEL.value() || baseModel, json: true, maxTokens: 700, efforts: ["low"],
-          messages: guardMessages({ persona, claims: persona.claims, background: ev.background, history: past.slice(-3), studentMessage: input, reply }),
+          messages: guardMessages({ persona, claims: persona.claims, background: ev.background, history: past.slice(-3), studentMessage: input, reply, lookups }),
         });
         verdict = parseVerdict(verdictText);
       } catch (e) {
@@ -270,6 +449,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
         ref.set({
           uid: auth.uid, nickname, personaId, input, output: out.text, model: personaModel,
           guard: { ok: verdict.ok, category: verdict.category, reason: verdict.reason, how: out.how || null, original: out.replaced || out.trimmed ? reply : null, trimmed: !!out.trimmed },
+          ...(lookups.length ? { lookups: lookups.map((l) => ({ query: l.query, found: l.found, summary: l.summary, sources: l.sources })) } : {}),
           createdAt: FieldValue().serverTimestamp(),
         }),
         groupRef.update(bump),

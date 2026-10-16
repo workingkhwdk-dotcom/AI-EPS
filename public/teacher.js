@@ -1,5 +1,5 @@
 import { auth, db, call, esc, toast, errMsg } from "./fb.js";
-import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { collection, query, where, orderBy, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const $ = (s) => document.querySelector(s);
@@ -15,10 +15,13 @@ let tickTimer = null;
 
 // ---------- 로그인 ----------
 $("#login-btn").onclick = () => signInWithPopup(auth, new GoogleAuthProvider()).catch((e) => toast(errMsg(e), true));
+$("#t-logout").onclick = () => signOut(auth).then(() => location.reload());
+let listUnsub = null;
 onAuthStateChanged(auth, (u) => {
   const ok = u && !u.isAnonymous;
   $("#login").classList.toggle("hidden", !!ok);
   $("#main").classList.toggle("hidden", !ok);
+  $("#t-logout").classList.toggle("hidden", !ok);
   $("#who").textContent = ok ? u.email : "";
   if (ok) { listSessions(u.uid); refreshCase("jeju2018").catch(() => {}); }
 });
@@ -26,31 +29,53 @@ onAuthStateChanged(auth, (u) => {
 // ---------- 탭 ----------
 function showTab(name) {
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
-  for (const t of ["live", "new", "check"]) $(`#tab-${t}`).classList.toggle("hidden", t !== name);
+  for (const t of ["classes", "check"]) $(`#tab-${t}`).classList.toggle("hidden", t !== name);
   if (name === "check") loadCheck($("#t-event").value);
 }
 $("#tabs").onclick = (e) => { const b = e.target.closest("[data-tab]"); if (b) showTab(b.dataset.tab); };
 
+// 수업을 연 뒤의 세 가지 작업: 진행 현황 / 자료 관리 / 수업 설정
+function showCTab(name) {
+  document.querySelectorAll("#ctabs button").forEach((b) => b.classList.toggle("on", b.dataset.ctab === name));
+  for (const t of ["live", "materials", "settings"]) $(`#cpane-${t}`).classList.toggle("hidden", t !== name);
+  if (name === "materials") loadMats();
+  if (name === "settings") fillSettings();
+}
+$("#ctabs").onclick = (e) => { const b = e.target.closest("[data-ctab]"); if (b) showCTab(b.dataset.ctab); };
+
 // ---------- 수업 만들기·목록 ----------
+const toggleNew = (open) => $("#new-form").classList.toggle("hidden", !open);
+$("#new-toggle").onclick = () => toggleNew($("#new-form").classList.contains("hidden"));
+$("#new-cancel").onclick = () => toggleNew(false);
 $("#create-btn").onclick = async () => {
+  const btn = $("#create-btn");
+  btn.disabled = true;
   try {
     const title = $("#t-title").value;
     const { data } = await call("createSession")({ title, eventId: $("#t-event").value, groupCount: Number($("#t-groups").value) });
-    toast(`수업 코드: ${data.code}`);
-    showTab("live");
-    openSession(data.code, title);
+    toast(`수업을 만들었습니다. 코드: ${data.code}`);
+    toggleNew(false);
+    openSession(data.code, title.trim() || "수업");
   } catch (e) { toast(errMsg(e), true); }
+  finally { btn.disabled = false; }
 };
 
+let sessionRows = [];
 function listSessions(uid) {
-  onSnapshot(query(collection(db, "sessions"), where("teacherUid", "==", uid)), (s) => {
-    const rows = s.docs.map((d) => ({ code: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
-    $("#sessions").innerHTML = rows.map((r) =>
-      `<div class="cell"><div class="grow"><b>${esc(r.title)}</b><br><span class="meta-line">코드 ${r.code} · ${r.groupCount}모둠 · ${fmt(r.createdAt)}</span></div><button class="btn btn-tinted btn-sm" data-code="${r.code}" data-title="${esc(r.title)}">열기</button></div>`
-    ).join("") || `<div class="cell meta-line">아직 만든 수업이 없습니다. '새 수업' 탭에서 만들어 보세요.</div>`;
+  listUnsub?.();
+  listUnsub = onSnapshot(query(collection(db, "sessions"), where("teacherUid", "==", uid)), (s) => {
+    sessionRows = s.docs.map((d) => ({ code: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+    $("#sessions").innerHTML = sessionRows.map((r) =>
+      `<div class="cell cls"><div class="grow"><b>${esc(r.title)}</b><br><span class="meta-line"><span class="code">${r.code}</span> · ${r.groupCount}모둠 · ${fmt(r.createdAt)}</span></div><button class="btn btn-tinted btn-sm" data-code="${r.code}">열기</button></div>`
+    ).join("") || `<div class="cell meta-line">아직 만든 수업이 없습니다. 위의 '＋ 새 수업 만들기'로 시작하세요.</div>`;
+    if (current) {
+      const cur = sessionRows.find((r) => r.code === current);
+      if (cur) { curTitle = cur.title; $("#d-title").textContent = cur.title; }
+    }
   }, (e) => toast(errMsg(e), true));
 }
-$("#sessions").onclick = (e) => { const b = e.target.closest("[data-code]"); if (b) openSession(b.dataset.code, b.dataset.title); };
+$("#sessions").onclick = (e) => { const b = e.target.closest("[data-code]"); if (b) openSession(b.dataset.code); };
+$("#back-btn").onclick = closeSession;
 
 // ---------- 수업 현황 ----------
 function progressOf(work) {
@@ -67,10 +92,13 @@ function progressOf(work) {
 }
 
 function openSession(code, title) {
-  current = code; curTitle = title; gFilter = "all"; logsBy = {}; workGid = null;
+  title = title || sessionRows.find((r) => r.code === code)?.title || "수업";
+  current = code; curTitle = title; gFilter = "all"; logsBy = {}; workGid = null; mat.loaded = false;
   unsubs.forEach((u) => u()); unsubs = [];
   clearInterval(tickTimer);
-  $("#dash").classList.remove("hidden");
+  $("#class-list-view").classList.add("hidden");
+  $("#class-view").classList.remove("hidden");
+  showCTab("live");
   $("#detail").classList.add("hidden");
   $("#d-title").textContent = title;
   $("#d-code").textContent = code;
@@ -90,6 +118,15 @@ function openSession(code, title) {
   }));
   tickTimer = setInterval(renderDash, 15000); // 접속 상태를 주기적으로 갱신
   window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function closeSession() {
+  unsubs.forEach((u) => u()); unsubs = [];
+  clearInterval(tickTimer);
+  current = null; members = []; groups = []; logsBy = {};
+  $("#class-view").classList.add("hidden");
+  $("#class-list-view").classList.remove("hidden");
+  window.scrollTo({ top: 0 });
 }
 
 const isOnline = (m) => m.lastSeen?.toMillis && Date.now() - m.lastSeen.toMillis() < ONLINE_MS;
@@ -115,7 +152,7 @@ function renderDash() {
     <td><span class="pill">${m.stage || 1}. ${STAGE_NAMES[m.stage || 1]}</span></td>
     <td><span class="dot ${isOnline(m) ? "on" : ""}"></span>${isOnline(m) ? "접속 중" : `자리 비움 · ${ago(m)}`}</td>
     <td>${m.aiCount || 0}회</td>
-    <td><button class="btn btn-tinted btn-sm" data-chat="${m.uid}">대화 보기</button></td></tr>`).join("");
+    <td class="row" style="flex-wrap:nowrap"><button class="btn btn-tinted btn-sm" data-chat="${m.uid}">대화 보기</button><button class="btn btn-plain btn-sm" data-reset="${m.uid}" data-nick="${esc(m.nickname)}">비번 초기화</button></td></tr>`).join("");
   $("#no-students").textContent = rows.length ? "" : "아직 입장한 학생이 없습니다. 위의 수업 코드와 모둠 번호를 학생에게 알려 주세요.";
 
   $("#groups").innerHTML = groups.map((g) => {
@@ -144,6 +181,10 @@ function showDetail(title, html) {
 const guardTag = (g) => (!g || g.ok ? "" : ` <span class="tag ${g.how === "fixed" ? "y" : "r"}">감독자 ${g.how === "fixed" ? "수정" : "대체"} · ${esc(g.category)}</span>`)
   + (g?.trimmed ? ` <span class="tag x" title="마지막의 되묻는 문장을 서버가 지움">되묻기 삭제</span>` : "");
 
+// 인물이 웹에서 찾아 본 기록(검색어, 찾은 내용 요약, 출처)
+const lookupHtml = (ls) => (ls || []).length ? `<details><summary class="meta-line">🔎 웹 검색 ${ls.length}회 (${ls.filter((x) => x.found).length}회 찾음)</summary>${ls.map((x) =>
+  `<div class="meta-line" style="color:var(--ink);margin:4px 0">검색어: ${esc(x.query)}<br>${x.found ? `찾은 내용: ${esc(x.summary)}<br>${(x.sources || []).map((u) => `<a href="${esc(u.url)}" target="_blank" rel="noopener noreferrer">${esc(u.title)}</a>`).join(" · ")}` : "믿을 만한 자료를 찾지 못함 → 인물은 모른다고 답함"}</div>`).join("")}</details>` : "";
+
 async function loadChat(uid) {
   workGid = null;
   const m = members.find((x) => x.uid === uid);
@@ -152,6 +193,7 @@ async function loadChat(uid) {
   const html = rows.map((l) => `<div class="logline">
     <div class="q">학생 ${esc(l.input)}</div>
     <div class="a">${esc(m?.nickname || "")} ↔ ${esc(personaLabels[l.personaId] || l.personaId)}: ${esc(l.output)}${guardTag(l.guard)}</div>
+    ${lookupHtml(l.lookups)}
     ${l.guard && (!l.guard.ok || l.guard.trimmed) ? `<details><summary class="meta-line">감독자 판정 보기</summary><div class="meta-line">사유: ${esc(l.guard.reason)}<br>인물의 원래 응답: ${esc(l.guard.original || "")}</div></details>` : ""}
     <div class="meta-line">${fmt(l.createdAt)} · ${esc(l.model)}</div></div>`).join("") || `<div class="meta-line">대화가 없습니다.</div>`;
   showDetail(`${m?.nickname || ""} · ${personaLabels[m?.personaId] || ""} 대화`, html);
@@ -174,7 +216,16 @@ async function loadGroupLogs(gid) {
       <div class="q">${esc(l.input)}</div><div class="a">${esc(prettyLog(l))}</div></div>`).join("") || `<div class="meta-line">3~5단계 AI 기록이 없습니다.</div>`);
   showDetail(`${g?.name || gid} 3~5단계 AI 기록`, html);
 }
-$("#students").onclick = (e) => { const b = e.target.closest("[data-chat]"); if (b) loadChat(b.dataset.chat).catch((err) => toast(errMsg(err), true)); };
+$("#students").onclick = async (e) => {
+  const r = e.target.closest("[data-reset]");
+  if (r) {
+    if (!confirm(`'${r.dataset.nick}' 학생의 비밀번호를 지울까요?\n학생이 같은 별명으로 다시 입장하면서 새 비밀번호를 정합니다. 하던 내용은 그대로 이어집니다.`)) return;
+    try { await call("resetStudentPassword")({ code: current, uid: r.dataset.reset }); toast(`'${r.dataset.nick}' 비밀번호를 초기화했습니다.`); }
+    catch (err) { toast(errMsg(err), true); }
+    return;
+  }
+  const b = e.target.closest("[data-chat]"); if (b) loadChat(b.dataset.chat).catch((err) => toast(errMsg(err), true));
+};
 $("#groups").onclick = (e) => {
   const w = e.target.closest("[data-gwork]");
   if (w) { workGid = w.dataset.gwork; renderWorkViews(); $("#detail").scrollIntoView({ behavior: "smooth", block: "start" }); return; }
@@ -336,3 +387,173 @@ function renderWorkViews() {
   }
 }
 $("#cmp-stages").onclick = (e) => { const b = e.target.closest("[data-cs]"); if (b) { cmpStage = Number(b.dataset.cs); renderWorkViews(); } };
+
+// ---------- 자료 관리 (2단계 실제 사건 자료) ----------
+// 분류(category) 안에 자료(item)가 있다. 추가·수정·삭제·순서 바꾸기는 바로 서버에 저장한다.
+const KINDS = ["사실", "증언", "주장", "의견"];
+const KIND_HELP = "사실·증언은 일어난 일, 주장·의견은 누군가의 생각입니다.";
+const mat = { cats: [], isDefault: true, loaded: false, editItem: null, editCat: null };
+const uid8 = () => Math.random().toString(36).slice(2, 8);
+const catOf = (id) => mat.cats.find((c) => c.id === id);
+
+async function loadMats(force = false) {
+  if (mat.loaded && !force) return renderMats();
+  $("#mat-body").innerHTML = `<div class="card meta-line">불러오는 중…</div>`;
+  try {
+    const { data } = await call("getMaterials")({ code: current });
+    Object.assign(mat, { cats: data.categories, isDefault: data.isDefault, loaded: true, editItem: null, editCat: null });
+    renderMats();
+  } catch (e) { $("#mat-body").innerHTML = `<div class="notice">${esc(errMsg(e))}</div>`; }
+}
+
+// 서버에 저장하고, 서버가 정리한 목록(id 부여, 길이 제한)으로 화면을 맞춘다. 실패하면 서버의 값으로 되돌린다.
+async function saveMats(okMsg = "저장했습니다") {
+  try {
+    const { data } = await call("saveMaterials")({ code: current, categories: mat.cats });
+    Object.assign(mat, { cats: data.categories, isDefault: false, editItem: null, editCat: null });
+    toast(okMsg);
+  } catch (e) { toast(errMsg(e), true); await loadMats(true); return; }
+  renderMats();
+}
+
+const kindOptions = (sel) => KINDS.map((k) => `<option ${k === sel ? "selected" : ""}>${k}</option>`).join("");
+function itemForm(c, it) {
+  const isNew = !it;
+  const v = it || { kind: "사실", date: "", text: "", caption: "" };
+  const key = isNew ? `new:${c.id}` : `edit:${c.id}:${it.id}`;
+  return `<div class="mform" data-form="${esc(key)}">
+    <div class="two"><div><label class="lbl" style="margin-top:0">종류</label><select data-f="kind">${kindOptions(v.kind)}</select></div>
+      ${c.type === "timeline" ? `<div><label class="lbl" style="margin-top:0">시점</label><input type="text" data-f="date" maxlength="24" placeholder="예) 2018. 6. 25." value="${esc(v.date)}" /></div>` : ""}</div>
+    <label class="lbl">내용</label><textarea data-f="text" maxlength="600" placeholder="학생이 읽을 문장 (600자 이내)">${esc(v.text)}</textarea>
+    <label class="lbl">출처</label><input type="text" data-f="caption" maxlength="80" placeholder="예) 한겨레 2018.7.3. (비우면 '선생님이 준비한 자료'로 표시)" value="${esc(v.caption)}" />
+    <div class="meta-line" style="margin-top:6px">${KIND_HELP}</div>
+    <div class="row" style="margin-top:10px"><button class="btn btn-primary btn-sm" data-m="${isNew ? "item-add" : "item-save"}" data-c="${esc(c.id)}" ${isNew ? "" : `data-i="${esc(it.id)}"`}>${isNew ? "추가" : "저장"}</button>
+      ${isNew ? "" : `<button class="btn btn-plain btn-sm" data-m="item-cancel">취소</button>`}</div></div>`;
+}
+function catForm(c) {
+  const isNew = !c;
+  const v = c || { title: "", type: "list" };
+  return `<div class="mform" data-form="${isNew ? "newcat" : "editcat:" + esc(c.id)}">
+    <div class="two"><div><label class="lbl" style="margin-top:0">분류 이름</label><input type="text" data-f="title" maxlength="40" placeholder="예) 제주 도민의 목소리" value="${esc(v.title)}" /></div>
+      <div><label class="lbl" style="margin-top:0">보여 주는 방식</label><select data-f="type"><option value="list" ${v.type === "list" ? "selected" : ""}>목록</option><option value="timeline" ${v.type === "timeline" ? "selected" : ""}>시간 순 흐름 (시점 입력)</option></select></div></div>
+    <div class="row" style="margin-top:10px"><button class="btn btn-primary btn-sm" data-m="${isNew ? "cat-add" : "cat-save"}" ${isNew ? "" : `data-c="${esc(c.id)}"`}>${isNew ? "분류 만들기" : "저장"}</button>
+      ${isNew ? "" : `<button class="btn btn-plain btn-sm" data-m="item-cancel">취소</button>`}</div></div>`;
+}
+
+function renderMats() {
+  $("#mat-status").innerHTML = mat.isDefault
+    ? `<div class="notice green">지금은 <b>기본 자료</b>(출처 원문 대조를 마친 자료)를 쓰고 있습니다. 아래에서 고치면 이 수업만의 자료가 됩니다.</div>`
+    : `<div class="notice green row" style="justify-content:space-between"><span>이 수업만의 자료를 쓰고 있습니다.</span><button class="btn btn-plain btn-sm" data-m="reset">기본 자료로 되돌리기</button></div>`;
+  const total = mat.cats.reduce((n, c) => n + c.items.length, 0);
+  $("#mat-body").innerHTML = mat.cats.map((c, ci) => `<div class="card mcat">
+      <div class="mcat-h"><h3>${esc(c.title)}</h3><span class="tag ${c.type === "timeline" ? "b" : "x"}">${c.type === "timeline" ? "시간 순" : "목록"}</span><span class="meta-line">${c.items.length}개</span>
+        <button class="btn btn-plain btn-sm btn-ico" data-m="cat-up" data-c="${esc(c.id)}" ${ci === 0 ? "disabled" : ""} title="위로">▲</button><button class="btn btn-plain btn-sm btn-ico" data-m="cat-down" data-c="${esc(c.id)}" ${ci === mat.cats.length - 1 ? "disabled" : ""} title="아래로">▼</button>
+        <button class="btn btn-tinted btn-sm" data-m="cat-edit" data-c="${esc(c.id)}">이름·방식 수정</button><button class="btn btn-danger btn-sm" data-m="cat-del" data-c="${esc(c.id)}">분류 삭제</button></div>
+      ${mat.editCat === c.id ? catForm(c) : ""}
+      ${c.stats?.length ? `<div class="mstats">${c.stats.map((s) => `<span class="tag x">${esc(s.label)} ${esc(s.value)}</span>`).join("")}</div><div class="meta-line" style="margin-bottom:6px">위 숫자 요약은 기본 자료의 것으로, 여기서는 고칠 수 없습니다.</div>` : ""}
+      ${c.items.length ? c.items.map((it, ii) => mat.editItem === `${c.id}:${it.id}` ? itemForm(c, it) : `<div class="mitem">
+        <div class="mbody"><span class="kind k-${esc(it.kind)}">${esc(it.kind)}</span> ${it.date ? `<span class="mdate">${esc(it.date)}</span>` : ""}${esc(it.text)}<div class="meta-line">${esc(it.caption || "출처 없음 (학생에게는 '선생님이 준비한 자료'로 표시)")}</div></div>
+        <div class="mact"><button class="btn btn-plain btn-sm btn-ico" data-m="item-up" data-c="${esc(c.id)}" data-i="${esc(it.id)}" ${ii === 0 ? "disabled" : ""} title="위로">▲</button><button class="btn btn-plain btn-sm btn-ico" data-m="item-down" data-c="${esc(c.id)}" data-i="${esc(it.id)}" ${ii === c.items.length - 1 ? "disabled" : ""} title="아래로">▼</button>
+          <button class="btn btn-tinted btn-sm" data-m="item-edit" data-c="${esc(c.id)}" data-i="${esc(it.id)}">수정</button><button class="btn btn-danger btn-sm" data-m="item-del" data-c="${esc(c.id)}" data-i="${esc(it.id)}">삭제</button></div></div>`).join("")
+        : `<div class="meta-line">이 분류에는 아직 자료가 없습니다. 비어 있는 분류는 학생에게 보이지 않습니다.</div>`}
+      <details class="fold" style="margin:10px 0 0;box-shadow:none;background:var(--fill)"><summary>＋ 이 분류에 자료 추가</summary><div class="inner">${itemForm(c, null)}</div></details>
+    </div>`).join("") +
+    `<div class="card"><h3>새 분류 만들기</h3><p class="desc">예) 전문가 의견, 언론 보도 비교, 다른 나라의 사례 …  (전체 ${total}개 자료, ${mat.cats.length}개 분류)</p>${catForm(null)}</div>`;
+}
+
+const formVals = (key) => {
+  const f = [...document.querySelectorAll("#mat-body [data-form]")].find((x) => x.dataset.form === key);
+  const o = {};
+  f?.querySelectorAll("[data-f]").forEach((el) => { o[el.dataset.f] = el.value; });
+  return o;
+};
+const swap = (arr, i, j) => { if (j < 0 || j >= arr.length) return false; [arr[i], arr[j]] = [arr[j], arr[i]]; return true; };
+
+$("#cpane-materials").onclick = async (e) => {
+  const b = e.target.closest("[data-m]"); if (!b) return;
+  const act = b.dataset.m, c = catOf(b.dataset.c), id = b.dataset.i;
+  const it = c?.items.find((x) => x.id === id);
+  switch (act) {
+    case "item-add": {
+      const v = formVals(`new:${c.id}`);
+      if (!(v.text || "").trim()) return toast("내용을 입력하세요.", true);
+      c.items.push({ id: "m-" + uid8(), kind: v.kind, date: v.date || "", text: v.text, caption: v.caption || "" });
+      return saveMats("자료를 추가했습니다");
+    }
+    case "item-edit": mat.editItem = `${c.id}:${id}`; mat.editCat = null; return renderMats();
+    case "item-cancel": mat.editItem = null; mat.editCat = null; return renderMats();
+    case "item-save": {
+      const v = formVals(`edit:${c.id}:${id}`);
+      if (!(v.text || "").trim()) return toast("내용을 입력하세요.", true);
+      Object.assign(it, { kind: v.kind, date: v.date ?? it.date, text: v.text, caption: v.caption || "" });
+      return saveMats("자료를 고쳤습니다");
+    }
+    case "item-del":
+      if (!confirm("이 자료를 삭제할까요? 학생 화면에서도 사라집니다.")) return;
+      c.items = c.items.filter((x) => x.id !== id);
+      return saveMats("자료를 삭제했습니다");
+    case "item-up": case "item-down": {
+      const i = c.items.findIndex((x) => x.id === id);
+      if (swap(c.items, i, act === "item-up" ? i - 1 : i + 1)) return saveMats("순서를 바꿨습니다");
+      return;
+    }
+    case "cat-add": {
+      const v = formVals("newcat");
+      if (!(v.title || "").trim()) return toast("분류 이름을 입력하세요.", true);
+      mat.cats.push({ id: "c-" + uid8(), title: v.title, type: v.type, items: [] });
+      return saveMats("분류를 만들었습니다. 이제 자료를 추가하세요");
+    }
+    case "cat-edit": mat.editCat = c.id; mat.editItem = null; return renderMats();
+    case "cat-save": {
+      const v = formVals(`editcat:${c.id}`);
+      if (!(v.title || "").trim()) return toast("분류 이름을 입력하세요.", true);
+      Object.assign(c, { title: v.title, type: v.type });
+      return saveMats("분류를 고쳤습니다");
+    }
+    case "cat-del":
+      if (!confirm(`'${c.title}' 분류와 안의 자료 ${c.items.length}개를 모두 삭제할까요?`)) return;
+      mat.cats = mat.cats.filter((x) => x.id !== c.id);
+      return saveMats("분류를 삭제했습니다");
+    case "cat-up": case "cat-down": {
+      const i = mat.cats.findIndex((x) => x.id === c.id);
+      if (swap(mat.cats, i, act === "cat-up" ? i - 1 : i + 1)) return saveMats("순서를 바꿨습니다");
+      return;
+    }
+    case "reset":
+      if (!confirm("이 수업에서 고친 자료를 모두 버리고 기본 자료로 되돌릴까요? 되돌릴 수 없습니다.")) return;
+      try {
+        const { data } = await call("resetMaterials")({ code: current });
+        Object.assign(mat, { cats: data.categories, isDefault: true, editItem: null, editCat: null });
+        toast("기본 자료로 되돌렸습니다"); renderMats();
+      } catch (err) { toast(errMsg(err), true); }
+  }
+};
+
+// ---------- 수업 설정 ----------
+const curRow = () => sessionRows.find((r) => r.code === current);
+function studentGuide() {
+  const r = curRow();
+  return `[AI-EPS 수업 입장 안내]\n주소: ${location.origin}/\n수업 코드: ${current}\n모둠 번호: 1~${r?.groupCount ?? ""}번 중 우리 모둠\n별명과 비밀번호(4자 이상)를 정해 입장하세요. 처음 정한 비밀번호를 기억해 두면 다시 들어와도 하던 것이 이어집니다. 끝나면 꼭 로그아웃하세요.`;
+}
+function fillSettings() {
+  const r = curRow(); if (!r) return;
+  $("#s-title").value = r.title;
+  $("#s-groups").value = r.groupCount;
+  $("#s-guide").style.whiteSpace = "pre-wrap";
+  $("#s-guide").textContent = studentGuide();
+}
+$("#s-save").onclick = async () => {
+  try {
+    await call("updateSession")({ code: current, title: $("#s-title").value, groupCount: Number($("#s-groups").value) });
+    toast("저장했습니다");
+    setTimeout(fillSettings, 400);
+  } catch (e) { toast(errMsg(e), true); }
+};
+$("#s-copy-guide").onclick = async () => { try { await navigator.clipboard.writeText(studentGuide()); toast("안내문을 복사했어요"); } catch { toast("복사하지 못했습니다. 위 글을 직접 선택해 복사하세요.", true); } };
+$("#s-delete").onclick = async () => {
+  const typed = prompt(`'${curTitle}' 수업을 삭제합니다. 모든 기록이 지워지고 되돌릴 수 없습니다.\n계속하려면 수업 코드(${current})를 입력하세요.`);
+  if (typed === null) return;
+  if (typed.trim().toUpperCase() !== current) return toast("수업 코드가 맞지 않아 삭제하지 않았습니다.", true);
+  try { await call("deleteSession")({ code: current }); toast("수업을 삭제했습니다"); closeSession(); }
+  catch (e) { toast(errMsg(e), true); }
+};

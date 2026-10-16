@@ -1,5 +1,5 @@
 import { auth, db, call, esc, toast, errMsg } from "./fb.js";
-import { signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { signInAnonymously, onAuthStateChanged, setPersistence, browserSessionPersistence, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { doc, getDoc, onSnapshot, updateDoc, collection, query, orderBy, serverTimestamp, deleteField } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const STAGES = [
@@ -114,23 +114,58 @@ function startPresence() {
   document.addEventListener("visibilitychange", () => { if (!document.hidden) ping(); });
 }
 
-// ---------- 입장 ----------
+// ---------- 입장·로그아웃 ----------
+// 로그인 상태는 이 탭(브라우저 세션)에만 남긴다. 창을 닫으면 로그아웃되므로, 공용 PC에서 다음 학생이 앞 학생의 화면을 이어받지 않는다.
+const SESSION_KEY = "eps_code";
+const savedCode = () => { try { return sessionStorage.getItem(SESSION_KEY); } catch { return null; } };
+const saveCode = (c) => { try { c ? sessionStorage.setItem(SESSION_KEY, c) : sessionStorage.removeItem(SESSION_KEY); } catch {} };
+try { localStorage.removeItem("eps_code"); } catch {} // 예전 방식(브라우저에 계속 남던 입장 정보) 정리
+
 $("#j-btn").onclick = async () => {
   const code = $("#j-code").value.trim().toUpperCase();
   const groupNo = $("#j-group").value;
   const nickname = $("#j-nick").value.trim();
-  if (!code || !groupNo || !nickname) return toast("세 칸을 모두 입력하세요.", true);
+  const password = $("#j-pw").value;
+  if (!code || !groupNo || !nickname || !password) return toast("네 칸을 모두 입력하세요.", true);
+  if (!S.uid) return toast("연결하는 중입니다. 잠시 후 다시 눌러 주세요.", true);
+  const btn = $("#j-btn");
+  btn.disabled = true;
   try {
-    await call("joinSession")({ code, groupNo: Number(groupNo), nickname });
-    localStorage.setItem("eps_code", code);
+    await call("joinSession")({ code, groupNo: Number(groupNo), nickname, password });
+    $("#j-pw").value = "";
+    saveCode(code);
     await enter(code);
   } catch (e) { toast(errMsg(e), true); }
+  finally { btn.disabled = false; }
 };
+for (const id of ["#j-code", "#j-group", "#j-nick", "#j-pw"]) $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") $("#j-btn").click(); });
+
+// 로그아웃: 저장 중인 입력을 먼저 올리고, '입력 중' 표시를 지운 뒤, 로그인 정보를 지우고 처음 화면으로 돌아간다
+let leaving = false;
+async function logout(msg) {
+  if (leaving) return;
+  leaving = true;
+  try {
+    await Promise.race([flushAll().then(() => groupRef && S.uid ? save(`live.${S.uid}`, deleteField()) : null), new Promise((r) => setTimeout(r, 3000))]);
+  } catch {}
+  clearInterval(hb);
+  saveCode(null);
+  try { await signOut(auth); } catch {}
+  if (msg) { try { sessionStorage.setItem("eps_notice", msg); } catch {} }
+  location.reload();
+}
+$("#logout").onclick = () => logout();
+
+// 오래 아무것도 안 하면 자동 로그아웃(자리를 비운 채 공용 PC를 두고 간 경우)
+const IDLE_MS = 30 * 60 * 1000;
+let idleTimer = null;
+function resetIdle() { clearTimeout(idleTimer); idleTimer = setTimeout(() => logout("오랫동안 사용하지 않아 로그아웃되었습니다. 다시 입장하면 하던 것이 이어집니다."), IDLE_MS); }
+for (const ev of ["pointerdown", "keydown", "touchstart", "scroll"]) document.addEventListener(ev, () => { if (S.code) resetIdle(); }, { passive: true, capture: true });
 
 async function enter(code) {
   memberRef = doc(db, `sessions/${code}/members/${S.uid}`);
   const mSnap = await getDoc(memberRef);
-  if (!mSnap.exists()) { localStorage.removeItem("eps_code"); return; }
+  if (!mSnap.exists()) { saveCode(null); return; }
   Object.assign(S, { code, groupId: mSnap.data().groupId, nick: mSnap.data().nickname });
   groupRef = doc(db, `sessions/${code}/groups/${S.groupId}`);
   S.info = (await call("getCase")({ code })).data;
@@ -139,13 +174,17 @@ async function enter(code) {
   $("#join").classList.add("hidden");
   $("#app").classList.remove("hidden");
   $("#who").textContent = `${S.groupId.replace("g", "")}모둠 · ${S.nick}`;
+  $("#logout").classList.remove("hidden");
+  resetIdle();
+  // 같은 별명으로 다른 화면에서 로그인하면 이 화면은 접근 권한을 잃는다 → 로그아웃 처리
+  const lost = (e) => { if (e?.code === "permission-denied") logout("다른 화면에서 같은 별명으로 로그인해서 이 화면은 로그아웃되었습니다."); };
   onSnapshot(groupRef, (s) => {
     const d = s.data() || {};
     S.work = d.work || {};
     for (const [path, p] of pending) setLocal(path, p.value); // 아직 저장 중인 내 입력은 유지
     S.aiCount = d.aiCount || 0; S.memberCount = d.memberCount || 0;
     scheduleRender();
-  });
+  }, lost);
   onSnapshot(collection(db, `sessions/${code}/groups/${S.groupId}/logs`), (s) => { S.logs = s.docs.map((d) => ({ id: d.id, ...d.data() })); scheduleRender(); });
   onSnapshot(query(collection(db, `sessions/${code}/members/${S.uid}/chat`), orderBy("createdAt")), (s) => {
     S.chat = s.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -157,10 +196,19 @@ async function enter(code) {
   startPresence();
 }
 
+// 새 탭·새로 연 브라우저는 항상 로그아웃 상태에서 시작한다(앞 사람의 로그인이 남아 있어도 이어받지 않는다)
+await setPersistence(auth, browserSessionPersistence).catch(() => {});
+await auth.authStateReady?.();
+if (auth.currentUser?.isAnonymous && !savedCode()) await signOut(auth).catch(() => {});
+try {
+  const notice = sessionStorage.getItem("eps_notice");
+  if (notice) { sessionStorage.removeItem("eps_notice"); toast(notice); }
+} catch {}
+
 onAuthStateChanged(auth, async (u) => {
   if (!u) { await signInAnonymously(auth); return; }
   S.uid = u.uid;
-  const saved = localStorage.getItem("eps_code");
+  const saved = savedCode();
   if (saved && !S.code) enter(saved).catch(console.error);
 });
 
@@ -271,12 +319,20 @@ function syncLive() {
 }
 
 // ---------- 1단계 ① 메신저 대화 ----------
+// 인물이 웹에서 찾은 내용을 바탕으로 답한 경우, 어디서 찾았는지 볼 수 있게 한다(확인하는 습관을 위해)
+function srcNote(l) {
+  const found = (l.lookups || []).filter((x) => x.found);
+  const urls = found.flatMap((x) => x.sources || []).filter((x) => /^https?:\/\//.test(x.url));
+  if (!found.length) return "";
+  return `<details class="srcnote"><summary>🔎 웹에서 찾은 내용이 쓰였어요 (출처 보기)</summary><div class="srcs">${
+    urls.length ? urls.map((x) => `<a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title)}</a>`).join("") : "출처 주소가 없습니다. 꼭 다시 확인하세요."}</div></details>`;
+}
 function msgsHtml() {
   const name = S.me?.name || "", ini = esc(name.slice(0, 1));
   const rows = [];
   for (const l of S.chat) {
     rows.push(`<div class="msg me"><div class="col"><div class="bubble">${esc(l.input)}</div><span class="time">${fmtTime(l.createdAt)}</span></div></div>`);
-    rows.push(`<div class="msg ai"><div class="avatar sm">${ini}</div><div class="col"><span class="name">${esc(name)}</span><div class="bubble">${esc(l.output)}</div><span class="time">${fmtTime(l.createdAt)}</span></div></div>`);
+    rows.push(`<div class="msg ai"><div class="avatar sm">${ini}</div><div class="col"><span class="name">${esc(name)}</span><div class="bubble">${esc(l.output)}</div>${srcNote(l)}<span class="time">${fmtTime(l.createdAt)}</span></div></div>`);
   }
   if (S.pending) rows.push(`<div class="msg me"><div class="col"><div class="bubble">${esc(S.pending.text)}</div></div></div>`);
   if (S.sending) rows.push(`<div class="msg ai typing"><div class="avatar sm">${ini}</div><div class="col"><div class="bubble"><i></i><i></i><i></i></div></div></div>`);
