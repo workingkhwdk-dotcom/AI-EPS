@@ -51,4 +51,16 @@ function toStudentMaterials(cats) {
   })).filter((c) => c.items.length || c.stats);
 }
 
-module.exports = { defaultMaterials, sanitizeMaterials, toStudentMaterials, KINDS, TYPES, LIMITS };
+// 3단계 검색 도우미에게 근거로 줄 글. 학생 화면과 같은 자료를 분류별로 한 줄씩 적고, 너무 길면 뒤를 자른다.
+function materialsText(cats, max = 6000) {
+  const lines = [];
+  for (const c of cats || []) {
+    for (const s of c.stats || []) lines.push(`- [${c.title}] (통계) ${s.label}: ${s.value}`);
+    for (const it of c.items || []) lines.push(`- [${c.title}] (${it.kind || "사실"}) ${it.date ? it.date + " " : ""}${it.text}${it.caption ? ` — ${it.caption}` : ""}`);
+  }
+  let out = "";
+  for (const l of lines) { if (out.length + l.length + 1 > max) break; out += (out ? "\n" : "") + l; }
+  return out;
+}
+
+module.exports = { defaultMaterials, sanitizeMaterials, toStudentMaterials, materialsText, KINDS, TYPES, LIMITS };

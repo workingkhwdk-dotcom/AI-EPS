@@ -51,3 +51,13 @@ test("요청 본문: 검색은 web_search 도구를 쓰고 minimal 사고량은 
   assert.equal("tools" in buildBody({ model: "gpt-5-mini", messages: [] }), false);
   assert.equal(buildBody({ model: "gpt-5-mini", messages: [], tools: [LOOKUP_TOOL] }).tools[0].function.name, "lookup");
 });
+
+test("materialsText: 3단계 근거용으로 분류·종류·날짜·출처를 한 줄씩 적고, 길면 줄 단위로 자른다", () => {
+  const { materialsText } = require("../materials");
+  const cats = [{ title: "심사 결과", stats: [{ label: "인도적 체류", value: "412명" }], items: [{ kind: "사실", date: "2018.12", text: "심사가 끝났다", caption: "법무부" }] }];
+  const t = materialsText(cats);
+  assert.match(t, /^- \[심사 결과\] \(통계\) 인도적 체류: 412명/);
+  assert.match(t, /- \[심사 결과\] \(사실\) 2018\.12 심사가 끝났다 — 법무부/);
+  assert.equal(materialsText(cats, 30).split("\n").length, 1);
+  assert.equal(materialsText(undefined), "");
+});

@@ -42,7 +42,7 @@ const CAUSE_STATUS = ["근거로 뒷받침됨", "근거가 약함", "버림"];
 // 단계마다 AI가 맡는 역할을 분명히 보여 준다(AI가 하는 일 / 하지 않는 일 / 우리가 하는 일)
 const ROLES = {
   1: { ai: "인터뷰 상대 (가상 인물)", does: "자기가 겪은 일과 생각을 말해요.", not: "무엇이 사실인지, 무엇이 정답인지 말하지 않아요. 틀린 말을 할 수도 있어요.", me: "질문하고, 사실인지 확인할 말을 골라 둬요." },
-  3: { ai: "검색 도우미", does: "알려진 내용과 확인할 수 있는 곳을 알려 줘요.", not: "들은 말이나 원인 가설이 맞는지 틀린지 판정하지 않아요.", me: "자료와 비교해서 사실인지 우리가 판정해요." },
+  3: { ai: "검색 도우미", does: "2단계 수업 자료와 웹 검색에서 찾은 내용, 확인할 수 있는 곳을 근거와 함께 알려 줘요.", not: "들은 말이나 원인 가설이 맞는지 틀린지 판정하지 않아요.", me: "자료와 비교해서 사실인지 우리가 판정해요." },
   4: { ai: "검토자 3명", does: "우리 대안의 강점, 약점, 생각할 질문을 말해요.", not: "대안을 대신 쓰거나 순위를 매기지 않아요.", me: "검토 의견을 받아들일지 버릴지 우리가 정해요." },
   5: { ai: "미래 시뮬레이터", does: "대안을 실행한 뒤 가능한 미래 2가지를 보여 줘요.", not: "정답이나 확실한 예측이 아니에요.", me: "어느 쪽이 더 그럴듯한지, 왜 그런지 우리가 판단해요." },
 };
@@ -56,7 +56,7 @@ const STARTERS = ["안녕하세요, 어떤 일을 하세요?", "요즘 가장 �
 
 const S = {
   code: null, groupId: null, nick: null, uid: null, info: null, me: null,
-  work: {}, logs: [], chat: [], stage: 1, sub1: "chat", aiCount: 0, memberCount: 0,
+  work: {}, logs: [], chat: [], stage: 1, sub1: "chat", aiCount: 0, memberCount: 0, chatCount: 0, chatLimit: 5,
   busy: null, waitSince: 0, chatErr: null, sending: false, pending: null, draft: "", letterClosed: false, matTab: null, proposalId: null, round: 1, scrollChat: false,
 };
 const $ = (s) => document.querySelector(s);
@@ -76,6 +76,22 @@ const stageLogs = (n) => S.logs.filter((l) => l.stage === n).sort((a, b) => ts(a
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const fmtTime = (t) => { const d = t?.toDate?.(); return d ? `${d.getHours() < 12 ? "오전" : "오후"} ${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, "0")}` : ""; };
 const txt = (v) => (typeof v === "string" ? v.trim() : "");
+// 인물에게 더 물을 수 있는 횟수(교사가 수업 설정에서 정한 학생별 한도)
+const chatLeft = () => Math.max(0, S.chatLimit - S.chatCount);
+// 입력칸 글자 수 한도(모둠 문서가 너무 커져 저장이 막히지 않게)
+const MAX_INPUT = 300, MAX_AREA = 1500;
+// 단계 순서(서버 policy.js 와 같은 기준): 모둠 문제 → 3단계 AI, 핵심 원인 → 4단계 AI, 최종 대안 → 5단계 AI
+const ready = {
+  problem: () => txt(w("s1.problem.hmw")).length >= 10,
+  cause: () => txt(w("s3.chain.cause")).length >= 10,
+  final: () => txt(w("s4.final")).length >= 30,
+};
+const lockNote = (msg, go, sub = "") => `<div class="notice yellow">${msg} <button class="link" data-go="${go}" data-sub="${sub}">바로 가기</button></div>`;
+// 3단계 검색 도우미가 근거로 쓴 웹 출처
+const srcLinks = (sources) => {
+  const xs = (sources || []).filter((x) => /^https?:\/\//.test(x.url));
+  return xs.length ? `<details class="srcnote"><summary>🔎 웹 검색 출처 ${xs.length}개</summary><div class="srcs">${xs.map((x) => `<a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title)}</a>`).join("")}</div></details>` : "";
+};
 
 // 저장 상태: 저장 중인 칸 수와 인터넷 연결을 화면 위쪽에 보여 준다. 연결이 끊겨도 입력은 연결되면 자동으로 저장된다(창을 닫지 않으면).
 let inflight = 0, savedFlash = 0, slowTimer = null;
@@ -97,6 +113,7 @@ window.addEventListener("offline", renderNet);
 window.addEventListener("beforeunload", (e) => { if (inflight > 0 || pending.size > 0) { e.preventDefault(); e.returnValue = ""; } });
 
 async function save(path, value) {
+  if (typeof value === "string" && value.length > MAX_AREA) value = value.slice(0, MAX_AREA);
   inflight++; renderNet();
   const slow = setTimeout(() => { slowTimer = "slow"; renderNet(); }, 8000);
   try { await updateDoc(groupRef, { ["work." + path]: value }); }
@@ -206,7 +223,11 @@ async function enter(code) {
   // 같은 별명으로 다른 화면에서 로그인하면 이 화면은 접근 권한을 잃는다 → 로그아웃 처리
   const lost = (e) => { if (e?.code === "permission-denied") logout("다른 화면에서 같은 별명으로 로그인해서 이 화면은 로그아웃되었습니다."); };
   // 교사가 수업을 닫으면 이 화면도 로그아웃한다
-  onSnapshot(doc(db, `sessions/${code}`), (s) => { if (s.data()?.closed) logout("수업이 끝나 닫혔습니다. 수고했어요!"); }, lost);
+  onSnapshot(doc(db, `sessions/${code}`), (s) => {
+    if (s.data()?.closed) logout("수업이 끝나 닫혔습니다. 수고했어요!");
+    S.chatLimit = s.data()?.chatLimit || 5; renderChatLeft();
+  }, lost);
+  onSnapshot(memberRef, (s) => { S.chatCount = s.data()?.chatCount || 0; renderChatLeft(); }, lost);
   onSnapshot(groupRef, (s) => {
     const d = s.data() || {};
     S.work = d.work || {};
@@ -273,8 +294,8 @@ const shared = `<span class="tag b">모둠 공용 · 실시간</span>`;
 const liveWho = (path) => `<div class="live-who" data-live="${esc(path)}"></div>`;
 // 저장 칸(data-save): 입력하면 자동 저장되고, 모둠원 화면에도 바로 반영된다
 const fld = (path, label, ph = "", area = false) => `${label ? `<label class="lbl">${label}</label>` : ""}${area
-  ? `<textarea data-save="${path}" placeholder="${esc(ph)}">${esc(w(path) || "")}</textarea>`
-  : `<input type="text" data-save="${path}" value="${esc(w(path) || "")}" placeholder="${esc(ph)}" />`}${liveWho(path)}`;
+  ? `<textarea data-save="${path}" maxlength="${MAX_AREA}" placeholder="${esc(ph)}">${esc(w(path) || "")}</textarea>`
+  : `<input type="text" data-save="${path}" maxlength="${MAX_INPUT}" value="${esc(w(path) || "")}" placeholder="${esc(ph)}" />`}${liveWho(path)}`;
 const pick = (path, label, opts) => {
   const cur = w(path) || "";
   const all = cur && !opts.includes(cur) ? [...opts, cur] : opts;
@@ -301,7 +322,7 @@ function footer() {
   const btn = (x, cls, text) => `<button class="btn ${cls}" data-go="${x.s}" data-sub="${x.sub || ""}">${text}</button>`;
   return `<div class="nav-foot">${prev ? btn(prev, "btn-plain", `← ${esc(prev.label)}`) : "<span></span>"}
     ${next ? btn(next, "btn-primary", `다음: ${esc(next.label)} →`) : `<span class="meta-line">마지막 단계입니다. 수고했어요!</span>`}</div>
-    <div class="meta-line" style="text-align:right;margin-top:8px">우리 모둠 AI 사용 ${S.aiCount}회</div>`;
+    <div class="meta-line" style="text-align:right;margin-top:8px">우리 모둠 AI 사용(3~5단계) ${S.aiCount}회</div>`;
 }
 
 // ---------- 그리기 ----------
@@ -362,7 +383,7 @@ function msgsHtml() {
   const rows = [];
   for (const l of S.chat) {
     rows.push(`<div class="msg me"><div class="col"><div class="bubble">${esc(l.input)}</div><span class="time">${fmtTime(l.createdAt)}</span></div></div>`);
-    rows.push(`<div class="msg ai"><div class="avatar sm">${ini}</div><div class="col"><span class="name">${esc(name)}</span><div class="bubble">${esc(l.output)}</div>${srcNote(l)}<span class="time">${fmtTime(l.createdAt)}</span></div></div>`);
+    rows.push(`<div class="msg ai"><div class="avatar sm">${ini}</div><div class="col"><span class="name">${esc(name)}</span><div class="bubble">${esc(l.output)}</div>${srcNote(l)}${l.refunded ? `<span class="time">이 답은 질문 횟수에 들어가지 않았어요</span>` : ""}<span class="time">${fmtTime(l.createdAt)}</span></div></div>`);
   }
   if (S.pending) rows.push(`<div class="msg me"><div class="col"><div class="bubble">${esc(S.pending.text)}</div></div></div>`);
   if (S.sending) rows.push(`<div class="msg ai typing"><div class="avatar sm">${ini}</div><div class="col"><div class="bubble"><i></i><i></i><i></i></div>${waitHtml({ steps: STEPS.chat, since: S.waitSince, compact: true })}</div></div>`);
@@ -381,7 +402,19 @@ function renderMsgs() {
   const sig = `${S.chat.length}|${S.sending}|${!!S.pending}`;
   if (S.scrollChat || sig !== lastSig) requestAnimationFrame(scrollToLatest);
   S.scrollChat = false; lastSig = sig;
-  const btn = $("#send-btn"); if (btn) btn.disabled = S.sending;
+  renderChatLeft();
+}
+// 남은 질문 수를 보여 주고, 다 쓰면 입력을 막고 ② 정리로 안내한다
+function renderChatLeft() {
+  const el = $("#chat-left"); if (!el) return;
+  const left = chatLeft(), out = left === 0;
+  el.innerHTML = out
+    ? `질문을 모두 썼어요. 들은 이야기로 정리해 보세요. <button class="link" data-go="1" data-sub="note">② 정리·제출로 가기</button>`
+    : `남은 질문 <b>${left}</b> / ${S.chatLimit}번 · 보내기 전에 무엇을 알아낼지 먼저 생각해 보세요.`;
+  el.classList.toggle("out", out);
+  const m = $("#msg"); if (m) { m.disabled = out; m.placeholder = out ? "질문을 모두 썼어요" : `${S.me?.name || ""}에게 메시지 보내기`; }
+  const btn = $("#send-btn"); if (btn) btn.disabled = S.sending || out;
+  document.querySelectorAll('[data-act="starter"]').forEach((b) => { b.disabled = out; });
 }
 // 마지막 말풍선이 머리글과 입력창 사이에 보이게 한다. 이미 보이면 움직이지 않고, 길면 말풍선의 첫 줄에 맞춘다.
 function scrollToLatest() {
@@ -395,6 +428,7 @@ function scrollToLatest() {
 }
 
 async function sendChat(text) {
+  if (!chatLeft()) return toast(`인물에게는 ${S.chatLimit}번까지 물을 수 있어요.`, true);
   S.sending = true; S.chatErr = null; S.waitSince = Date.now(); S.pending = { text, base: S.chat.length }; renderMsgs();
   try {
     await call("aiRequest")({ code: S.code, stage: 1, type: "persona_chat", payload: { message: text } });
@@ -484,16 +518,16 @@ const renderStage = {
       ${listHtml("s2.links", (r) => `<span class="tag">${esc(r.level)}</span> <b>${esc(r.situation)}</b><br>이어지는 점: ${esc(r.point)}<br>확인하는 방법: ${esc(r.confirm)}`)}
       <label class="lbl">어느 층위에서 이어지나요?</label>
       <select id="lk-level">${CAUSE_LEVELS.map((x) => `<option>${x}</option>`).join("")}</select>
-      <label class="lbl">인물의 처지 (한 문장)</label><input type="text" id="lk-sit" placeholder="예) 말이 통하지 않아 일자리를 구하기 어렵다" />
-      <label class="lbl">우리 주변에서 비슷한 점</label><input type="text" id="lk-pt" placeholder="예) 우리 동네 시장에도 외국인 노동자가 일한다" />
-      <label class="lbl">정말 그런지 확인하는 방법</label><input type="text" id="lk-cf" placeholder="예) 구청 외국인 지원 현황을 찾아본다" />
+      <label class="lbl">인물의 처지 (한 문장)</label><input type="text" id="lk-sit" maxlength="${MAX_INPUT}" placeholder="예) 말이 통하지 않아 일자리를 구하기 어렵다" />
+      <label class="lbl">우리 주변에서 비슷한 점</label><input type="text" id="lk-pt" maxlength="${MAX_INPUT}" placeholder="예) 우리 동네 시장에도 외국인 노동자가 일한다" />
+      <label class="lbl">정말 그런지 확인하는 방법</label><input type="text" id="lk-cf" maxlength="${MAX_INPUT}" placeholder="예) 구청 외국인 지원 현황을 찾아본다" />
       <div style="margin-top:10px"><button class="btn btn-tinted" data-act="add-link">추가</button></div></div>
 
     <div class="card"><h3>② 원인 추측하기 (가설) ${shared}</h3>
       <p class="desc">위의 '우리 모둠의 문제'가 왜 생겼을까요? 아직은 추측(가설)입니다. 층위마다 하나 이상 쓰세요. 3단계에서 확인합니다.</p>
       ${listHtml("s2.causes", (q) => `${q.level ? `<span class="tag">${esc(q.level)}</span> ` : ""}${esc(q.text)}`)}
       <div class="row" style="margin-top:8px"><select id="cz-lv" style="width:auto">${CAUSE_LEVELS.map((x) => `<option>${x}</option>`).join("")}</select>
-        <input type="text" id="cz" placeholder="예) 난민 신청자가 일할 수 있는 길이 좁았다" style="flex:1;min-width:0" /><button class="btn btn-tinted" data-act="add-cause">추가</button></div></div>
+        <input type="text" id="cz" maxlength="${MAX_INPUT}" placeholder="예) 난민 신청자가 일할 수 있는 길이 좁았다" style="flex:1;min-width:0" /><button class="btn btn-tinted" data-act="add-cause">추가</button></div></div>
 
     <div class="card"><h3>③ 확인할 것을 검증 질문으로 바꾸기 ${shared}</h3>
       <p class="desc">확인할 것은 두 가지입니다. <b>인물에게 들은 말이 사실인지</b>, 그리고 <b>②의 원인 가설이 맞는지</b>. 각각을 질문으로 바꾸고, 위 자료와 먼저 비교해 보세요.</p>
@@ -508,8 +542,8 @@ const renderStage = {
       ${doubts.length ? `<label class="lbl">모둠원이 확인하고 싶다고 한 말 (누르면 아래 칸에 들어가요)</label>
         <div class="chipbar">${doubts.map((f) => `<button class="chip" data-act="use-doubt" data-t="${esc(`${f.persona || f.nick}: ${f.doubt}`)}">${esc(f.doubt.slice(0, 30))}</button>`).join("")}</div>` : ""}
       <label class="lbl">무엇을 확인하나요?</label><select id="ch-cause"><option value="">인물에게 들은 말</option>${list("s2.causes").map((q) => `<option value="${q.id}">원인 가설: ${esc((q.text || "").slice(0, 40))}</option>`).join("")}</select>
-      <label class="lbl">확인할 말 (들은 말이면 누가 한 말인지 함께)</label><input type="text" id="ch-heard" placeholder="예) ○○: 일자리를 구하기 어려웠다" />
-      <label class="lbl">검증 질문</label><input type="text" id="ch-q" placeholder="예) 2018년 제주의 난민 신청자는 합법적으로 일할 수 있었나?" />
+      <label class="lbl">확인할 말 (들은 말이면 누가 한 말인지 함께)</label><input type="text" id="ch-heard" maxlength="${MAX_INPUT}" placeholder="예) ○○: 일자리를 구하기 어려웠다" />
+      <label class="lbl">검증 질문</label><input type="text" id="ch-q" maxlength="${MAX_INPUT}" placeholder="예) 2018년 제주의 난민 신청자는 합법적으로 일할 수 있었나?" />
       <label class="lbl">무엇으로 확인할까요?</label><select id="ch-src">${SRC_TYPES.map((x) => `<option>${x}</option>`).join("")}</select>
       <div style="margin-top:10px"><button class="btn btn-tinted" data-act="add-check">추가</button></div></div>`;
   },
@@ -519,23 +553,25 @@ const renderStage = {
     const verdictsFor = (cid) => checks.filter((c) => c.causeId === cid)
       .flatMap((c) => stageLogs(3).filter((l) => l.payload?.checkId === c.id).map((l) => w(`s3.checks.${l.id}.verdict`)).filter(Boolean));
     const kept = causes.filter((q) => w(`s3.causes.${q.id}.status`) === CAUSE_STATUS[0]);
+    const open3 = ready.problem();
     return `${roleBox(3)}${problemBar()}
     <div class="card"><h3>① 검증 질문 확인하기 ${shared}</h3>
       <p class="desc">순서: <b>AI에게 묻기 → 2단계 자료나 직접 찾은 자료와 비교 → 사실인지 판정</b>. AI의 답도 확인할 대상입니다.</p>
-      ${!checks.length ? `<div class="notice">2단계 ③에서 검증 질문을 먼저 만드세요. <button class="link" data-go="2">2단계로 가기</button></div>` : ""}</div>
+      ${!checks.length ? `<div class="notice">2단계 ③에서 검증 질문을 먼저 만드세요. <button class="link" data-go="2">2단계로 가기</button></div>` : ""}
+      ${checks.length && !open3 ? lockNote("1단계 ③에서 모둠이 풀 문제를 먼저 정해야 검색 도우미에게 물을 수 있어요.", 1, "group") : ""}</div>
     ${checks.map((c) => {
       const logs = stageLogs(3).filter((l) => l.payload?.checkId === c.id);
       return `<div class="card">
         ${causeTag(c)}<div><span class="tag b">확인할 말</span> ${esc(c.heard)}</div>
         <div style="margin-top:6px"><span class="tag y">검증 질문</span> <b>${esc(c.question)}</b></div>
         ${c.real ? `<div class="meta-line" style="margin-top:6px">2단계 자료 비교: ${esc(c.real)}</div>` : ""}
-        ${logs.length ? "" : `<div class="row" style="margin-top:10px"><button class="btn btn-primary btn-sm" data-act="ask-check" data-id="${c.id}" ${S.busy ? "disabled" : ""}>AI 검색 도우미에게 묻기</button></div>`}
+        ${logs.length ? "" : `<div class="row" style="margin-top:10px"><button class="btn btn-primary btn-sm" data-act="ask-check" data-id="${c.id}" ${S.busy || !open3 ? "disabled" : ""}>AI 검색 도우미에게 묻기</button></div>`}
         ${S.busy === "check:" + c.id ? loading() : ""}
-        ${logs.map((l) => `<div style="margin-top:12px"><div class="meta-line">AI 검색 도우미의 답</div><div class="ai-out">${esc(l.output)}</div>
+        ${logs.map((l) => `<div style="margin-top:12px"><div class="meta-line">AI 검색 도우미의 답${l.payload?.searched === false ? " (웹 검색 없이 수업 자료만 봄)" : ""}</div><div class="ai-out">${esc(l.output)}</div>${srcLinks(l.payload?.sources)}
           <div class="judge">${pick(`s3.checks.${l.id}.verdict`, "판정: 확인할 말은 사실인가요?", VERDICTS)}
           ${fld(`s3.checks.${l.id}.source`, "판정 근거: 어떤 자료에서 무엇을 확인했나요?", "예) 2단계 '심사 결과' 자료에 인도적 체류 412명이라고 나와 있다")}
           ${fld(`s3.checks.${l.id}.reason`, "AI 답 점검: 자료와 다르거나 확인되지 않은 부분은?", "없으면 '없음'")}</div></div>`).join("")}
-        ${logs.length ? `<div style="margin-top:8px"><button class="btn btn-plain btn-sm" data-act="ask-check" data-id="${c.id}" ${S.busy ? "disabled" : ""}>다시 묻기</button></div>` : ""}
+        ${logs.length ? `<div style="margin-top:8px"><button class="btn btn-plain btn-sm" data-act="ask-check" data-id="${c.id}" ${S.busy || !open3 ? "disabled" : ""}>다시 묻기</button></div>` : ""}
       </div>`; }).join("")}
     <div class="card"><h3>② 원인 가설 점검하기 ${shared}</h3>
       <p class="desc">2단계에서 추측한 원인마다 위의 검증 결과를 보고, 남길지 버릴지 정하세요.</p>
@@ -557,12 +593,13 @@ const renderStage = {
     const cause = txt(w("s3.chain.cause"));
     return `${roleBox(4)}${problemBar()}
     ${cause ? `<div class="notice muted"><b>3단계에서 정한 핵심 원인</b><br>${esc(cause)}</div>` : ""}
+    ${!ready.cause() ? lockNote("3단계 ③에서 핵심 원인을 먼저 정해야 AI 검토를 받을 수 있어요. 검토자는 대안이 그 원인을 줄이는지도 봅니다.", 3) : ""}
     <div class="card"><h3>① 우리 모둠 대안 쓰기 ${shared}</h3>
       <p class="desc">위의 핵심 원인을 줄일 대안을 먼저 우리끼리 쓰세요. 여러 개를 써서 비교해도 좋아요. <b>누가, 무엇을, 어떻게</b> 할지 30자 이상 써야 AI 검토를 받을 수 있어요.</p>
       ${props.map((p) => `<div class="card flat" style="margin-bottom:10px"><div class="grow">${esc(p.text)}</div>${who(p)}
-        <div class="row" style="margin-top:8px"><button class="btn btn-primary btn-sm" data-act="ask-feedback" data-id="${p.id}" ${S.busy ? "disabled" : ""}>AI 검토 받기</button>
+        <div class="row" style="margin-top:8px"><button class="btn btn-primary btn-sm" data-act="ask-feedback" data-id="${p.id}" ${S.busy || !ready.cause() ? "disabled" : ""}>AI 검토 받기</button>
         <button class="btn btn-plain btn-sm" data-act="del" data-path="s4.proposals" data-id="${p.id}">삭제</button></div></div>`).join("")}
-      <textarea id="pt" placeholder="예) 누가: ○○이 / 무엇을: ○○을 / 어떻게: ○○ 방식으로"></textarea>
+      <textarea id="pt" maxlength="${MAX_AREA}" placeholder="예) 누가: ○○이 / 무엇을: ○○을 / 어떻게: ○○ 방식으로"></textarea>
       <div style="margin-top:8px"><button class="btn btn-tinted" data-act="add-proposal">대안 추가</button></div>
       ${S.busy === "feedback" ? loading("검토자 3명이 각자 검토하는 중입니다…") : ""}</div>
     ${logs.map((l) => { let rv = []; try { rv = JSON.parse(l.output).reviews || []; } catch {}
@@ -585,8 +622,8 @@ const renderStage = {
     const preds = list("s5.predictions"), logs = stageLogs(5);
     const sh = S.info.stakeholders || [];
     const final = txt(w("s4.final"));
-    // 최종 대안을 먼저 보여 주고, 아직 없으면 후보 대안으로도 해 볼 수 있다
-    const opts = [...(final.length >= 30 ? [{ id: "final", text: `[최종] ${final}` }] : []), ...list("s4.proposals")];
+    // 최종 대안을 쓴 뒤에 열린다. 비교해 보고 싶으면 후보 대안으로도 해 볼 수 있다
+    const opts = ready.final() ? [{ id: "final", text: `[최종] ${final}` }, ...list("s4.proposals")] : [];
     if (!opts.some((o) => o.id === S.proposalId)) S.proposalId = opts[0]?.id || null;
     const altText = (l) => (l.payload?.proposalId === "final" ? "최종 대안" : "후보 대안");
     return `${roleBox(5)}${problemBar()}
@@ -595,13 +632,13 @@ const renderStage = {
       <p class="desc">AI보다 먼저 예측하세요. 위의 최종 대안이 실행되면 각 이해관계자는 어떻게 반응할까요? 2개 이상 써야 시뮬레이션을 할 수 있어요.</p>
       ${listHtml("s5.predictions", (r) => `<span class="tag">${esc(r.stakeholder)}</span> ${esc(r.text)}`)}
       <div class="row" style="margin-top:8px"><select id="ps" style="width:auto">${sh.map((x) => `<option>${esc(x)}</option>`).join("")}</select>
-      <input type="text" id="pp" placeholder="예) 반대할 것이다. 왜냐하면 ~" style="flex:1;min-width:0" /><button class="btn btn-tinted" data-act="add-pred">추가</button></div></div>
+      <input type="text" id="pp" maxlength="${MAX_INPUT}" placeholder="예) 반대할 것이다. 왜냐하면 ~" style="flex:1;min-width:0" /><button class="btn btn-tinted" data-act="add-pred">추가</button></div></div>
     <div class="card"><h3>② AI 시뮬레이션</h3>
       <p class="desc">대안을 실행하고 몇 년 뒤의 가능한 미래 2가지를 봅니다. 정답이 아니라 '그럴 수도 있는' 미래입니다.</p>
       ${opts.length ? `<label class="lbl">시뮬레이션할 대안</label><select id="sp">${opts.map((p) => `<option value="${p.id}" ${p.id === S.proposalId ? "selected" : ""}>${esc((p.text || "").slice(0, 50))}</option>`).join("")}</select>
       <label class="lbl">몇 년 후?</label><div class="chipbar">${ROUNDS.map((r) => `<button class="chip ${S.round === r ? "on" : ""}" data-act="round" data-r="${r}">${r}년 후</button>`).join("")}</div>
       ${S.busy === "scenario" ? loading("시나리오를 만드는 중입니다. 1~2분 걸릴 수 있어요…") : ""}<div style="margin-top:10px"><button class="btn btn-primary" data-act="ask-scenario" ${preds.length >= 2 && !S.busy ? "" : "disabled"}>시나리오 만들기</button></div>`
-        : `<div class="notice">4단계에서 최종 대안을 30자 이상 먼저 쓰세요.</div>`}</div>
+        : lockNote("4단계 ②에서 최종 대안을 30자 이상 먼저 써야 시뮬레이션을 할 수 있어요.", 4)}</div>
     ${logs.map((l) => { let sc = []; try { sc = JSON.parse(l.output).scenarios || []; } catch {}
       const sel = w(`s5.selection.${l.id}`) || {};
       return `<div class="card"><div class="meta-line">${altText(l)} · ${l.payload?.round}년 후 시나리오</div>
@@ -662,11 +699,12 @@ const sub1 = {
       <summary>${esc(me.name)}에게서 편지가 왔어요</summary>
       <div class="body">${me.letter.map((p) => `<p>${esc(p)}</p>`).join("")}<div class="sign">2018년 12월, 제주에서<br>${esc(me.name)} 드림</div></div>
     </details>
-    <div class="notice muted"><b>할 일</b> ${esc(me.name)}에게 질문해 세 가지를 알아내세요: <b>① 누구인지 ② 무엇이 힘든지 ③ 무엇을 바라는지</b>. 다 알아냈으면 아래 '다음'을 누르세요.</div>
+    <div class="notice muted"><b>할 일</b> ${esc(me.name)}에게 질문해 세 가지를 알아내세요: <b>① 누구인지 ② 무엇이 힘든지 ③ 무엇을 바라는지</b>. 질문은 <b>${S.chatLimit}번</b>만 할 수 있으니, 한 번에 무엇을 알아낼지 골라서 물어보세요. 다 알아냈으면 아래 '다음'을 누르세요.</div>
     <div class="card chat-card">
       <div class="chat-head"><div class="avatar">${esc(me.name.slice(0, 1))}</div><div><div class="nm">${esc(me.name)}</div><div class="st">대화 중</div></div><button class="btn btn-plain btn-sm" style="margin-left:auto" data-act="dl-chat" aria-label="내 대화를 글 파일로 저장">대화 저장</button></div>
       <div class="msgs" id="msgs" role="log" aria-live="polite" aria-label="인물과의 대화"></div>
       <div class="starters">${STARTERS.map((q) => `<button class="chip sm" data-act="starter" data-t="${esc(q)}">${esc(q)}</button>`).join("")}</div>
+      <div class="chat-left" id="chat-left" role="status" aria-live="polite"></div>
       <form class="composer" id="chat-form" autocomplete="off">
         <input type="text" id="msg" maxlength="500" placeholder="${esc(me.name)}에게 메시지 보내기" />
         <button class="send" id="send-btn" type="submit" aria-label="보내기">${SEND_ICON}</button>

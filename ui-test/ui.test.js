@@ -43,7 +43,7 @@ test.before(async () => {
     const u = req.url.split("?")[0];
     const f = path.join(ROOT, u === "/" ? "index.html" : u);
     if (!f.startsWith(ROOT) || !fs.existsSync(f)) { res.writeHead(404); return res.end(); }
-    res.writeHead(200, { "Content-Type": (f.endsWith(".js") ? "text/javascript" : f.endsWith(".css") ? "text/css" : "text/html") + "; charset=utf-8" });
+    res.writeHead(200, { "Content-Type": f.endsWith(".webp") ? "image/webp" : (f.endsWith(".js") ? "text/javascript" : f.endsWith(".css") ? "text/css" : "text/html") + "; charset=utf-8" });
     res.end(fs.readFileSync(f));
   });
   await new Promise((r) => srv.listen(0, r));
@@ -54,14 +54,14 @@ test.before(async () => {
 });
 test.after(async () => { await browser?.close(); srv?.close(); });
 
-async function newPage(init, handler) {
+async function newPage(init, handler, arg) {
   const ctx = await browser.newContext({ viewport: { width: 420, height: 900 }, acceptDownloads: true });
   const pg = await ctx.newPage();
   const errors = [];
   pg.on("pageerror", (e) => errors.push(e.message));
   await pg.route(/gstatic\.com\/firebasejs/, (r) => r.fulfill({ contentType: "text/javascript", body: stubs[r.request().url().split("/").pop()] || "" }));
   await pg.route(/fonts\.(googleapis|gstatic)/, (r) => r.abort());
-  await pg.addInitScript(init);
+  await pg.addInitScript(init, arg);
   await pg.addInitScript(() => { window.__fn = (n, d) => window.__node(n, d); window.__log = []; window.__writes = []; });
   await pg.exposeFunction("__node", handler);
   return { pg, ctx, errors };
@@ -210,12 +210,12 @@ function studentFixture() {
   };
   return st;
 }
-async function openStudent(st) {
-  const s = await newPage(() => {
+async function openStudent(st, { member = {}, work = {}, session = { chatLimit: 5 } } = {}) {
+  const s = await newPage(({ member, work, session }) => {
     window.__user = null; window.__anonUid = "anonX";
-    window.__docs = { "sessions/ABC234/members/anonX": { groupId: "g1", nickname: "가람" }, "sessions/ABC234/groups/g1": { work: {} } };
+    window.__docs = { "sessions/ABC234": session, "sessions/ABC234/members/anonX": { groupId: "g1", nickname: "가람", ...member }, "sessions/ABC234/groups/g1": { work } };
     window.__cols = { "sessions/ABC234/members/anonX/chat": [{ id: "c1", input: "안녕하세요", output: "네, 안녕하세요", model: "m" }] };
-  }, st.handler);
+  }, st.handler, { member, work, session });
   await s.pg.goto(`${base}/index.html`);
   await s.pg.waitForSelector("#j-pw");
   return s;
@@ -312,4 +312,60 @@ test("접근성: 대화창은 읽어 주는 영역(role=log), 오류·알림은 
   assert.equal(await pg.locator("#msgs").getAttribute("role"), "log");
   assert.equal(await pg.locator(".stage-tab[aria-current='step']").count(), 1);
   assert.equal(await pg.locator("#net").getAttribute("role"), "status");
+});
+
+test("머리글: 학교 마크(webp)와 모형 이름이 보인다", async () => {
+  const st = studentFixture(), { pg } = await openStudent(st);
+  assert.match(await pg.title(), /AI-EPS: 확장된 경험 기반 문제해결학습 모형/);
+  await pg.waitForFunction(() => document.querySelector(".hdr img.mark")?.complete);
+  assert.ok(await pg.evaluate(() => document.querySelector(".hdr img.mark").naturalWidth > 0), "마크 이미지가 불러와져야 한다");
+  assert.match(await pg.getAttribute(".hdr img.mark", "src"), /\.webp$/);
+  assert.match(await pg.locator(".hdr .brand").innerText(), /확장된 경험 기반 문제해결학습 모형/);
+});
+
+test("학생: 남은 질문 수가 보이고, 수업에서 정한 횟수를 다 쓰면 입력이 막히고 ② 정리로 안내한다", async () => {
+  const a = await openStudent(studentFixture(), { member: { chatCount: 2 }, session: { chatLimit: 5 } });
+  await login(a.pg);
+  await a.pg.waitForFunction(() => /남은 질문 3 \/ 5번/.test(document.querySelector("#chat-left")?.innerText || ""));
+  assert.ok(!(await a.pg.locator("#msg").isDisabled()));
+  const b = await openStudent(studentFixture(), { member: { chatCount: 3 }, session: { chatLimit: 3 } });
+  await login(b.pg);
+  await b.pg.waitForFunction(() => /질문을 모두 썼어요/.test(document.querySelector("#chat-left")?.innerText || ""));
+  assert.ok(await b.pg.locator("#msg").isDisabled());
+  assert.ok(await b.pg.locator("#send-btn").isDisabled());
+  await b.pg.click('#chat-left [data-go="1"][data-sub="note"]');
+  await b.pg.waitForSelector('[data-act="submit-note"]');
+});
+
+test("학생: 단계 순서 — 핵심 원인 전에는 4단계 AI 검토, 최종 대안 전에는 5단계 시뮬레이션이 잠겨 있다", async () => {
+  const proposals = { a1: { text: "가".repeat(40), t: 1 } };
+  const s1 = await openStudent(studentFixture(), { work: { s4: { proposals } } });
+  await login(s1.pg);
+  await s1.pg.click('.stage-tab[data-stage="4"]');
+  await s1.pg.waitForSelector('[data-act="ask-feedback"]');
+  assert.ok(await s1.pg.locator('[data-act="ask-feedback"]').isDisabled());
+  assert.match(await s1.pg.locator("#panel").innerText(), /핵심 원인을 먼저 정해야/);
+  await s1.pg.click('.stage-tab[data-stage="5"]');
+  await s1.pg.waitForFunction(() => /최종 대안을 30자 이상 먼저 써야/.test(document.querySelector("#panel").innerText));
+  assert.equal(await s1.pg.locator('[data-act="ask-scenario"]').count(), 0);
+  const s2 = await openStudent(studentFixture(), { work: { s3: { chain: { cause: "취업 허가가 늦어 생계가 막혔다" } }, s4: { proposals, final: "나".repeat(40) } } });
+  await login(s2.pg);
+  await s2.pg.click('.stage-tab[data-stage="4"]');
+  await s2.pg.waitForSelector('[data-act="ask-feedback"]');
+  assert.ok(!(await s2.pg.locator('[data-act="ask-feedback"]').isDisabled()));
+  await s2.pg.click('.stage-tab[data-stage="5"]');
+  await s2.pg.waitForSelector("#sp");
+  assert.match(await s2.pg.locator("#sp").innerText(), /\[최종\]/);
+});
+
+test("교사: 새 수업을 만들 때 학생별 인물 질문 횟수를 정해 보내고, 학생 표에 쓴 횟수가 보인다", async () => {
+  const st = teacherFixture(), { pg } = await openTeacher(st);
+  assert.match(await pg.locator("#students").innerText(), /0 \/ 5번/);
+  await pg.click("#back-btn");
+  await pg.click("#new-toggle");
+  assert.equal(await pg.inputValue("#t-chatlimit"), "5");
+  await pg.fill("#t-chatlimit", "7");
+  await pg.click("#create-btn");
+  await pg.waitForFunction(() => window.__log.includes("createSession"));
+  assert.equal(st.calls.find((c) => c[0] === "createSession")[1].chatLimit, 7);
 });

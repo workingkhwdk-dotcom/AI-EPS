@@ -4,12 +4,13 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <meta name="theme-color" content="#06226B" />
-<title>AI-EPS 교사용</title>
+<title>AI-EPS 교사용 · 확장된 경험 기반 문제해결학습 모형</title>
+<link rel="icon" type="image/webp" href="knue-mark.webp" />
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 <header class="hdr"><div class="hdr-in">
-  <div class="brand"><span class="logo">AI-EPS 교사용</span><small>한국교원대학교 · Teacher of Teachers</small></div>
+  <div class="brand"><img class="mark" src="knue-mark.webp" srcset="knue-mark.webp 1x, knue-mark@2x.webp 2x" width="40" height="40" alt="한국교원대학교 마크" fetchpriority="high" decoding="async" /><div class="brand-t"><span class="logo">AI-EPS <em>교사용</em></span><span class="model">확장된 경험 기반 문제해결학습 모형</span><small>한국교원대학교<span class="tot"> · Teacher of Teachers</span></small></div></div>
   <div class="hdr-right"><span class="who" id="who"></span><button class="btn-out hidden" id="t-logout" type="button">로그아웃</button></div>
 </div></header>
 
@@ -40,6 +41,8 @@
             <select id="t-event"><option value="jeju2018">제주 예멘 난민 신청 논란 (2018)</option></select>
             <label class="lbl" for="t-title">수업 이름</label><input type="text" id="t-title" value="제주 예멘 난민 사건, 갈등 해결 방안 제안하기" />
             <label class="lbl" for="t-groups">모둠 수 (1~12)</label><input type="number" id="t-groups" value="6" min="1" max="12" />
+            <label class="lbl" for="t-chatlimit">학생 1명이 인물에게 물을 수 있는 횟수 (1~50번)</label><input type="number" id="t-chatlimit" value="5" min="1" max="50" />
+            <p class="meta-line" style="margin-top:6px">횟수가 적을수록 학생이 질문을 골라서 신중하게 합니다. 기본은 5번이며, 수업 중에도 <b>수업 설정</b>에서 바꿀 수 있습니다.</p>
             <p class="meta-line" style="margin-top:8px">만든 뒤에 <b>자료 관리</b>에서 학생이 볼 자료를 고치고, <b>수업 설정</b>에서 이름과 모둠 수를 바꿀 수 있습니다.</p>
             <div class="row" style="margin-top:12px"><button class="btn btn-primary" id="create-btn" type="button">수업 만들기</button><button class="btn btn-plain" id="new-cancel" type="button">취소</button></div>
           </div>
@@ -71,12 +74,12 @@
           <div class="card"><h3>학생 현황</h3>
             <div class="chipbar" id="g-filter" style="margin-bottom:10px"></div>
             <div class="row" id="bulk" style="margin-bottom:8px"><button class="btn btn-plain btn-sm" id="bulk-reset" type="button" disabled>선택한 학생 비번 초기화</button><span class="meta-line" id="bulk-n"></span></div>
-            <div class="tbl-wrap"><table class="tbl"><thead><tr><th><input type="checkbox" id="stu-all" aria-label="학생 전체 선택" style="width:18px;height:18px"></th><th>별명</th><th>모둠</th><th>인물(교사용)</th><th>현재 단계</th><th>상태</th><th>AI 대화</th><th></th></tr></thead><tbody id="students"></tbody></table></div>
+            <div class="tbl-wrap"><table class="tbl"><thead><tr><th><input type="checkbox" id="stu-all" aria-label="학생 전체 선택" style="width:18px;height:18px"></th><th>별명</th><th>모둠</th><th>인물(교사용)</th><th>현재 단계</th><th>상태</th><th>인물 질문</th><th></th></tr></thead><tbody id="students"></tbody></table></div>
             <div class="meta-line" id="no-students"></div>
             <div class="meta-line" style="margin-top:8px">학생이 비밀번호를 잊었다면 <b>비번 초기화</b>를 누르세요. 학생이 같은 별명으로 다시 입장하면서 새 비밀번호를 정하고, 하던 것은 그대로 이어집니다.</div>
           </div>
           <div class="card"><h3>모둠 진행</h3>
-            <div class="tbl-wrap"><table class="tbl"><thead><tr><th>모둠</th><th>인원</th><th>산출물 진행 (1~7단계)</th><th>AI 호출</th><th>감독 개입</th><th>보기</th></tr></thead><tbody id="groups"></tbody></table></div>
+            <div class="tbl-wrap"><table class="tbl"><thead><tr><th>모둠</th><th>인원</th><th>산출물 진행 (1~7단계)</th><th>AI 호출(3~5단계)</th><th>감독 개입</th><th>보기</th></tr></thead><tbody id="groups"></tbody></table></div>
           </div>
           <div class="card"><h3>단계별 모아 보기</h3>
             <p class="desc">모든 모둠이 적은 내용을 단계별로 나란히 봅니다. 학생이 입력하면 바로 바뀝니다.</p>
@@ -114,10 +117,12 @@
             <label class="lbl" for="s-title">수업 이름</label><input type="text" id="s-title" maxlength="80" />
             <label class="lbl" for="s-groups">모둠 수 (1~12)</label><input type="number" id="s-groups" min="1" max="12" />
             <p class="meta-line" style="margin-top:6px">모둠을 늘리는 것은 언제든 가능합니다. 줄일 때는 학생이 한 명도 없는 뒤쪽 모둠만 없앨 수 있습니다.</p>
-            <label class="lbl" for="s-ailimit">모둠당 AI 사용 한도 (10~500회)</label><input type="number" id="s-ailimit" min="10" max="500" />
-            <p class="meta-line" style="margin-top:6px">한도에 닿으면 그 모둠은 AI를 더 쓸 수 없습니다. 인물 대화는 한 번에 AI를 2번(인물+감독) 쓰고, 웹 검색이 붙으면 더 듭니다.</p>
-            <label class="lbl" for="s-web">인물의 웹 검색</label>
-            <select id="s-web"><option value="1">사용 (모르는 사실은 찾아 보고 답함)</option><option value="0">사용 안 함 (자료에 없으면 모른다고 답함)</option></select>
+            <label class="lbl" for="s-chatlimit">학생 1명이 인물에게 물을 수 있는 횟수 (1~50번)</label><input type="number" id="s-chatlimit" min="1" max="50" />
+            <p class="meta-line" style="margin-top:6px">1단계 인물 대화는 학생마다 따로 셉니다. 늘리면 이미 다 쓴 학생도 바로 더 물을 수 있습니다. AI 오류로 답을 못 받은 질문은 세지 않습니다.</p>
+            <label class="lbl" for="s-ailimit">모둠당 AI 사용 한도 · 3~5단계 (10~500회)</label><input type="number" id="s-ailimit" min="10" max="500" />
+            <p class="meta-line" style="margin-top:6px">검색 도우미·검토자·시뮬레이션 요청을 모둠별로 셉니다. 한도에 닿으면 그 모둠은 3~5단계 AI를 더 쓸 수 없습니다.</p>
+            <label class="lbl" for="s-web">웹 검색 (1단계 인물 · 3단계 검색 도우미)</label>
+            <select id="s-web"><option value="1">사용 (인물은 모르는 사실을 찾아 보고, 검색 도우미는 수업 자료와 검색 결과를 함께 근거로 씀)</option><option value="0">사용 안 함 (인물과 검색 도우미 모두 수업 자료 안에서만 답함)</option></select>
             <label class="lbl" for="s-auto">자동 닫힘</label>
             <select id="s-auto"><option value="0">사용 안 함 (직접 닫기)</option><option value="1">마지막 접속 1시간 후</option><option value="2">마지막 접속 2시간 후</option><option value="4">마지막 접속 4시간 후</option><option value="8">마지막 접속 8시간 후</option><option value="24">마지막 접속 24시간 후</option></select>
             <p class="meta-line" style="margin-top:6px">수업이 끝난 뒤 닫는 것을 잊어도, 정한 시간 동안 아무도 접속하지 않으면 자동으로 닫힙니다. 다시 열 수 있습니다.</p>

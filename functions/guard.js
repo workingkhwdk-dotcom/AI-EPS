@@ -59,6 +59,16 @@ function guardMessages({ persona, claims, background = [], history = [], student
   return [{ role: "system", content: sys }, { role: "user", content: user }];
 }
 
+// 고친 응답이 너무 길면 문장 경계에서 자른다(문장 중간에서 끊기지 않게). 한 문장이 한도를 넘으면 그 문장만 자른다.
+const FIXED_MAX = 800;
+function clipSentences(text, max) {
+  const t = String(text || "").trim();
+  if (t.length <= max) return t;
+  const head = t.slice(0, max);
+  const cut = Math.max(...[".", "!", "?", "…", "~", "。"].map((p) => head.lastIndexOf(p)));
+  return cut > 0 ? head.slice(0, cut + 1).trim() : head.trim();
+}
+
 // 감독자 응답을 해석한다. 형식이 깨지면 안전 쪽(대체 안내)으로 처리한다.
 function parseVerdict(text) {
   try {
@@ -69,7 +79,7 @@ function parseVerdict(text) {
       ok,
       category: ok ? "ok" : category === "ok" ? "scope" : category,
       reason: String(v.reason || "").slice(0, 200),
-      fixed: String(v.fixed || "").trim().slice(0, 400),
+      fixed: clipSentences(v.fixed, FIXED_MAX),
     };
   } catch {
     return { ok: false, category: "error", reason: "감독자 응답 해석 실패", fixed: "" };
@@ -110,4 +120,4 @@ const PII_PATTERNS = [
 ];
 const piiFlags = (text) => PII_PATTERNS.filter(([, re]) => re.test(String(text || ""))).map(([k]) => k);
 
-module.exports = { piiFlags, guardMessages, parseVerdict, fallbackFor, resolveOutput, stripBackQuestion, FALLBACKS, FIXABLE, CATEGORIES };
+module.exports = { clipSentences, FIXED_MAX, piiFlags, guardMessages, parseVerdict, fallbackFor, resolveOutput, stripBackQuestion, FALLBACKS, FIXABLE, CATEGORIES };

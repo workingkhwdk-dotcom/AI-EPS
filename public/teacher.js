@@ -57,7 +57,7 @@ $("#create-btn").onclick = async () => {
   btn.disabled = true;
   try {
     const title = $("#t-title").value;
-    const { data } = await call("createSession")({ title, eventId: $("#t-event").value, groupCount: Number($("#t-groups").value) });
+    const { data } = await call("createSession")({ title, eventId: $("#t-event").value, groupCount: Number($("#t-groups").value), chatLimit: Number($("#t-chatlimit").value) });
     toast(`수업을 만들었습니다. 코드: ${data.code}`);
     toggleNew(false);
     openSession(data.code, title.trim() || "수업");
@@ -146,7 +146,7 @@ function renderDash() {
   if (!current) return;
   renderAlerts();
   const online = members.filter(isOnline).length;
-  const ai = groups.reduce((n, g) => n + (g.aiCount || 0), 0);
+  const ai = members.reduce((n, m) => n + (m.aiCount || 0), 0); // 인물 대화 + 3~5단계
   const guard = groups.reduce((n, g) => n + (g.guardCount || 0), 0);
   $("#kpis").innerHTML = [["접속 중", `${online}명`], ["참여 학생", `${members.length}명`], ["AI 호출", `${ai}회`], ["감독자 개입", `${guard}회`]]
     .map(([k, v]) => `<div class="kpi"><b>${v}</b><span>${k}</span></div>`).join("");
@@ -162,7 +162,7 @@ function renderDash() {
     <td>${esc(personaLabels[assigns[m.uid] || m.personaId] || assigns[m.uid] || m.personaId || "")}</td>
     <td><span class="pill">${m.stage || 1}. ${STAGE_NAMES[m.stage || 1]}</span></td>
     <td><span class="dot ${isOnline(m) ? "on" : ""}"></span>${isOnline(m) ? "접속 중" : `자리 비움 · ${ago(m)}`}</td>
-    <td>${m.aiCount || 0}회</td>
+    <td>${m.chatCount || 0} / ${curRow()?.chatLimit || 5}번</td>
     <td class="row" style="flex-wrap:nowrap"><button class="btn btn-tinted btn-sm" data-chat="${m.uid}">대화 보기</button><button class="btn btn-plain btn-sm" data-reset="${m.uid}" data-nick="${esc(m.nickname)}">비번 초기화</button><button class="btn btn-plain btn-sm" data-move="${m.uid}" data-nick="${esc(m.nickname)}" data-g="${esc(m.groupId)}">모둠 이동</button></td></tr>`).join("");
   renderBulk();
   $("#no-students").textContent = rows.length ? "" : "아직 입장한 학생이 없습니다. 위의 수업 코드와 모둠 번호를 학생에게 알려 주세요.";
@@ -601,6 +601,7 @@ function fillSettings() {
   $("#s-title").value = r.title;
   $("#s-groups").value = r.groupCount;
   $("#s-ailimit").value = r.aiLimit || 150;
+  $("#s-chatlimit").value = r.chatLimit || 5;
   $("#s-web").value = r.webSearch === false ? "0" : "1";
   $("#s-auto").value = String(r.autoCloseHours || 0);
   $("#s-guide").style.whiteSpace = "pre-wrap";
@@ -610,7 +611,7 @@ $("#s-save").onclick = async () => {
   try {
     await call("updateSession")({
       code: current, title: $("#s-title").value, groupCount: Number($("#s-groups").value),
-      aiLimit: Number($("#s-ailimit").value), webSearch: $("#s-web").value === "1", autoCloseHours: Number($("#s-auto").value),
+      aiLimit: Number($("#s-ailimit").value), chatLimit: Number($("#s-chatlimit").value), webSearch: $("#s-web").value === "1", autoCloseHours: Number($("#s-auto").value),
     });
     toast("저장했습니다");
     setTimeout(fillSettings, 400);
