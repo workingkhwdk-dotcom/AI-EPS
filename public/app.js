@@ -1,4 +1,5 @@
 import { auth, db, call, esc, toast, errMsg } from "./fb.js";
+import { waitHtml, startWaitTicker, STEPS } from "./wait.js";
 import { signInAnonymously, onAuthStateChanged, setPersistence, browserSessionPersistence, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { doc, getDoc, onSnapshot, updateDoc, collection, query, orderBy, serverTimestamp, deleteField } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
@@ -56,7 +57,7 @@ const STARTERS = ["안녕하세요, 어떤 일을 하세요?", "요즘 가장 �
 const S = {
   code: null, groupId: null, nick: null, uid: null, info: null, me: null,
   work: {}, logs: [], chat: [], stage: 1, sub1: "chat", aiCount: 0, memberCount: 0,
-  busy: null, sending: false, pending: null, draft: "", letterClosed: false, matTab: null, proposalId: null, round: 1, scrollChat: false,
+  busy: null, waitSince: 0, chatErr: null, sending: false, pending: null, draft: "", letterClosed: false, matTab: null, proposalId: null, round: 1, scrollChat: false,
 };
 const $ = (s) => document.querySelector(s);
 const panel = $("#panel");
@@ -76,9 +77,35 @@ const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2
 const fmtTime = (t) => { const d = t?.toDate?.(); return d ? `${d.getHours() < 12 ? "오전" : "오후"} ${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, "0")}` : ""; };
 const txt = (v) => (typeof v === "string" ? v.trim() : "");
 
+// 저장 상태: 저장 중인 칸 수와 인터넷 연결을 화면 위쪽에 보여 준다. 연결이 끊겨도 입력은 연결되면 자동으로 저장된다(창을 닫지 않으면).
+let inflight = 0, savedFlash = 0, slowTimer = null;
+function renderNet() {
+  const el = $("#net"); if (!el) return;
+  const off = !navigator.onLine;
+  let cls = "net", txt = "연결됨";
+  if (off) { cls += " off"; txt = "연결 끊김"; }
+  else if (inflight > 0) { cls += " saving"; txt = slowTimer === "slow" ? "저장이 늦어져요…" : "저장 중…"; }
+  else if (Date.now() < savedFlash) txt = "저장됨";
+  el.className = cls + (S.code ? "" : " hidden");
+  el.innerHTML = `<span class="dot2"></span>${txt}`;
+  let b = $("#net-banner");
+  if (off && S.code) { if (!b) { b = document.createElement("div"); b.id = "net-banner"; b.className = "net-banner"; b.setAttribute("role", "alert"); document.querySelector("main").prepend(b); } b.textContent = "인터넷 연결이 끊겼어요. 쓴 내용은 연결되면 자동으로 저장돼요. 그때까지 이 창을 닫지 마세요."; }
+  else b?.remove();
+}
+window.addEventListener("online", renderNet);
+window.addEventListener("offline", renderNet);
+window.addEventListener("beforeunload", (e) => { if (inflight > 0 || pending.size > 0) { e.preventDefault(); e.returnValue = ""; } });
+
 async function save(path, value) {
+  inflight++; renderNet();
+  const slow = setTimeout(() => { slowTimer = "slow"; renderNet(); }, 8000);
   try { await updateDoc(groupRef, { ["work." + path]: value }); }
   catch (e) { console.error(e); toast("저장하지 못했습니다. 연결을 확인하세요.", true); }
+  finally {
+    clearTimeout(slow); inflight--;
+    if (inflight === 0) { slowTimer = null; savedFlash = Date.now() + 2000; setTimeout(renderNet, 2100); }
+    renderNet();
+  }
 }
 const addItem = async (path, obj) => { const id = newId(); await save(`${path}.${id}`, { ...obj, t: Date.now(), by: S.uid, nick: S.nick }); return id; };
 const delItem = (path, id) => save(`${path}.${id}`, deleteField());
@@ -175,7 +202,7 @@ async function enter(code) {
   $("#app").classList.remove("hidden");
   $("#who").textContent = `${S.groupId.replace("g", "")}모둠 · ${S.nick}`;
   $("#logout").classList.remove("hidden");
-  resetIdle();
+  resetIdle(); startWaitTicker(); renderNet();
   // 같은 별명으로 다른 화면에서 로그인하면 이 화면은 접근 권한을 잃는다 → 로그아웃 처리
   const lost = (e) => { if (e?.code === "permission-denied") logout("다른 화면에서 같은 별명으로 로그인해서 이 화면은 로그아웃되었습니다."); };
   // 교사가 수업을 닫으면 이 화면도 로그아웃한다
@@ -217,7 +244,7 @@ onAuthStateChanged(auth, async (u) => {
 // ---------- 이동 ----------
 function renderTabs() {
   $("#tabs").innerHTML = STAGES.map((s) =>
-    `<button class="stage-tab ${S.stage === s.n ? "on" : ""}" data-stage="${s.n}"><b>${s.n}</b><span>${s.name}</span></button>`).join("");
+    `<button class="stage-tab ${S.stage === s.n ? "on" : ""}" data-stage="${s.n}" aria-current="${S.stage === s.n ? "step" : "false"}"><b>${s.n}</b><span>${s.name}</span></button>`).join("");
 }
 function goTo(stage, sub) {
   flushAll();
@@ -253,7 +280,8 @@ const pick = (path, label, opts) => {
   const all = cur && !opts.includes(cur) ? [...opts, cur] : opts;
   return `${label ? `<label class="lbl">${label}</label>` : ""}<select data-save="${path}"><option value="">선택하세요</option>${all.map((o) => `<option ${cur === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`;
 };
-const loading = (msg = "AI가 답을 만드는 중입니다…") => `<div class="loading-strip"><div class="spinner"></div><span>${msg}</span></div>`;
+// 기다리는 중 표시: 움직이는 점·막대, 흐르는 시간, 오래 걸릴 때의 안내(wait.js)
+const loading = (msg) => waitHtml({ first: msg && msg.replace(/…$/, ""), steps: STEPS.ai, since: S.waitSince || Date.now() });
 function listHtml(path, rowFn, empty = "아직 없습니다.") {
   const items = list(path);
   if (!items.length) return `<div class="meta-line">${empty}</div>`;
@@ -337,7 +365,8 @@ function msgsHtml() {
     rows.push(`<div class="msg ai"><div class="avatar sm">${ini}</div><div class="col"><span class="name">${esc(name)}</span><div class="bubble">${esc(l.output)}</div>${srcNote(l)}<span class="time">${fmtTime(l.createdAt)}</span></div></div>`);
   }
   if (S.pending) rows.push(`<div class="msg me"><div class="col"><div class="bubble">${esc(S.pending.text)}</div></div></div>`);
-  if (S.sending) rows.push(`<div class="msg ai typing"><div class="avatar sm">${ini}</div><div class="col"><div class="bubble"><i></i><i></i><i></i></div></div></div>`);
+  if (S.sending) rows.push(`<div class="msg ai typing"><div class="avatar sm">${ini}</div><div class="col"><div class="bubble"><i></i><i></i><i></i></div>${waitHtml({ steps: STEPS.chat, since: S.waitSince, compact: true })}</div></div>`);
+  if (S.chatErr && !S.sending) rows.push(`<div class="msg ai err" role="alert"><div class="avatar sm">!</div><div class="col"><div class="bubble">답을 받지 못했어요. (${esc(S.chatErr.msg)})<br><button class="btn btn-plain btn-sm" style="margin-top:8px" data-act="retry-chat">다시 보내기</button></div></div></div>`);
   if (!rows.length) rows.push(`<div class="empty">${esc(name)}에게 먼저 말을 걸어 보세요.<br>아래 예시를 눌러 시작해도 돼요.</div>`);
   return rows.join("");
 }
@@ -366,17 +395,27 @@ function scrollToLatest() {
 }
 
 async function sendChat(text) {
-  S.sending = true; S.pending = { text, base: S.chat.length }; renderMsgs();
+  S.sending = true; S.chatErr = null; S.waitSince = Date.now(); S.pending = { text, base: S.chat.length }; renderMsgs();
   try {
     await call("aiRequest")({ code: S.code, stage: 1, type: "persona_chat", payload: { message: text } });
     S.draft = "";
   } catch (e) {
-    toast(errMsg(e), true);
-    S.pending = null; S.draft = text; const m = $("#msg"); if (m) m.value = text;
+    S.pending = null; S.chatErr = { text, msg: errMsg(e) };
   } finally {
     S.sending = false;
     renderMsgs();
   }
+}
+
+// 내 대화를 글 파일로 저장한다(성찰 활동이나 보관용). 내 입력과 인물의 답만 들어간다.
+function downloadChat() {
+  const d = new Date(), name = S.me?.name || "인물";
+  const lines = [`AI-EPS 대화 기록`, `${S.nick} ↔ ${name} · ${d.toLocaleDateString("ko-KR")}`, "이 대화는 실제 이야기들을 바탕으로 만든 가상 인물과의 대화입니다.", ""];
+  for (const l of S.chat) lines.push(`[나] ${l.input}`, `[${name}] ${l.output}`, "");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(["\ufeff" + lines.join("\r\n")], { type: "text/plain;charset=utf-8" }));
+  a.download = `ai-eps-chat-${d.toISOString().slice(0, 10)}.txt`; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
 const SEND_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>';
@@ -625,8 +664,8 @@ const sub1 = {
     </details>
     <div class="notice muted"><b>할 일</b> ${esc(me.name)}에게 질문해 세 가지를 알아내세요: <b>① 누구인지 ② 무엇이 힘든지 ③ 무엇을 바라는지</b>. 다 알아냈으면 아래 '다음'을 누르세요.</div>
     <div class="card chat-card">
-      <div class="chat-head"><div class="avatar">${esc(me.name.slice(0, 1))}</div><div><div class="nm">${esc(me.name)}</div><div class="st">대화 중</div></div></div>
-      <div class="msgs" id="msgs"></div>
+      <div class="chat-head"><div class="avatar">${esc(me.name.slice(0, 1))}</div><div><div class="nm">${esc(me.name)}</div><div class="st">대화 중</div></div><button class="btn btn-plain btn-sm" style="margin-left:auto" data-act="dl-chat" aria-label="내 대화를 글 파일로 저장">대화 저장</button></div>
+      <div class="msgs" id="msgs" role="log" aria-live="polite" aria-label="인물과의 대화"></div>
       <div class="starters">${STARTERS.map((q) => `<button class="chip sm" data-act="starter" data-t="${esc(q)}">${esc(q)}</button>`).join("")}</div>
       <form class="composer" id="chat-form" autocomplete="off">
         <input type="text" id="msg" maxlength="500" placeholder="${esc(me.name)}에게 메시지 보내기" />
@@ -688,7 +727,7 @@ const val = (id) => document.getElementById(id)?.value.trim() ?? "";
 
 async function aiGroup(stage, type, payload, busyKey) {
   await flushAll();
-  S.busy = busyKey; render(true);
+  S.busy = busyKey; S.waitSince = Date.now(); render(true);
   try { await call("aiRequest")({ code: S.code, stage, type, payload }); }
   catch (e) { toast(errMsg(e), true); }
   finally { S.busy = null; render(true); }
@@ -711,6 +750,8 @@ panel.addEventListener("click", async (e) => {
 
   switch (a) {
     case "del": if (confirm("삭제할까요? 모둠원 화면에서도 사라집니다.")) await delItem(d.path, d.id); break;
+    case "retry-chat": { const t = S.chatErr?.text; if (t && !S.sending) sendChat(t); break; }
+    case "dl-chat": downloadChat(); break;
     case "mat-tab": S.matTab = d.id; render(true); break;
     case "starter": { const m = $("#msg"); if (m) { m.value = d.t; S.draft = d.t; m.focus(); } break; }
     case "submit-note": {

@@ -11,6 +11,7 @@ const { isTeacherEmail } = require("./teachers");
 const { validatePassword, hashPassword, verifyPassword, normNick, credKey, lockedSeconds, afterFail, afterTotalFail } = require("./password");
 const { defaultMaterials, sanitizeMaterials, toStudentMaterials } = require("./materials");
 const { chatWithLookup, webSearch } = require("./lookup");
+const { sanitizeOverride, applyOverride } = require("./personaEdit");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { AUTO_CLOSE_CHOICES, autoCloseDue, staleAnonymousUids } = require("./maintenance");
 
@@ -285,12 +286,17 @@ async function personaIdOf(code, uid, member) {
 // 교사: 학생의 비밀번호를 지운다(잊어버린 경우). 그 학생이 같은 별명으로 다시 입장하면서 새 비밀번호를 정한다.
 exports.resetStudentPassword = onCall(opts, async (req) => {
   const { code } = await ownSession(req);
-  const uid = String(req.data?.uid || "");
-  const m = uid ? await db.doc(`sessions/${code}/members/${uid}`).get() : null;
-  if (!m?.exists) throw new HttpsError("not-found", "학생을 찾을 수 없습니다.");
-  const d = m.data();
-  await db.doc(`sessions/${code}/creds/${d.credKey || credKey(parseInt(String(d.groupId).slice(1), 10), d.nickname)}`).delete();
-  return { nickname: d.nickname };
+  const uids = (Array.isArray(req.data?.uids) ? req.data.uids : [req.data?.uid]).map((x) => String(x || "")).filter(Boolean).slice(0, 200);
+  if (!uids.length) throw new HttpsError("invalid-argument", "학생을 고르세요.");
+  const names = [];
+  for (const uid of uids) {
+    const m = await db.doc(`sessions/${code}/members/${uid}`).get();
+    if (!m.exists) throw new HttpsError("not-found", "학생을 찾을 수 없습니다.");
+    const d = m.data();
+    await db.doc(`sessions/${code}/creds/${d.credKey || credKey(parseInt(String(d.groupId).slice(1), 10), d.nickname)}`).delete();
+    names.push(d.nickname);
+  }
+  return { nickname: names[0], count: names.length };
 });
 
 // ---------- 교사: 수업 관리 ----------
@@ -330,6 +336,101 @@ exports.updateSession = onCall(opts, async (req) => {
   return { ...patch };
 });
 
+// ---------- 교사: 인물 항목 편집 (말투·삶의 이야기·의견·편지만) ----------
+const personasRef = (code) => db.doc(`sessions/${code}/private/personas`);
+const overridesOf = async (code) => { const s = await personasRef(code).get(); return s.exists ? s.data().overrides || {} : {}; };
+// 이 수업에서 쓰는 인물 목록(교사가 고친 항목을 반영)
+async function personasFor(code, eventId) {
+  const ov = await overridesOf(code);
+  return availablePersonas(eventId, allowUnverified()).map((p) => applyOverride(p, ov[p.id]));
+}
+
+exports.getPersonaOverrides = onCall(opts, async (req) => {
+  const { code } = await ownSession(req);
+  return { overrides: await overridesOf(code) };
+});
+
+exports.savePersonaOverride = onCall(opts, async (req) => {
+  const { code, sess } = await ownSession(req);
+  const pid = String(req.data?.personaId || "");
+  if (!availablePersonas(sess.eventId, true).some((p) => p.id === pid)) throw new HttpsError("not-found", "인물을 찾을 수 없습니다.");
+  let fields;
+  try { fields = sanitizeOverride(req.data?.fields); } catch (e) { throw new HttpsError("invalid-argument", e.message); }
+  const ov = await overridesOf(code);
+  ov[pid] = { ...(ov[pid] || {}), ...fields };
+  await personasRef(code).set({ overrides: ov, updatedAt: FieldValue().serverTimestamp() });
+  return { overrides: ov };
+});
+
+exports.resetPersonaOverride = onCall(opts, async (req) => {
+  const { code } = await ownSession(req);
+  const pid = String(req.data?.personaId || "");
+  const ov = await overridesOf(code);
+  delete ov[pid];
+  await personasRef(code).set({ overrides: ov, updatedAt: FieldValue().serverTimestamp() });
+  return { overrides: ov };
+});
+
+// 교사: 학생을 다른 모둠으로 옮긴다(모둠을 잘못 골랐을 때). 인물·대화·개인 정리·비밀번호는 그대로 따라간다.
+exports.moveStudent = onCall(opts, async (req) => {
+  const { code, sess } = await ownSession(req);
+  const uid = String(req.data?.uid || "");
+  const to = parseInt(req.data?.groupNo, 10);
+  if (!(to >= 1 && to <= sess.groupCount)) throw new HttpsError("invalid-argument", "모둠 번호가 올바르지 않습니다.");
+  const memberRef = db.doc(`sessions/${code}/members/${uid}`);
+  const m = await memberRef.get();
+  if (!m.exists) throw new HttpsError("not-found", "학생을 찾을 수 없습니다.");
+  const d = m.data(), fromId = d.groupId, toId = `g${to}`;
+  if (fromId === toId) return { groupId: toId };
+  const fromNo = parseInt(fromId.slice(1), 10);
+  const oldKey = d.credKey || credKey(fromNo, d.nickname), newKey = credKey(to, d.nickname);
+  if ((await db.doc(`sessions/${code}/creds/${newKey}`).get()).exists) throw new HttpsError("failed-precondition", `${to}모둠에 같은 별명(${d.nickname})이 이미 있습니다. 별명이 겹치지 않게 해 주세요.`);
+  const asg = await db.doc(`sessions/${code}/assign/${uid}`).get();
+  const pid = asg.exists ? asg.data().personaId : d.personaId;
+  const [ogRef, ngRef] = [`sessions/${code}/assignGroup/${fromId}`, `sessions/${code}/assignGroup/${toId}`].map((p) => db.doc(p));
+  const [og, ng] = await Promise.all([ogRef.get(), ngRef.get()]);
+  const oldIds = [...(og.data()?.personaIds || [])];
+  const i = oldIds.indexOf(pid); if (i >= 0) oldIds.splice(i, 1);
+  const fromG = db.doc(`sessions/${code}/groups/${fromId}`), toG = db.doc(`sessions/${code}/groups/${toId}`);
+  const work = (await fromG.get()).data()?.work || {};
+  const oldCred = await db.doc(`sessions/${code}/creds/${oldKey}`).get();
+  const batch = db.batch();
+  batch.update(memberRef, { groupId: toId, credKey: newKey });
+  if (pid) batch.set(db.doc(`sessions/${code}/assign/${uid}`), { groupId: toId, personaId: pid });
+  batch.set(ogRef, { personaIds: oldIds });
+  batch.set(ngRef, { personaIds: [...(ng.data()?.personaIds || []), ...(pid ? [pid] : [])] });
+  batch.update(fromG, { memberCount: FieldValue().increment(-1) });
+  batch.update(toG, { memberCount: FieldValue().increment(1) });
+  if (work.s1?.findings?.[uid] !== undefined) {
+    batch.update(toG, { [`work.s1.findings.${uid}`]: work.s1.findings[uid] });
+    batch.update(fromG, { [`work.s1.findings.${uid}`]: FieldValue().delete() });
+  }
+  if (work.live?.[uid] !== undefined) batch.update(fromG, { [`work.live.${uid}`]: FieldValue().delete() });
+  if (oldCred.exists) { batch.set(db.doc(`sessions/${code}/creds/${newKey}`), { ...oldCred.data(), groupId: toId }); batch.delete(db.doc(`sessions/${code}/creds/${oldKey}`)); }
+  await batch.commit();
+  return { groupId: toId };
+});
+
+// 수업 전 점검: Firestore, 각 AI 모델, 웹 검색이 실제로 되는지 짧게 시험한다(교사 전용, 비용은 아주 적음)
+exports.healthCheck = onCall(aiOpts, async (req) => {
+  await requireTeacher(req);
+  const apiKey = OPENAI_API_KEY.value();
+  const timed = async (fn) => { const t = Date.now(); try { return { ok: true, ms: Date.now() - t, ...(await fn()) }; } catch (e) { return { ok: false, ms: Date.now() - t, error: String(e.message).slice(0, 200) }; } };
+  const ask = (model) => timed(async () => ({ model, reply: String(await chat({ apiKey, model, messages: [{ role: "user", content: "'ok'라고만 답해." }], maxTokens: 20, effort: "minimal" })).slice(0, 30) }));
+  const models = [...new Set([OPENAI_MODEL.value(), PERSONA_MODEL.value() || OPENAI_MODEL.value(), GUARD_MODEL.value() || OPENAI_MODEL.value(), SCENARIO_MODEL.value() || OPENAI_MODEL.value()])];
+  const domains = SEARCH_ALLOWED_DOMAINS.value().split(",").map((x) => x.trim()).filter(Boolean);
+  const [firestore, ...modelResults] = await Promise.all([
+    timed(async () => { await db.doc("config/teachers").get(); return {}; }),
+    ...models.map(ask),
+  ]);
+  const search = PERSONA_WEB_SEARCH.value() === "false" ? { skipped: true }
+    : await timed(async () => { const r = await webSearch({ apiKey, model: SEARCH_MODEL.value() || OPENAI_MODEL.value(), query: "2018년 제주 예멘 난민 신청 인원", domains }); return { found: r.found, sources: r.sources.length, error: r.error ? "검색 호출 실패(모델이 web_search 를 지원하는지 확인)" : undefined }; });
+  return {
+    firestore, models: modelResults, search,
+    config: { webSearch: PERSONA_WEB_SEARCH.value() !== "false", allowedDomains: domains.length, allowUnverified: allowUnverified(), personas: availablePersonas(DEFAULT_EVENT, allowUnverified()).length },
+  };
+});
+
 // 수업 복제: 이름·모둠 수·설정과 이 수업에서 고친 자료를 새 수업으로 가져온다(학생과 기록은 가져오지 않는다)
 exports.cloneSession = onCall(opts, async (req) => {
   const { auth, code, sess } = await ownSession(req);
@@ -344,6 +445,8 @@ exports.cloneSession = onCall(opts, async (req) => {
   for (let i = 1; i <= sess.groupCount; i++) batch.set(db.doc(`sessions/${newCodeStr}/groups/g${i}`), { name: `${i}모둠`, aiCount: 0, memberCount: 0, guardCount: 0, work: {} });
   const mats = await materialsRef(code).get();
   if (mats.exists) batch.set(materialsRef(newCodeStr), { categories: mats.data().categories, updatedAt: FieldValue().serverTimestamp() });
+  const ovs = await personasRef(code).get();
+  if (ovs.exists) batch.set(personasRef(newCodeStr), { overrides: ovs.data().overrides || {}, updatedAt: FieldValue().serverTimestamp() });
   await batch.commit();
   return { code: newCodeStr, title };
 });
@@ -415,7 +518,7 @@ exports.getCase = onCall(opts, async (req) => {
   if (sess.data().closed) throw new HttpsError("failed-precondition", CLOSED_MSG);
   const ev = EVENTS[sess.data().eventId];
   const myPersonaId = await personaIdOf(code, auth.uid, mem.data());
-  const mine = availablePersonas(ev.id, allowUnverified()).find((p) => p.id === myPersonaId);
+  const mine = (await personasFor(code, ev.id)).find((p) => p.id === myPersonaId);
   const custom = await materialsRef(code).get(); // 교사가 이 수업의 자료를 고쳤다면 그 목록, 아니면 기본 자료
   return {
     title: ev.title,
@@ -459,7 +562,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
   if (sessData.closed) throw new HttpsError("failed-precondition", CLOSED_MSG);
   const ev = EVENTS[sessData.eventId];
   const evCtx = { summary: ev.summary, premise: ev.summary };
-  const personas = availablePersonas(ev.id, allowUnverified());
+  const personas = await personasFor(code, ev.id);
   const groupRef = db.doc(`sessions/${code}/groups/${groupId}`);
   const group = (await groupRef.get()).data() || {};
   const work = group.work || {};

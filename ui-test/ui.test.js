@@ -1,0 +1,315 @@
+// 화면 테스트: public/ 을 정적 서버로 띄우고 Firebase 모듈(gstatic)을 가짜로 바꿔 학생·교사 화면의 동작을 확인한다.
+// 서버 쪽 규칙·권한은 functions/test 와 rules-test 가 맡고, 여기서는 화면이 제대로 움직이는지만 본다.
+const test = require("node:test");
+const assert = require("node:assert");
+const http = require("http"), fs = require("fs"), path = require("path");
+const { chromium } = require("playwright");
+
+const ROOT = path.join(__dirname, "../public");
+const stubs = {
+  "firebase-app.js": `export const initializeApp = () => ({});`,
+  "firebase-auth.js": `
+    let cur = window.__user || null; let notify = () => {};
+    const auth = { get currentUser() { return cur; }, authStateReady: async () => {} };
+    export const getAuth = () => auth;
+    export const setPersistence = async () => {};
+    export const browserSessionPersistence = {};
+    export const onAuthStateChanged = (a, cb) => { notify = cb; setTimeout(() => cb(cur), 0); window.__setUser = (u) => { cur = u; cb(u); }; };
+    export const signInAnonymously = async () => { cur = { uid: window.__anonUid || "anon1", isAnonymous: true }; notify(cur); };
+    export const signOut = async () => { cur = null; };
+    export class GoogleAuthProvider {}
+    export const signInWithPopup = async () => {};`,
+  "firebase-firestore.js": `
+    const isDoc = (p) => p.split("/").length % 2 === 0;
+    export const getFirestore = () => ({});
+    export const doc = (_d, p) => ({ p }); export const collection = (_d, p) => ({ p });
+    export const query = (c) => c; export const where = () => 0; export const orderBy = () => 0;
+    export const serverTimestamp = () => 0; export const deleteField = () => ({ del: 1 });
+    export const getDoc = async (r) => (window.__docs[r.p] ? { exists: () => true, data: () => window.__docs[r.p] } : { exists: () => false });
+    export const getDocs = async (r) => ({ docs: (window.__cols[r.p] || []).map((d) => ({ id: d.id, data: () => d })) });
+    export const updateDoc = async (r, data) => { window.__writes.push(data); if (window.__hangWrites) await new Promise(() => {}); };
+    export const onSnapshot = (r, cb) => {
+      setTimeout(() => (isDoc(r.p) ? cb({ exists: () => r.p in window.__docs, data: () => window.__docs[r.p] || {} }) : cb({ docs: (window.__cols[r.p] || []).map((d) => ({ id: d.id, data: () => d })) })), 0);
+      return () => {};
+    };`,
+  "firebase-functions.js": `
+    export const getFunctions = () => ({});
+    export const httpsCallable = (_f, name) => async (data) => { window.__log.push(name); return { data: await window.__fn(name, data) }; };`,
+};
+
+let srv, browser, base;
+test.before(async () => {
+  srv = http.createServer((req, res) => {
+    const u = req.url.split("?")[0];
+    const f = path.join(ROOT, u === "/" ? "index.html" : u);
+    if (!f.startsWith(ROOT) || !fs.existsSync(f)) { res.writeHead(404); return res.end(); }
+    res.writeHead(200, { "Content-Type": (f.endsWith(".js") ? "text/javascript" : f.endsWith(".css") ? "text/css" : "text/html") + "; charset=utf-8" });
+    res.end(fs.readFileSync(f));
+  });
+  await new Promise((r) => srv.listen(0, r));
+  base = `http://localhost:${srv.address().port}`;
+  const candidates = [process.env.PW_CHROMIUM, ...(fs.existsSync("/opt/pw-browsers") ? fs.readdirSync("/opt/pw-browsers").filter((d) => d.startsWith("chromium-")).map((d) => `/opt/pw-browsers/${d}/chrome-linux/chrome`) : []), undefined].filter((x) => x === undefined || fs.existsSync(x));
+  for (const exe of candidates) { try { browser = await chromium.launch({ executablePath: exe, args: ["--no-sandbox"] }); break; } catch {} }
+  assert.ok(browser, "chromium 을 찾을 수 없습니다 (npx playwright install chromium)");
+});
+test.after(async () => { await browser?.close(); srv?.close(); });
+
+async function newPage(init, handler) {
+  const ctx = await browser.newContext({ viewport: { width: 420, height: 900 }, acceptDownloads: true });
+  const pg = await ctx.newPage();
+  const errors = [];
+  pg.on("pageerror", (e) => errors.push(e.message));
+  await pg.route(/gstatic\.com\/firebasejs/, (r) => r.fulfill({ contentType: "text/javascript", body: stubs[r.request().url().split("/").pop()] || "" }));
+  await pg.route(/fonts\.(googleapis|gstatic)/, (r) => r.abort());
+  await pg.addInitScript(init);
+  await pg.addInitScript(() => { window.__fn = (n, d) => window.__node(n, d); window.__log = []; window.__writes = []; });
+  await pg.exposeFunction("__node", handler);
+  return { pg, ctx, errors };
+}
+
+// ---------- 교사 ----------
+function teacherFixture() {
+  let cats = [
+    { id: "timeline", title: "사건 흐름", type: "timeline", items: [{ id: "t1", kind: "사실", date: "2018. 4. 30.", text: "출도 제한 시행", caption: "A 2018" }, { id: "t2", kind: "사실", date: "6. 1.", text: "무사증 불허국 지정", caption: "B" }] },
+    { id: "result", title: "심사 결과", type: "list", stats: [{ label: "심사 대상", value: "484명" }], items: [{ id: "r1", kind: "의견", text: "인권위 의견", caption: "C" }] },
+  ];
+  const st = { cats, isDefault: true, calls: [], overrides: {} };
+  const persona = { id: "p1", axis: "당사자", name: "김씨", label: "예멘 출신 신청자", letter: ["안녕하세요"], voice: "조용함", habits: "음…", inner: "불안", story: ["a", "b"], episodes: ["c"], views: ["d"], claims: [], sources: [], limits: [] };
+  st.handler = async (name, data) => {
+    st.calls.push([name, data]);
+    switch (name) {
+      case "getMaterials": return { categories: JSON.parse(JSON.stringify(st.cats)), isDefault: st.isDefault };
+      case "saveMaterials": st.cats = data.categories.map((c) => ({ ...c, items: c.items.map((i) => ({ ...i })) })); st.isDefault = false; return { categories: st.cats, isDefault: false };
+      case "resetMaterials": st.isDefault = true; return { categories: st.cats, isDefault: true };
+      case "getCase": return { personas: [persona], materials: [], event: { teacherNote: "", background: [] } };
+      case "getPersonaOverrides": return { overrides: st.overrides };
+      case "savePersonaOverride": st.overrides = { ...st.overrides, [data.personaId]: { ...(st.overrides[data.personaId] || {}), ...data.fields } }; return { overrides: st.overrides };
+      case "resetPersonaOverride": { const o = { ...st.overrides }; delete o[data.personaId]; st.overrides = o; return { overrides: o }; }
+      case "healthCheck": await new Promise((r) => setTimeout(r, 3200)); return { firestore: { ok: true, ms: 40 }, models: [{ ok: true, ms: 900, model: "gpt-5-mini", reply: "ok" }, { ok: false, ms: 300, model: "gpt-5", error: "OpenAI 401" }], search: { ok: true, ms: 4000, found: true, sources: 2 }, config: { personas: 9, allowedDomains: 0, allowUnverified: false, webSearch: true } };
+      default: return { ok: true, count: (data?.uids || []).length };
+    }
+  };
+  return st;
+}
+async function openTeacher(st) {
+  const t = await newPage(() => {
+    window.__user = { uid: "T1", email: "t@x.kr", isAnonymous: false };
+    window.__docs = {};
+    window.__cols = {
+      sessions: [{ id: "ABC234", title: "테스트 수업", groupCount: 3, teacherUid: "T1" }],
+      "sessions/ABC234/members": [{ id: "u1", groupId: "g1", nickname: "가람", stage: 2 }, { id: "u2", groupId: "g1", nickname: "나래", stage: 2 }],
+      "sessions/ABC234/groups": [{ id: "g1", name: "1모둠", work: {}, lastAiError: { stage: 3, message: "시간 초과" }, aiCount: 130, guardCount: 4 }],
+    };
+  }, st.handler);
+  await t.pg.goto(`${base}/teacher.html`);
+  await t.pg.waitForSelector("#sessions button[data-code]");
+  await t.pg.click("#sessions button[data-code]");
+  return t;
+}
+
+test("교사: 수업 목록 → 수업 열기 → 알림·학생 표", async () => {
+  const st = teacherFixture(), { pg, errors } = await openTeacher(st);
+  assert.ok(await pg.locator("#class-view").isVisible());
+  assert.ok(!(await pg.locator("#class-list-view").isVisible()));
+  const alerts = await pg.locator("#alerts-body").innerText();
+  assert.match(alerts, /AI 오류/); assert.match(alerts, /130\/150/); assert.match(alerts, /감독자가 4번/);
+  assert.match(await pg.locator("#students").innerText(), /비번 초기화/);
+  assert.match(await pg.locator("#students").innerText(), /모둠 이동/);
+  assert.deepEqual(errors, []);
+});
+
+test("교사: 학생 선택 → 일괄 비번 초기화(선택 수만큼 요청), 모둠 이동 요청", async () => {
+  const st = teacherFixture(), { pg } = await openTeacher(st);
+  assert.ok(await pg.locator("#bulk-reset").isDisabled());
+  await pg.locator('[data-pick="u1"]').check();
+  await pg.locator('[data-pick="u2"]').check();
+  assert.match(await pg.locator("#bulk-n").innerText(), /2명 선택됨/);
+  pg.once("dialog", (d) => d.accept());
+  await pg.click("#bulk-reset");
+  await pg.waitForFunction(() => window.__log.includes("resetStudentPassword"));
+  assert.deepEqual(st.calls.find((c) => c[0] === "resetStudentPassword")[1].uids.sort(), ["u1", "u2"]);
+  pg.once("dialog", (d) => d.accept("2"));
+  await pg.locator('[data-move="u1"]').click();
+  await pg.waitForFunction(() => window.__log.includes("moveStudent"));
+  assert.deepEqual(st.calls.find((c) => c[0] === "moveStudent")[1], { code: "ABC234", uid: "u1", groupNo: 2 });
+});
+
+test("교사: 자료 추가·수정·순서·삭제·분류 추가·되돌리기", async () => {
+  const st = teacherFixture(), { pg } = await openTeacher(st);
+  await pg.click('[data-ctab="materials"]');
+  await pg.waitForSelector(".mcat");
+  assert.equal(await pg.locator(".mcat").count(), 2);
+  assert.match(await pg.locator("#mat-status").innerText(), /기본 자료/);
+  await pg.locator(".mcat").first().locator("summary").click();
+  const f = pg.locator('[data-form="new:timeline"]');
+  await f.locator('[data-f="date"]').fill("6. 25."); await f.locator('[data-f="text"]').fill("심사 시작"); await f.locator('[data-f="caption"]').fill("연합뉴스");
+  await f.locator('[data-m="item-add"]').click();
+  await pg.waitForFunction(() => document.querySelectorAll(".mcat")[0].querySelectorAll(".mitem").length === 3);
+  assert.equal(st.cats[0].items[2].text, "심사 시작");
+  await pg.locator(".mcat").first().locator('[data-m="item-edit"]').first().click();
+  const e = pg.locator('[data-form="edit:timeline:t1"]');
+  await e.locator('[data-f="text"]').fill("수정됨"); await e.locator('[data-m="item-save"]').click();
+  await pg.waitForFunction(() => document.body.innerText.includes("수정됨"));
+  await pg.locator(".mcat").first().locator('[data-m="item-down"]').first().click();
+  await pg.waitForFunction(() => document.querySelector(".mcat .mitem .mbody").innerText.includes("무사증"));
+  pg.once("dialog", (d) => d.accept());
+  await pg.locator(".mcat").first().locator('[data-m="item-del"]').first().click();
+  await pg.waitForFunction(() => document.querySelectorAll(".mcat")[0].querySelectorAll(".mitem").length === 2);
+  await pg.locator('[data-form="newcat"] [data-f="title"]').fill("전문가 의견");
+  await pg.locator('[data-m="cat-add"]').click();
+  await pg.waitForFunction(() => document.querySelectorAll(".mcat").length === 3);
+  pg.once("dialog", (d) => d.accept());
+  await pg.click('[data-m="reset"]');
+  await pg.waitForFunction(() => document.querySelector("#mat-status").innerText.includes("기본 자료"));
+});
+
+test("교사: 인물 편집 → 저장·되돌리기 요청", async () => {
+  const st = teacherFixture(), { pg } = await openTeacher(st);
+  await pg.click('[data-ctab="personas"]');
+  await pg.waitForSelector("#persona-edit details");
+  await pg.locator("#persona-edit summary").click();
+  await pg.locator('[data-pf="voice"]').fill("아주 느리게");
+  await pg.locator('[data-pf="story"]').fill("첫째\n\n둘째");
+  await pg.locator('[data-pe="save"]').click();
+  await pg.waitForFunction(() => document.querySelector("#persona-edit").innerText.includes("항목 고침"));
+  const sent = st.calls.find((c) => c[0] === "savePersonaOverride")[1];
+  assert.equal(sent.fields.voice, "아주 느리게");
+  assert.deepEqual(sent.fields.story, ["첫째", "둘째"]);
+  assert.equal(sent.fields.claims, undefined, "사실 항목은 화면에서 보내지 않는다");
+  pg.once("dialog", (d) => d.accept());
+  await pg.locator('[data-pe="reset"]').click();
+  await pg.waitForFunction(() => !document.querySelector("#persona-edit").innerText.includes("항목 고침"));
+});
+
+test("교사: 연결 점검 — 기다리는 동안 움직이는 표시와 초가 보이고, 끝나면 결과(정상·실패)가 보인다", async () => {
+  const st = teacherFixture(), { pg } = await openTeacher(st);
+  await pg.click("#tabs [data-tab='check']");
+  await pg.click("#health-btn");
+  await pg.waitForSelector("#health-out .wait");
+  assert.ok(await pg.locator("#health-out .wait-anim .ring").isVisible());
+  await pg.waitForFunction(() => Number(document.querySelector("#health-out .wait-sec")?.textContent) >= 1, null, { timeout: 4000 });
+  await pg.waitForSelector("#health-out .group");
+  const out = await pg.locator("#health-out").innerText();
+  assert.match(out, /Firestore/); assert.match(out, /gpt-5-mini/); assert.match(out, /OpenAI 401/); assert.match(out, /출처 2개/);
+});
+
+// ---------- 학생 ----------
+function studentFixture() {
+  const st = { joined: [], chatCalls: [], releaseChat: null, failNext: false, calls: [] };
+  st.handler = async (name, data) => {
+    st.calls.push(name);
+    if (name === "joinSession") { st.joined.push(data); if (data.password !== "pw1234") throw new Error("functions: 비밀번호가 맞지 않습니다."); return { groupId: "g1" }; }
+    if (name === "getCase") return { title: "제목", summary: "요약", stakeholders: [], me: { name: "김씨", letter: ["안녕하세요"] }, materials: [] };
+    if (name === "aiRequest") {
+      st.chatCalls.push(data);
+      await new Promise((r) => { st.releaseChat = r; });
+      if (st.failNext) { st.failNext = false; throw new Error("functions: AI 응답을 받지 못했습니다."); }
+      return { result: "답" };
+    }
+    return {};
+  };
+  return st;
+}
+async function openStudent(st) {
+  const s = await newPage(() => {
+    window.__user = null; window.__anonUid = "anonX";
+    window.__docs = { "sessions/ABC234/members/anonX": { groupId: "g1", nickname: "가람" }, "sessions/ABC234/groups/g1": { work: {} } };
+    window.__cols = { "sessions/ABC234/members/anonX/chat": [{ id: "c1", input: "안녕하세요", output: "네, 안녕하세요", model: "m" }] };
+  }, st.handler);
+  await s.pg.goto(`${base}/index.html`);
+  await s.pg.waitForSelector("#j-pw");
+  return s;
+}
+async function login(pg) {
+  await pg.fill("#j-code", "abc234"); await pg.fill("#j-group", "1"); await pg.fill("#j-nick", "가람"); await pg.fill("#j-pw", "pw1234");
+  await pg.click("#j-btn");
+  await pg.waitForSelector("#app:not(.hidden)");
+}
+
+test("학생: 입장 폼 — 빈 칸이면 요청하지 않고, 틀린 비밀번호는 실패, 맞으면 입장하며 로그아웃 버튼이 생긴다", async () => {
+  const st = studentFixture(), { pg, errors } = await openStudent(st);
+  assert.ok(!(await pg.locator("#logout").isVisible()));
+  await pg.fill("#j-code", "abc234"); await pg.fill("#j-group", "1"); await pg.fill("#j-nick", "가람");
+  await pg.click("#j-btn");
+  assert.equal(st.joined.length, 0);
+  await pg.fill("#j-pw", "bad"); await pg.click("#j-btn");
+  await pg.waitForFunction(() => window.__log.includes("joinSession"));
+  assert.ok(!(await pg.locator("#app").isVisible()));
+  await pg.fill("#j-pw", "pw1234"); await pg.click("#j-btn");
+  await pg.waitForSelector("#app:not(.hidden)");
+  assert.ok(await pg.locator("#logout").isVisible());
+  assert.equal(await pg.evaluate(() => sessionStorage.getItem("eps_code")), "ABC234");
+  assert.equal(await pg.evaluate(() => localStorage.getItem("eps_code")), null);
+  assert.equal(await pg.inputValue("#j-pw"), "");
+  assert.deepEqual(errors, []);
+});
+
+test("학생: 로그아웃하면 입장 정보가 지워지고 처음 화면으로 돌아간다", async () => {
+  const st = studentFixture(), { pg } = await openStudent(st);
+  await login(pg);
+  const nav = pg.waitForNavigation();
+  await pg.click("#logout"); await nav;
+  await pg.waitForSelector("#j-pw");
+  assert.equal(await pg.evaluate(() => sessionStorage.getItem("eps_code")), null);
+  assert.ok(await pg.locator("#join").isVisible());
+});
+
+test("학생: 인물의 답을 기다리는 동안 움직이는 표시·흐르는 초·안내가 보이고, 실패하면 오류와 '다시 보내기'가 나온다", async () => {
+  const st = studentFixture(), { pg } = await openStudent(st);
+  await login(pg);
+  await pg.waitForSelector("#msg");
+  await pg.fill("#msg", "질문입니다");
+  await pg.press("#msg", "Enter");
+  await pg.waitForSelector("#msgs .wait");
+  assert.ok(await pg.locator("#msgs .wait .wait-msg").isVisible());
+  assert.match(await pg.locator("#msgs .wait").innerText(), /연결은 살아 있어요/);
+  await pg.waitForFunction(() => Number(document.querySelector("#msgs .wait-sec")?.textContent) >= 2, null, { timeout: 5000 });
+  assert.equal(st.chatCalls.length, 1);
+  st.failNext = true; st.releaseChat();
+  await pg.waitForSelector('#msgs [data-act="retry-chat"]');
+  assert.match(await pg.locator("#msgs .msg.err").innerText(), /답을 받지 못했어요/);
+  assert.equal(await pg.locator("#msgs .wait").count(), 0, "끝나면 기다리는 표시는 사라진다");
+  await pg.click('#msgs [data-act="retry-chat"]');
+  await pg.waitForFunction(() => true);
+  await pg.waitForSelector("#msgs .wait");
+  assert.equal(st.chatCalls.length, 2);
+  assert.equal(st.chatCalls[1].payload.message, "질문입니다", "같은 질문을 다시 보낸다");
+  st.releaseChat();
+});
+
+test("학생: 인터넷이 끊기면 알림 띠가 뜨고 다시 연결되면 사라진다. 저장이 늦어지면 '저장 중'이 보인다", async () => {
+  const st = studentFixture(), { pg, ctx } = await openStudent(st);
+  await login(pg);
+  assert.match(await pg.locator("#net").innerText(), /연결됨/);
+  await ctx.setOffline(true);
+  await pg.waitForSelector("#net-banner");
+  assert.match(await pg.locator("#net-banner").innerText(), /자동으로 저장/);
+  assert.match(await pg.locator("#net").innerText(), /연결 끊김/);
+  await ctx.setOffline(false);
+  await pg.waitForFunction(() => !document.querySelector("#net-banner"));
+  await pg.evaluate(() => { window.__hangWrites = true; });
+  await pg.click('[data-go="1"][data-sub="note"]');
+  await pg.waitForSelector("textarea[data-save], input[data-save]");
+  await pg.locator("textarea[data-save], input[data-save]").first().fill("메모");
+  await pg.locator("textarea[data-save], input[data-save]").first().blur();
+  await pg.waitForFunction(() => /저장/.test(document.querySelector("#net").innerText));
+});
+
+test("학생: '대화 저장'으로 내 대화를 글 파일로 내려받는다", async () => {
+  const st = studentFixture(), { pg } = await openStudent(st);
+  await login(pg);
+  await pg.waitForSelector('[data-act="dl-chat"]');
+  const [dl] = await Promise.all([pg.waitForEvent("download"), pg.click('[data-act="dl-chat"]')]);
+  assert.match(dl.suggestedFilename(), /^ai-eps-chat-\d{4}-\d{2}-\d{2}\.txt$/);
+  const text = fs.readFileSync(await dl.path(), "utf8");
+  assert.match(text, /\[나\] 안녕하세요/); assert.match(text, /\[김씨\] 네, 안녕하세요/);
+});
+
+test("접근성: 대화창은 읽어 주는 영역(role=log), 오류·알림은 role=alert/status, 건너뛰기 링크와 단계 탭 aria-current", async () => {
+  const st = studentFixture(), { pg } = await openStudent(st);
+  assert.equal(await pg.locator("a.skip").count(), 1);
+  await login(pg);
+  assert.equal(await pg.locator("#msgs").getAttribute("role"), "log");
+  assert.equal(await pg.locator(".stage-tab[aria-current='step']").count(), 1);
+  assert.equal(await pg.locator("#net").getAttribute("role"), "status");
+});

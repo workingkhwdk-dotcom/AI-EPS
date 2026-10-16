@@ -18,6 +18,7 @@ export const esc = (s) =>
 export function toast(msg, isErr = false) {
   const el = document.createElement("div");
   el.className = "toast" + (isErr ? " err" : "");
+  el.setAttribute("role", isErr ? "alert" : "status");
   el.textContent = msg;
   document.body.appendChild(el);
   setTimeout(() => el.remove(), isErr ? 5000 : 2200);

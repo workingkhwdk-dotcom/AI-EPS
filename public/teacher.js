@@ -1,4 +1,6 @@
 import { auth, db, call, esc, toast, errMsg } from "./fb.js";
+import { waitHtml, startWaitTicker, STEPS } from "./wait.js";
+startWaitTicker();
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { collection, query, where, orderBy, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
@@ -11,7 +13,7 @@ const safeUrl = (u) => (/^https?:\/\//i.test(String(u || "")) ? String(u) : "#")
 const hasKeys = (o) => o && typeof o === "object" && Object.keys(o).length > 0;
 const filled = (v) => (typeof v === "string" ? v.trim() !== "" : hasKeys(v));
 
-let assigns = {}, current = null, curTitle = "", unsubs = [], members = [], groups = [], gFilter = "all";
+let picked = new Set(), assigns = {}, current = null, curTitle = "", unsubs = [], members = [], groups = [], gFilter = "all";
 let logsBy = {}, cmpStage = 1, workGid = null; // 모둠별 AI 기록, 단계별 모아 보기 단계, 열어 둔 모둠 산출물
 let tickTimer = null;
 
@@ -39,8 +41,9 @@ $("#tabs").onclick = (e) => { const b = e.target.closest("[data-tab]"); if (b) s
 // 수업을 연 뒤의 세 가지 작업: 진행 현황 / 자료 관리 / 수업 설정
 function showCTab(name) {
   document.querySelectorAll("#ctabs button").forEach((b) => b.classList.toggle("on", b.dataset.ctab === name));
-  for (const t of ["live", "materials", "settings"]) $(`#cpane-${t}`).classList.toggle("hidden", t !== name);
+  for (const t of ["live", "materials", "personas", "settings"]) $(`#cpane-${t}`).classList.toggle("hidden", t !== name);
   if (name === "materials") loadMats();
+  if (name === "personas") loadPersonaEdit();
   if (name === "settings") fillSettings();
 }
 $("#ctabs").onclick = (e) => { const b = e.target.closest("[data-ctab]"); if (b) showCTab(b.dataset.ctab); };
@@ -95,7 +98,7 @@ function progressOf(work) {
 
 function openSession(code, title) {
   title = title || sessionRows.find((r) => r.code === code)?.title || "수업";
-  current = code; curTitle = title; gFilter = "all"; logsBy = {}; workGid = null; mat.loaded = false; assigns = {};
+  current = code; curTitle = title; gFilter = "all"; logsBy = {}; workGid = null; mat.loaded = false; pe.loaded = false; assigns = {}; picked = new Set();
   unsubs.forEach((u) => u()); unsubs = [];
   clearInterval(tickTimer);
   $("#class-list-view").classList.add("hidden");
@@ -154,12 +157,14 @@ function renderDash() {
   const rows = members.filter((m) => gFilter === "all" || m.groupId === gFilter)
     .sort((a, b) => parseInt(a.groupId.slice(1)) - parseInt(b.groupId.slice(1)) || (a.nickname || "").localeCompare(b.nickname || ""));
   $("#students").innerHTML = rows.map((m) => `<tr>
+    <td><input type="checkbox" data-pick="${m.uid}" ${picked.has(m.uid) ? "checked" : ""} aria-label="${esc(m.nickname)} 선택" style="width:18px;height:18px"></td>
     <td><b>${esc(m.nickname)}</b></td><td>${esc(m.groupId.replace("g", ""))}모둠</td>
     <td>${esc(personaLabels[assigns[m.uid] || m.personaId] || assigns[m.uid] || m.personaId || "")}</td>
     <td><span class="pill">${m.stage || 1}. ${STAGE_NAMES[m.stage || 1]}</span></td>
     <td><span class="dot ${isOnline(m) ? "on" : ""}"></span>${isOnline(m) ? "접속 중" : `자리 비움 · ${ago(m)}`}</td>
     <td>${m.aiCount || 0}회</td>
-    <td class="row" style="flex-wrap:nowrap"><button class="btn btn-tinted btn-sm" data-chat="${m.uid}">대화 보기</button><button class="btn btn-plain btn-sm" data-reset="${m.uid}" data-nick="${esc(m.nickname)}">비번 초기화</button></td></tr>`).join("");
+    <td class="row" style="flex-wrap:nowrap"><button class="btn btn-tinted btn-sm" data-chat="${m.uid}">대화 보기</button><button class="btn btn-plain btn-sm" data-reset="${m.uid}" data-nick="${esc(m.nickname)}">비번 초기화</button><button class="btn btn-plain btn-sm" data-move="${m.uid}" data-nick="${esc(m.nickname)}" data-g="${esc(m.groupId)}">모둠 이동</button></td></tr>`).join("");
+  renderBulk();
   $("#no-students").textContent = rows.length ? "" : "아직 입장한 학생이 없습니다. 위의 수업 코드와 모둠 번호를 학생에게 알려 주세요.";
 
   $("#groups").innerHTML = groups.map((g) => {
@@ -235,7 +240,34 @@ async function loadGroupLogs(gid) {
       <div class="q">${esc(l.input)}</div><div class="a">${esc(prettyLog(l))}</div></div>`).join("") || `<div class="meta-line">3~5단계 AI 기록이 없습니다.</div>`);
   showDetail(`${g?.name || gid} 3~5단계 AI 기록`, html);
 }
+function renderBulk() {
+  const n = picked.size;
+  $("#bulk-reset").disabled = !n;
+  $("#bulk-n").textContent = n ? `${n}명 선택됨` : "학생을 선택하면 한꺼번에 비번을 초기화할 수 있어요";
+}
+$("#students").onchange = (e) => {
+  const c = e.target.closest("[data-pick]"); if (!c) return;
+  c.checked ? picked.add(c.dataset.pick) : picked.delete(c.dataset.pick);
+  renderBulk();
+};
+$("#stu-all").onchange = (e) => {
+  document.querySelectorAll("#students [data-pick]").forEach((c) => { c.checked = e.target.checked; e.target.checked ? picked.add(c.dataset.pick) : picked.delete(c.dataset.pick); });
+  renderBulk();
+};
+$("#bulk-reset").onclick = async () => {
+  if (!picked.size || !confirm(`선택한 ${picked.size}명의 비밀번호를 지울까요?\n각 학생이 같은 별명으로 다시 입장하면서 새 비밀번호를 정합니다. 하던 내용은 그대로 이어집니다.`)) return;
+  try { const { data } = await call("resetStudentPassword")({ code: current, uids: [...picked] }); toast(`${data.count}명의 비밀번호를 초기화했습니다.`); picked.clear(); renderDash(); }
+  catch (err) { toast(errMsg(err), true); }
+};
 $("#students").onclick = async (e) => {
+  const mv = e.target.closest("[data-move]");
+  if (mv) {
+    const to = prompt(`'${mv.dataset.nick}' 학생을 몇 모둠으로 옮길까요? (현재 ${mv.dataset.g.replace("g", "")}모둠)\n인물·대화·개인 정리·비밀번호가 함께 옮겨집니다. 옮긴 뒤에는 새 모둠 번호로 입장해야 합니다.`);
+    if (to === null || !to.trim()) return;
+    try { await call("moveStudent")({ code: current, uid: mv.dataset.move, groupNo: Number(to) }); toast(`'${mv.dataset.nick}' 학생을 ${Number(to)}모둠으로 옮겼습니다.`); }
+    catch (err) { toast(errMsg(err), true); }
+    return;
+  }
   const r = e.target.closest("[data-reset]");
   if (r) {
     if (!confirm(`'${r.dataset.nick}' 학생의 비밀번호를 지울까요?\n학생이 같은 별명으로 다시 입장하면서 새 비밀번호를 정합니다. 하던 내용은 그대로 이어집니다.`)) return;
@@ -253,6 +285,8 @@ $("#groups").onclick = (e) => {
 
 // CSV: 연구·평가 기록용. 엑셀에서 한글이 깨지지 않도록 BOM 포함
 $("#csv-btn").onclick = async () => {
+  const csvBtn = $("#csv-btn"); csvBtn.disabled = true; const label = csvBtn.textContent; csvBtn.textContent = "기록을 모으는 중…";
+  try {
   const lines = [["구분", "모둠", "단계", "별명", "시각", "모델", "학생 입력", "AI 응답", "감독자 판정", "개인정보 의심", "웹 검색(검색어 | 찾음 | 출처)"]];
   const T = (l) => fmt(l.createdAt);
   const glogs = await loadGuardLogs();
@@ -274,6 +308,8 @@ $("#csv-btn").onclick = async () => {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
   a.download = `ai-eps-${current}.csv`; a.click();
+  } catch (e) { toast(errMsg(e), true); }
+  finally { csvBtn.disabled = false; csvBtn.textContent = label; }
 };
 
 // ---------- 점검 (교사 전용) ----------
@@ -423,7 +459,7 @@ const catOf = (id) => mat.cats.find((c) => c.id === id);
 
 async function loadMats(force = false) {
   if (mat.loaded && !force) return renderMats();
-  $("#mat-body").innerHTML = `<div class="card meta-line">불러오는 중…</div>`;
+  $("#mat-body").innerHTML = `<div class="card">${waitHtml({ steps: STEPS.load })}</div>`;
   try {
     const { data } = await call("getMaterials")({ code: current });
     Object.assign(mat, { cats: data.categories, isDefault: data.isDefault, loaded: true, editItem: null, editCat: null });
@@ -641,3 +677,68 @@ function renderAlerts() {
   $("#alerts").classList.toggle("hidden", !out.length);
   $("#alerts-body").innerHTML = out.map(([k, t]) => `<div class="notice ${k === "r" ? "" : k === "y" ? "yellow" : "muted"}" style="margin-bottom:6px">${esc(t)}</div>`).join("");
 }
+
+// ---------- 인물 편집 ----------
+const PERSONA_FIELDS = [
+  ["letter", "편지 (학생이 처음 받는 글, 한 줄에 한 문단)", "list", 5],
+  ["voice", "말투", "text", 3], ["habits", "말버릇", "text", 2], ["inner", "마음속 고민", "text", 3],
+  ["story", "삶의 이야기 (한 줄에 하나)", "list", 6], ["episodes", "기억나는 장면 (한 줄에 하나)", "list", 6], ["views", "인물의 생각·의견 (한 줄에 하나)", "list", 6],
+];
+let pe = { personas: [], overrides: {}, loaded: false };
+async function loadPersonaEdit() {
+  if (pe.loaded) return renderPersonaEdit();
+  $("#persona-edit").innerHTML = `<div class="card">${waitHtml({ steps: STEPS.load })}</div>`;
+  try {
+    const [c, o] = await Promise.all([call("getCase")({ eventId: "jeju2018" }), call("getPersonaOverrides")({ code: current })]);
+    Object.assign(pe, { personas: c.data.personas, overrides: o.data.overrides, loaded: true });
+    renderPersonaEdit();
+  } catch (e) { $("#persona-edit").innerHTML = `<div class="notice">${esc(errMsg(e))}</div>`; }
+}
+const peValue = (p, k) => (pe.overrides[p.id]?.[k] ?? p[k]);
+function renderPersonaEdit() {
+  $("#persona-edit").innerHTML = pe.personas.map((p) => {
+    const changed = Object.keys(pe.overrides[p.id] || {}).length;
+    return `<details class="fold" data-pid="${esc(p.id)}"><summary><span><span class="tag b">${esc(p.axis || "")}</span> ${esc(p.name)} <span class="meta-line">· ${esc(p.label)}</span></span>${changed ? ` <span class="tag y">${changed}개 항목 고침</span>` : ""}</summary><div class="inner">
+      ${PERSONA_FIELDS.map(([k, label, type, rows]) => `<label class="lbl">${label}</label><textarea data-pf="${k}" rows="${rows}" style="min-height:0">${esc(type === "list" ? (peValue(p, k) || []).join("\n") : peValue(p, k) || "")}</textarea>`).join("")}
+      <div class="row" style="margin-top:12px"><button class="btn btn-primary btn-sm" data-pe="save" data-p="${esc(p.id)}">이 인물 저장</button>
+        <button class="btn btn-plain btn-sm" data-pe="reset" data-p="${esc(p.id)}" ${changed ? "" : "disabled"}>원래대로 되돌리기</button></div></div></details>`;
+  }).join("");
+}
+$("#cpane-personas").onclick = async (e) => {
+  const b = e.target.closest("[data-pe]"); if (!b) return;
+  const pid = b.dataset.p, box = b.closest("details");
+  const open = [...document.querySelectorAll("#persona-edit details[open]")].map((d) => d.dataset.pid);
+  try {
+    if (b.dataset.pe === "save") {
+      const fields = {};
+      for (const [k, , type] of PERSONA_FIELDS) {
+        const v = box.querySelector(`[data-pf="${k}"]`).value;
+        fields[k] = type === "list" ? v.split("\n").map((x) => x.trim()).filter(Boolean) : v;
+      }
+      const { data } = await call("savePersonaOverride")({ code: current, personaId: pid, fields });
+      pe.overrides = data.overrides; toast("저장했습니다. 이 수업의 새 대화부터 적용됩니다.");
+    } else {
+      if (!confirm("이 인물을 원래 내용으로 되돌릴까요?")) return;
+      const { data } = await call("resetPersonaOverride")({ code: current, personaId: pid });
+      pe.overrides = data.overrides; toast("원래대로 되돌렸습니다.");
+    }
+  } catch (err) { return toast(errMsg(err), true); }
+  renderPersonaEdit();
+  open.forEach((id) => document.querySelector(`#persona-edit details[data-pid="${id}"]`)?.setAttribute("open", ""));
+};
+
+// ---------- 수업 전 연결 점검 ----------
+$("#health-btn").onclick = async () => {
+  const btn = $("#health-btn"); btn.disabled = true;
+  $("#health-out").innerHTML = waitHtml({ first: "서버와 AI에 연결해 보는 중이에요", steps: [[0, "서버와 AI에 연결해 보는 중이에요"], [10, "AI 모델이 응답하기를 기다리는 중이에요"], [30, "평소보다 오래 걸려요. 서버는 일하는 중이에요"]] });
+  try {
+    const { data: r } = await call("healthCheck")({});
+    const row = (name, x, extra = "") => `<div class="cell"><span class="tag ${x.ok ? "" : "r"}">${x.ok ? "정상" : "실패"}</span><div class="grow"><b>${esc(name)}</b> <span class="meta-line">${x.ms}ms</span>${extra}${x.error ? `<div class="meta-line" style="color:var(--danger)">${esc(x.error)}</div>` : ""}</div></div>`;
+    $("#health-out").innerHTML = `<div class="group">${row("Firestore(서버 저장소)", r.firestore)}${r.models.map((m) => row(`AI 모델 ${m.model || ""}`, m, m.reply ? ` <span class="meta-line">응답: ${esc(m.reply)}</span>` : "")).join("")}${
+      r.search.skipped ? `<div class="cell"><span class="tag x">꺼짐</span><div class="grow"><b>웹 검색</b> <span class="meta-line">PERSONA_WEB_SEARCH=false</span></div></div>`
+        : row("인물의 웹 검색", r.search, r.search.ok ? ` <span class="meta-line">${r.search.found ? `찾음 · 출처 ${r.search.sources}개` : "시험 질문의 답을 못 찾음"}</span>` : "")}</div>
+      <div class="meta-line" style="margin-top:8px">사용 가능한 인물 ${r.config.personas}명 · 검색 허용 도메인 ${r.config.allowedDomains ? r.config.allowedDomains + "개" : "제한 없음"}${r.config.allowUnverified ? " · <b>리허설 모드(원문 대조 전 인물도 보임)</b>" : ""}</div>
+      ${r.search.error ? `<div class="notice yellow" style="margin-top:8px">${esc(r.search.error)}</div>` : ""}`;
+  } catch (e) { $("#health-out").innerHTML = `<div class="notice">${esc(errMsg(e))}</div>`; }
+  finally { btn.disabled = false; }
+};

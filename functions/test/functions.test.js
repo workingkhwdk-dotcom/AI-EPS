@@ -673,3 +673,87 @@ test("자동 닫힘: 마지막 접속 후 시간이 지나면 다음 입장 시�
   await api.updateSession({ ...teacher, data: { code: c, closed: false } });
   await join("B1", c, "나래", "sesame2"); // 다시 열었으므로 입장 가능
 });
+
+// ---------- 인물 편집 · 모둠 이동 · 일괄 초기화 · 점검 ----------
+test("인물 편집: 이 수업의 인물 말투·편지만 바뀌고(학생 편지, 인물 프롬프트, 감독자), 근거 진술은 못 바꾸며, 되돌릴 수 있다", async () => {
+  const c = await mk();
+  await join("A1", c, "가람", "sesame1");
+  const pid = pidOf(c, "A1");
+  const other = await mk();
+  await api.savePersonaOverride({ ...teacher, data: { code: c, personaId: pid, fields: { voice: "아주 느릿느릿 말한다", letter: ["새 편지 첫 줄", "새 편지 둘째 줄"], claims: [["해킹", "J1", "사실"]] } } });
+  const cs = await api.getCase({ ...student("A1"), data: { code: c } });
+  assert.deepEqual(cs.me.letter, ["새 편지 첫 줄", "새 편지 둘째 줄"]);
+  calls.length = 0; personaToolCalls = 0; personaReply = "네.";
+  await chatOnce(c, "A1", "안녕하세요");
+  assert.match(calls.find((x) => x.kind === "persona").body.messages[0].content, /아주 느릿느릿 말한다/);
+  assert.equal(calls.find((x) => x.kind === "persona").body.messages[0].content.includes("해킹"), false);
+  const { PERSONAS: PS } = require("../case");
+  const orig = PS.find((p) => p.id === pid);
+  assert.equal(orig.voice === "아주 느릿느릿 말한다", false, "코드의 원본은 바뀌지 않는다");
+  await join("B1", other, "나래", "sesame2");
+  assert.notDeepEqual((await api.getCase({ ...student("B1"), data: { code: other } })).me.letter, ["새 편지 첫 줄", "새 편지 둘째 줄"], "다른 수업은 그대로");
+  await assert.rejects(api.savePersonaOverride({ ...teacher, data: { code: c, personaId: "nobody", fields: { voice: "x" } } }), /인물/);
+  await assert.rejects(api.savePersonaOverride({ ...teacher, data: { code: c, personaId: pid, fields: { letter: [] } } }), /편지/);
+  await assert.rejects(api.savePersonaOverride({ ...student("A1"), data: { code: c, personaId: pid, fields: { voice: "x" } } }), /교사/);
+  await api.resetPersonaOverride({ ...teacher, data: { code: c, personaId: pid } });
+  assert.notDeepEqual((await api.getCase({ ...student("A1"), data: { code: c } })).me.letter, ["새 편지 첫 줄", "새 편지 둘째 줄"]);
+  // 복제 시 함께 가져간다
+  await api.savePersonaOverride({ ...teacher, data: { code: c, personaId: pid, fields: { habits: "말끝을 흐림" } } });
+  const cl = await api.cloneSession({ ...teacher, data: { code: c } });
+  assert.equal((await api.getPersonaOverrides({ ...teacher, data: { code: cl.code } })).overrides[pid].habits, "말끝을 흐림");
+});
+
+test("모둠 이동: 인물·대화·개인 정리·비밀번호가 따라가고 인원수가 맞으며, 같은 별명이 있으면 막는다", async () => {
+  const c = await mk(3);
+  await join("A1", c, "가람", "sesame1", 1);
+  await join("B1", c, "나래", "sesame2", 1);
+  const pid = pidOf(c, "A1");
+  store.set(`sessions/${c}/groups/g1`, { ...store.get(`sessions/${c}/groups/g1`), work: { s1: { findings: { A1: { who: "내 정리" } } } } });
+  await api.moveStudent({ ...teacher, data: { code: c, uid: "A1", groupNo: 2 } });
+  assert.equal(store.get(`sessions/${c}/members/A1`).groupId, "g2");
+  assert.equal(store.get(`sessions/${c}/assign/A1`).groupId, "g2");
+  assert.equal(pidOf(c, "A1"), pid);
+  assert.equal(store.get(`sessions/${c}/groups/g1`).memberCount, 1);
+  assert.equal(store.get(`sessions/${c}/groups/g2`).memberCount, 1);
+  assert.equal(store.get(`sessions/${c}/groups/g2`).work.s1.findings.A1.who, "내 정리");
+  assert.equal(store.get(`sessions/${c}/groups/g1`).work.s1.findings.A1, undefined);
+  assert.equal(store.get(`sessions/${c}/assignGroup/g1`).personaIds.includes(pid), false);
+  assert.equal(store.get(`sessions/${c}/assignGroup/g2`).personaIds.includes(pid), true);
+  // 이동한 뒤에는 새 모둠 번호로 입장해야 하고(같은 비밀번호), 옛 모둠 번호로는 새로운 학생이 된다
+  await join("A2", c, "가람", "sesame1", 2);
+  assert.equal(pidOf(c, "A2"), pid);
+  // 같은 별명이 있는 모둠으로는 못 옮긴다
+  await join("C1", c, "나래", "sesame3", 3);
+  await assert.rejects(api.moveStudent({ ...teacher, data: { code: c, uid: "B1", groupNo: 3 } }), /같은 별명/);
+  await assert.rejects(api.moveStudent({ ...teacher, data: { code: c, uid: "B1", groupNo: 9 } }), /모둠 번호/);
+  await assert.rejects(api.moveStudent({ ...student("B1"), data: { code: c, uid: "B1", groupNo: 2 } }), /교사/);
+});
+
+test("비밀번호 일괄 초기화: 여러 학생을 한 번에, 없는 학생이 섞이면 거부", async () => {
+  const c = await mk();
+  await join("A1", c, "가람", "sesame1");
+  await join("B1", c, "나래", "sesame2");
+  const r = await api.resetStudentPassword({ ...teacher, data: { code: c, uids: ["A1", "B1"] } });
+  assert.equal(r.count, 2);
+  assert.equal([...store.keys()].filter((k) => k.startsWith(`sessions/${c}/creds/`)).length, 0);
+  await assert.rejects(api.resetStudentPassword({ ...teacher, data: { code: c, uids: [] } }), /고르세요/);
+  await assert.rejects(api.resetStudentPassword({ ...teacher, data: { code: c, uids: ["A1", "NOPE"] } }), /찾을 수 없/);
+});
+
+test("수업 전 점검: Firestore·각 모델·웹 검색 결과를 시간과 함께 돌려주고, 실패는 오류로 표시한다(교사만)", async () => {
+  searchReply = "412명이다."; searchSources = ["https://a.example"];
+  const r = await api.healthCheck({ ...teacher, data: {} });
+  assert.equal(r.firestore.ok, true);
+  assert.ok(r.models.length >= 1 && r.models.every((m) => m.ok && typeof m.ms === "number"));
+  assert.equal(r.search.ok, true);
+  assert.equal(r.search.found, true);
+  assert.equal(r.config.personas, 9);
+  const realFetch = global.fetch;
+  global.fetch = async () => ({ ok: false, status: 401, text: async () => "bad key" });
+  const bad = await api.healthCheck({ ...teacher, data: {} });
+  global.fetch = realFetch;
+  assert.equal(bad.models[0].ok, false);
+  assert.match(bad.models[0].error, /401/);
+  assert.equal(bad.search.found, false);
+  await assert.rejects(api.healthCheck({ ...student("A1"), data: {} }), /교사/);
+});

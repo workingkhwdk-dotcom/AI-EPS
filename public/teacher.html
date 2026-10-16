@@ -60,6 +60,7 @@
         <div class="seg" id="ctabs">
           <button data-ctab="live" class="on">진행 현황</button>
           <button data-ctab="materials">자료 관리</button>
+          <button data-ctab="personas">인물 편집</button>
           <button data-ctab="settings">수업 설정</button>
         </div>
 
@@ -69,7 +70,8 @@
           <div class="card"><div class="kpis" id="kpis"></div></div>
           <div class="card"><h3>학생 현황</h3>
             <div class="chipbar" id="g-filter" style="margin-bottom:10px"></div>
-            <div class="tbl-wrap"><table class="tbl"><thead><tr><th>별명</th><th>모둠</th><th>인물(교사용)</th><th>현재 단계</th><th>상태</th><th>AI 대화</th><th></th></tr></thead><tbody id="students"></tbody></table></div>
+            <div class="row" id="bulk" style="margin-bottom:8px"><button class="btn btn-plain btn-sm" id="bulk-reset" type="button" disabled>선택한 학생 비번 초기화</button><span class="meta-line" id="bulk-n"></span></div>
+            <div class="tbl-wrap"><table class="tbl"><thead><tr><th><input type="checkbox" id="stu-all" aria-label="학생 전체 선택" style="width:18px;height:18px"></th><th>별명</th><th>모둠</th><th>인물(교사용)</th><th>현재 단계</th><th>상태</th><th>AI 대화</th><th></th></tr></thead><tbody id="students"></tbody></table></div>
             <div class="meta-line" id="no-students"></div>
             <div class="meta-line" style="margin-top:8px">학생이 비밀번호를 잊었다면 <b>비번 초기화</b>를 누르세요. 학생이 같은 별명으로 다시 입장하면서 새 비밀번호를 정하고, 하던 것은 그대로 이어집니다.</div>
           </div>
@@ -93,6 +95,16 @@
             <div class="notice yellow">직접 추가하거나 고친 자료는 원문 대조를 거치지 않습니다. 학생에게는 선생님이 확인한 내용으로 보이므로, <b>출처</b> 칸에 매체와 날짜를 꼭 적어 주세요.</div>
           </div>
           <div id="mat-body"></div>
+        </div>
+
+        <!-- 인물 편집: 이 수업의 인물 말투·삶의 이야기·의견·편지 -->
+        <div id="cpane-personas" class="hidden">
+          <div class="card">
+            <h3>인물 편집</h3>
+            <p class="desc">이 수업에서 쓰는 인물의 <b>편지, 말투, 말버릇, 마음속 고민, 삶의 이야기, 기억나는 장면, 생각(의견)</b>을 고칠 수 있습니다. 고친 내용은 <b>이 수업의 학생 화면, 인물 AI, 감독 AI</b>에 모두 적용되고, 다른 수업에는 영향이 없습니다.</p>
+            <div class="notice yellow">사건의 <b>사실(근거 진술, 출처, 인물 설정, 입장)</b>은 원문 대조를 거치는 부분이라 여기서 고칠 수 없습니다. 삶의 이야기는 지어낸 이야기이므로, 사건의 수치·날짜·제도 같은 사실을 넣지 마세요. 한 줄에 한 항목씩 씁니다.</div>
+          </div>
+          <div id="persona-edit"></div>
         </div>
 
         <!-- 수업 설정 -->
@@ -132,6 +144,12 @@
 
     <!-- 점검: 인물·자료의 근거. 수업 중에는 볼 필요가 없어 별도 탭에 접어 둔다 -->
     <div id="tab-check" class="hidden">
+      <div class="card">
+        <h2>수업 전 연결 점검</h2>
+        <p class="desc">수업 전에 한 번 눌러 보세요. 서버 저장소, 각 AI 모델, 인물의 웹 검색이 실제로 되는지 짧게 시험합니다(비용은 아주 적습니다).</p>
+        <button class="btn btn-primary btn-sm" id="health-btn" type="button">연결·AI 점검 실행</button>
+        <div id="health-out" style="margin-top:12px"></div>
+      </div>
       <div class="card">
         <h2>인물·자료 점검</h2>
         <p class="desc">인물과 실제 자료는 아래 출처의 보도 내용에만 근거합니다. <b>수업 전에 원문 링크를 열어 확인</b>하고, 확인한 출처는 <code>functions/case.js</code>에서 <code>verified</code>를 true로 바꿔 배포하세요. 확인 전 인물과 자료는 학생에게 보이지 않습니다. 이 탭의 내용은 학생에게 공개되지 않습니다.</p>

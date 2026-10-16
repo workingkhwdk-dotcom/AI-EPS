@@ -1,0 +1,7 @@
+{
+  "name": "ai-eps-ui-test",
+  "private": true,
+  "description": "화면 동작 테스트(헤드리스 브라우저, Firebase는 가짜로 대체). npm install 후 npm test",
+  "scripts": { "test": "node --test ui.test.js" },
+  "devDependencies": { "playwright": "^1.48.0" }
+}
