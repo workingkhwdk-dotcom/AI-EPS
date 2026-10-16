@@ -121,3 +121,13 @@ test("사적인 질문과 되묻기 규칙이 인물 프롬프트·규범·감�
   assert.match(sys.content, /사적인 질문\(연애, 결혼, 취미 등\)에 지어내서 자세히 답했다/);
   assert.match(sys.content, /되묻는 질문으로 끝내지 않는다/);
 });
+
+test("개인정보 표시: 전화번호·주민번호·이메일·학교 이름을 찾고, 평범한 글은 지나간다", () => {
+  const { piiFlags } = require("../guard");
+  assert.deepEqual(piiFlags("010-1234-5678로 연락해요"), ["전화번호"]);
+  assert.deepEqual(piiFlags("a.b@school.kr"), ["이메일"]);
+  assert.deepEqual(piiFlags("990101-1234567"), ["주민등록번호"]);
+  assert.deepEqual(piiFlags("저는 창원중앙고등학교 다녀요"), ["학교 이름"]);
+  assert.deepEqual(piiFlags("우리 수업중에 난민 이야기를 했어요. 중요한 일이에요"), []);
+  assert.deepEqual(piiFlags(undefined), []);
+});
