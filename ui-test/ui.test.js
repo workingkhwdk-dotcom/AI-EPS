@@ -105,6 +105,7 @@ async function openTeacher(st) {
   await t.pg.goto(`${base}/teacher.html`);
   await t.pg.waitForSelector("#sessions button[data-code]");
   await t.pg.click("#sessions button[data-code]");
+  await t.pg.waitForSelector("#students tr");
   return t;
 }
 
@@ -112,6 +113,7 @@ test("교사: 수업 목록 → 수업 열기 → 알림·학생 표", async () 
   const st = teacherFixture(), { pg, errors } = await openTeacher(st);
   assert.ok(await pg.locator("#class-view").isVisible());
   assert.ok(!(await pg.locator("#class-list-view").isVisible()));
+  await pg.waitForSelector("#alerts:not(.hidden)");
   const alerts = await pg.locator("#alerts-body").innerText();
   assert.match(alerts, /AI 오류/); assert.match(alerts, /130\/150/); assert.match(alerts, /감독자가 4번/);
   assert.match(await pg.locator("#students").innerText(), /비번 초기화/);
@@ -320,7 +322,8 @@ test("접근성: 대화창은 읽어 주는 영역(role=log), 오류·알림은 
 
 test("교사: 대화 규칙 위반 신호 카드·멈춘 학생 표시·대화 다시 열기 요청", async () => {
   const st = teacherFixture(), { pg, errors } = await openTeacher(st);
-  assert.ok(await pg.locator("#conduct-card").isVisible());
+  await pg.waitForSelector("#conduct-card:not(.hidden)");
+  await pg.waitForSelector('[data-unlock="u1"]');
   assert.match(await pg.locator("#conduct-list").innerText(), /놀리는 말/);
   assert.match(await pg.locator("#conduct-list").innerText(), /조롱·모욕/);
   assert.match(await pg.locator("#students").innerText(), /대화 멈춤/);
