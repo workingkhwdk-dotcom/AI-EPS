@@ -24,6 +24,7 @@ test.beforeEach(async () => {
       await setDoc(doc(db, `sessions/${C}/members/${uid}/chat/c1`), { input: "안녕", output: "네", uid });
       await setDoc(doc(db, `sessions/${C}/guardlog/${uid}c1`), { uid, personaId: "j_officer", guard: { original: "원래 응답" } });
     }
+    await setDoc(doc(db, `sessions/${C}/alerts/a1`), { uid: "S1", category: "mockery", input: "욕설" });
     await setDoc(doc(db, `sessions/${C}/assignGroup/g1`), { personaIds: ["j_officer"] });
     await setDoc(doc(db, `sessions/${C}/creds/k`), { hash: "h", salt: "s", uid: "S1" });
     await setDoc(doc(db, `sessions/${C}/attempts/S1`), { fails: 1 });
@@ -50,6 +51,14 @@ test("인물 배정과 감독자 기록(원래 응답·판정)은 교사만 읽�
   }
   await assertFails(getDocs(collection(as("S1"), P("guardlog"))));
   await assertFails(getDocs(collection(as("S1"), P("assign"))));
+});
+
+test("대화 규칙 위반 신호(alerts)는 교사만 읽고, 학생은 자기 것도 못 읽으며 아무도 클라이언트로 쓸 수 없다", async () => {
+  await assertSucceeds(getDoc(doc(as("T1"), P("alerts/a1"))));
+  await assertFails(getDoc(doc(as("S1"), P("alerts/a1"))));
+  await assertFails(getDocs(collection(as("S1"), P("alerts"))));
+  await assertFails(setDoc(doc(as("T1"), P("alerts/a2")), { x: 1 }));
+  await assertFails(setDoc(doc(as("S1"), P("alerts/a2")), { x: 1 }));
 });
 
 test("학생은 자기 대화·자기 문서만 읽고 다른 학생 것은 못 읽는다. 교사는 모두 읽는다", async () => {

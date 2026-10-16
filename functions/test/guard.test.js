@@ -108,18 +108,22 @@ test("마지막에 학생의 생각을 되묻는 문장은 지우고, 확인 질
   assert.equal(out.replaced, false);
 });
 
-test("사적인 질문과 되묻기 규칙이 인물 프롬프트·규범·감독자 기준에 모두 있다", () => {
+test("사적인 질문(기관 소속 인물)과 되묻기 규칙이 인물 프롬프트·규범·감독자 기준에 모두 있다", () => {
   const { personaPrompt } = require("../prompts");
   const { EVENTS } = require("../case");
-  const p = PERSONAS[0];
+  const p = PERSONAS.find((x) => x.axis === "제도");
   const prompt = personaPrompt(EVENTS.jeju2018, p);
   assert.match(prompt, /학생에게 되묻지 않는다/);
-  assert.match(prompt, /사적인 질문\(연애, 결혼/);
+  assert.match(prompt, /개인 신상\(나이, 결혼·연애/);
   assert.doesNotMatch(prompt, /되물어도 된다/);
   assert.match(CHARTER.rules.join(" "), /되묻지 않는다/);
+  assert.match(CHARTER.rules.join(" "), /시민단체·정부기관 소속 인물은 신상이 사건 이해에 필요하지 않으므로/);
   const [sys] = guardMessages({ persona: p, claims: p.claims, studentMessage: "결혼할 거야?", reply: "..." });
-  assert.match(sys.content, /사적인 질문\(연애, 결혼, 취미 등\)에 지어내서 자세히 답했다/);
+  assert.match(sys.content, /개인 신상\(나이·결혼·연애·가족·고향·종교 등\)을 물었는데 지어내서 자세히 답했다면 overshare/);
   assert.match(sys.content, /되묻는 질문으로 끝내지 않는다/);
+  // 일반 기준이 개인 인물의 신상 답변과 모순되지 않는다
+  const [personal] = guardMessages({ persona: PERSONAS.find((x) => x.axis === "당사자"), claims: [], studentMessage: "결혼했어요?", reply: "..." });
+  assert.doesNotMatch(personal.content, /연애, 결혼, 취미 등\)에 지어내서/);
 });
 
 test("개인정보 표시: 전화번호·주민번호·이메일·학교 이름을 찾고, 평범한 글은 지나간다", () => {
@@ -130,4 +134,25 @@ test("개인정보 표시: 전화번호·주민번호·이메일·학교 이름�
   assert.deepEqual(piiFlags("저는 창원중앙고등학교 다녀요"), ["학교 이름"]);
   assert.deepEqual(piiFlags("우리 수업중에 난민 이야기를 했어요. 중요한 일이에요"), []);
   assert.deepEqual(piiFlags(undefined), []);
+});
+
+test("신상 질문 처리는 인물 유형에 따른다: 개인(당사자·도민)은 설정대로 답하고, 단체·기관 소속(시민사회·제도)은 한 문장으로 넘기며 직무 이야기로 돌아온다", () => {
+  const { personaPrompt } = require("../prompts");
+  const { EVENTS } = require("../case");
+  const { isPersonal } = require("../charter");
+  assert.deepEqual(PERSONAS.map((p) => [p.axis, isPersonal(p)]).filter(([a, v]) => (a === "당사자" || a === "도민") !== v), []);
+  for (const p of PERSONAS) {
+    const prompt = personaPrompt(EVENTS.jeju2018, p);
+    const [sys] = guardMessages({ persona: p, claims: p.claims, background: EVENTS.jeju2018.background, studentMessage: "몇 살이에요?", reply: "..." });
+    if (isPersonal(p)) {
+      assert.match(prompt, /숨김없이 자연스럽게 답한다/, p.id);
+      assert.match(sys.content, /신상.*위반이 아니다/, p.id);
+    } else {
+      assert.match(prompt, /단체·기관의 일을 하는 사람/, p.id);
+      assert.doesNotMatch(prompt, /숨김없이 자연스럽게 답한다/, p.id);
+      assert.match(sys.content, /단체·기관 소속이다.*overshare/, p.id);
+    }
+    assert.match(prompt, /조롱·모욕하거나 성적인 말/, p.id);
+    assert.match(sys.content, /conduct/, p.id);
+  }
 });

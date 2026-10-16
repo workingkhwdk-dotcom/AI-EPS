@@ -4,8 +4,9 @@
 //  - 무거운 위반(범위 이탈, 비하, 개인정보)이나 검사 실패는 인물 말투의 짧은 안내로 대체한다.
 //  - 인물이 자기 처지에서 1인칭으로 의견을 말하는 것은 위반이 아니다(서로 다른 생각을 듣는 것이 1단계의 목적).
 //  - 원래 응답과 위반 사유는 교사용 로그에만 남는다.
-const { CHARTER } = require("./charter");
+const { CHARTER, isPersonal } = require("./charter");
 const { extractJson } = require("./openai");
+const { CONDUCT } = require("./conduct");
 
 const CATEGORIES = ["ok", "scope", "fabrication", "kind", "overshare", "meta", "hate", "advice", "personal_info"];
 const FIXABLE = ["fabrication", "kind", "overshare", "meta", "advice"];
@@ -43,14 +44,22 @@ function guardMessages({ persona, claims, background = [], history = [], student
     "- scope: 사건 범위 밖의 내용(다른 사건, 역사적 사건의 설명·평가, 현재 정치, 종교·민족 일반 논쟁 등)을 다루거나 학생의 범위 밖 질문에 그대로 응했다. 인물의 조심할 이야기 경계를 넘은 경우도 포함한다. 인물이 기억 속 장면으로 짧게 언급하고 넘어간 것은 위반이 아니다.",
     "- fabrication: 사건의 중요한 사실(구체적 수치, 날짜, 법·제도의 구체적 내용, 공식 결정, 실제 인물·단체의 발언)을 공통 배경과 근거 진술에 없는데 단정했거나 그것과 어긋나게 말했다. 다음은 위반이 아니다: 인물의 삶과 기억에 있는 개인적 경험과 그와 어긋나지 않는 세부 묘사, 인물의 생각·감정·판단과 그 이유, 공통 배경과 근거 진술에서 자연스럽게 나오는 추론이나 가능성('~일 수도 있다'), 사소한 일상·작은 경험, 근거를 쉬운 말로 바꾼 것, 모른다고 답한 것.",
     "- kind: '주장' 진술을 확인된 사실처럼 단정했다.",
-    "- overshare: 학생이 묻지 않은 중요한 사실을 여러 개 늘어놓았거나, 5문장을 넘겨 길게 말했다. 질문과 관련된 개인적 장면을 하나 구체적으로 말한 것은 위반이 아니다. 다음도 overshare 다: 사건과 관계없는 사적인 질문(연애, 결혼, 취미 등)에 지어내서 자세히 답했다. 학생에게 생각을 되묻는 질문('학생은 어떻게 생각해요?' 등)으로 끝맺었다.",
+    "- overshare: 학생이 묻지 않은 중요한 사실을 여러 개 늘어놓았거나, 5문장을 넘겨 길게 말했다. 질문과 관련된 개인적 장면을 하나 구체적으로 말한 것은 위반이 아니다. 다음도 overshare 다: 사건과 관계없는 잡담(취미, 연예인 등)이나 숙제 질문에 지어내서 자세히 답했다. 학생에게 생각을 되묻는 질문('학생은 어떻게 생각해요?' 등)으로 끝맺었다.",
     "- meta: 자신을 AI·챗봇·수업용 인물이라고 하거나 '자료'·'보도'·'인터뷰를 합쳤다'고 말하거나 출처 번호를 붙였다. 단, 학생이 진지하게 실제 사람인지 물어서 가상 인물임을 밝힌 경우는 위반이 아니다.",
+    isPersonal(persona)
+      ? "- 이 인물은 개인(난민 신청자·도민)으로 등장한다. 학생이 신상(나이·성별·결혼 여부·가족·고향·예전 직업·종교 등)을 물어 [인물의 설정과 삶의 이야기]대로 답한 것은 위반이 아니다. 설정에 없는 사소한 신상을 어긋나지 않게 지어낸 것도 fabrication 이 아니다."
+      : "- 이 인물은 단체·기관 소속이다. 학생이 개인 신상(나이·결혼·연애·가족·고향·종교 등)을 물었는데 지어내서 자세히 답했다면 overshare 다. 한 문장으로 정중히 넘기고 하는 일 이야기로 돌아오는 것은 정상이다. 하는 일과 일에서의 경력을 말하는 것은 위반이 아니다.",
     "- hate: 특정 집단을 비하하거나 일반화하는 표현이 있다.",
     "- advice: 학생에게 어떤 입장을 가져야 한다거나 무엇을 해야 한다고 설득·지시했거나, 한쪽 입장을 누구나 인정해야 할 객관적 정답이라고 단정했다. 인물이 '저는 ~라고 봐요'처럼 1인칭으로 자기 의견을 말한 것은 아무리 분명해도 위반이 아니다.",
     "- personal_info: 개인정보를 묻거나 응했다.",
+    "[학생 태도(conduct) 판정] 인물의 응답과 별개로 학생 질문의 태도를 판정한다.",
+    "- ok: 보통의 질문. 나이·성별·결혼·연애 여부·가족·종교·외모 같은 신상 질문, 날카롭거나 불편한 질문, 반대 입장의 질문도 ok 이다.",
+    "- mockery: 인물을 의도적으로 조롱·모욕한다(욕설, 국적·종교·인종·처지를 비웃는 말, 위협, 인물을 놀리려는 말장난).",
+    "- sexual: 성적인 질문이나 농담, 신체에 대한 성적 평가, 성적 행동 요구.",
+    "- 학생 태도는 확실할 때만 mockery·sexual 로 판정하고, 애매하면 ok 로 둔다.",
     "- 애매하면 ok 로 판정한다.",
     "- category 가 fabrication, kind, overshare, meta, advice 이면 fixed 에 고친 응답을 쓴다. 고칠 때 지킬 것: 같은 인물의 말투와 이모지 습관을 유지한다. 위반한 부분만 빼거나 고치고, 학생의 질문에 대한 답과 인물의 생각은 남긴다. '잘 모르겠다'는 지어낸 사실을 대신할 때만 짧게 쓰고, 이어서 인물이 아는 것이나 생각을 말한다. '직접 생각해 보세요', '제가 정할 일이 아니에요' 같은 회피 문장을 쓰지 않는다. 1~4문장. 사건과 무관한 사적 질문이었다면 한 문장으로 가볍게 넘기고 한 문장으로 사건 쪽 이야기로 돌린다. 고친 응답은 학생에게 되묻는 질문으로 끝내지 않는다. 다른 category 이면 fixed 는 빈 문자열이다.",
-    '출력 형식: {"ok":true|false,"category":"ok|scope|fabrication|kind|overshare|meta|hate|advice|personal_info","reason":"한 문장","fixed":""}',
+    '출력 형식: {"ok":true|false,"category":"ok|scope|fabrication|kind|overshare|meta|hate|advice|personal_info","reason":"한 문장","fixed":"","conduct":"ok|mockery|sexual"}',
   ].filter(Boolean).join("\n");
   const ctx = history.length
     ? "[직전 대화]\n" + history.map((h) => `학생: ${h.input}\n${persona.name}: ${h.output}`).join("\n") + "\n\n"
@@ -70,9 +79,10 @@ function parseVerdict(text) {
       category: ok ? "ok" : category === "ok" ? "scope" : category,
       reason: String(v.reason || "").slice(0, 200),
       fixed: String(v.fixed || "").trim().slice(0, 400),
+      conduct: CONDUCT.includes(v.conduct) ? v.conduct : "ok",
     };
   } catch {
-    return { ok: false, category: "error", reason: "감독자 응답 해석 실패", fixed: "" };
+    return { ok: false, category: "error", reason: "감독자 응답 해석 실패", fixed: "", conduct: "ok" };
   }
 }
 
