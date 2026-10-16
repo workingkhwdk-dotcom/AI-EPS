@@ -42,6 +42,14 @@ test("5단계: 예측 2개 이전에는 시뮬레이션 불가, 시점은 1·3·
   assert.equal(g({ s4, s5: { predictions: preds } }, { proposalId: "zz", round: 1 }), false);
 });
 
+test("5단계: 4단계 최종 대안(final)도 30자 이상이면 시뮬레이션할 수 있다", () => {
+  const s5 = { predictions: { p1: { text: "지역 주민은 반대할 것이다", t: 1 }, p2: { text: "지원 단체는 환영할 것이다", t: 2 } } };
+  const g = (s4) => checkGate({ stage: 5, type: "scenario", work: { s4, s5 }, payload: { proposalId: "final", round: 3 } }).ok;
+  assert.equal(g({ final: "짧은 최종안" }), false);
+  assert.equal(g({ final: "나".repeat(40) }), true);
+  assert.equal(g({}), false);
+});
+
 test("단계와 맞지 않는 기능 요청은 차단", () => {
   assert.equal(checkGate({ stage: 4, type: "scenario", work: {}, payload: {} }).ok, false);
 });

@@ -33,6 +33,12 @@ function toList(x) {
     .sort((a, b) => (a.t || 0) - (b.t || 0));
 }
 
+// 5단계 시뮬레이션 대상: 4단계 최종 대안("final") 또는 후보 대안
+function proposalText(work, id) {
+  if (id === "final") { const f = str(work.s4?.final); return f.length >= MIN_PROPOSAL_LEN ? f : ""; }
+  return str(toList(work.s4?.proposals).find((x) => x.id === id)?.text);
+}
+
 function checkGate({ stage, type, work = {}, payload = {} }) {
   const rule = STAGE_RULES[stage];
   if (!rule) return blocked("존재하지 않는 단계입니다.");
@@ -51,7 +57,7 @@ function checkGate({ stage, type, work = {}, payload = {} }) {
       if (!c) return blocked("2단계에서 만든 검증 질문만 AI에게 물을 수 있습니다.");
       if (str(c.question).length < MIN_QUESTION_LEN) return blocked("검증 질문을 더 구체적으로 써 주세요.");
       // 선행 사고: 실제 자료에서 먼저 찾아본 결과(없으면 '자료에 없음')를 적어야 AI에게 묻는다
-      if (str(c.real).length < 2) return blocked("먼저 실제 사건 자료에서 찾은 내용을 적어 주세요. 찾지 못했다면 '자료에 없음'이라고 적으세요.");
+      if (str(c.real).length < 2) return blocked("2단계 검증 질문 카드의 '위 자료와 비교하면?'에서 실제 사건 자료와 비교한 결과를 먼저 골라 주세요. 자료에서 못 찾았다면 '자료에 없다'를 고르세요.");
       return allowed();
     }
     case 4: {
@@ -64,10 +70,7 @@ function checkGate({ stage, type, work = {}, payload = {} }) {
       const preds = toList(work.s5?.predictions).filter((x) => str(x.text).length >= MIN_PREDICTION_LEN);
       if (preds.length < MIN_PREDICTIONS)
         return blocked(`이해관계자 반응 예측을 ${MIN_PREDICTIONS}개 이상 먼저 작성해 저장하세요.`);
-      // 최종 대안(s4.final)을 기본으로 시뮬레이션한다. 후보 대안을 골라도 된다.
-      if (payload.proposalId === FINAL_ID) {
-        if (str(work.s4?.final).length < MIN_PROPOSAL_LEN) return blocked(`4단계 최종 대안을 ${MIN_PROPOSAL_LEN}자 이상 먼저 써 주세요.`);
-      } else if (!toList(work.s4?.proposals).find((x) => x.id === payload.proposalId)) return blocked("시뮬레이션할 대안을 선택하세요.");
+      if (!proposalText(work, payload.proposalId)) return blocked("시뮬레이션할 대안을 선택하세요. (최종 대안은 30자 이상)");
       if (!ROUNDS.includes(payload.round)) return blocked("시점(1년, 3년, 5년 후)을 선택하세요.");
       return allowed();
     }
@@ -76,4 +79,4 @@ function checkGate({ stage, type, work = {}, payload = {} }) {
   }
 }
 
-module.exports = { STAGE_RULES, ROUNDS, FINAL_ID, MAX_MESSAGE_LEN, checkGate, toList };
+module.exports = { STAGE_RULES, ROUNDS, MAX_MESSAGE_LEN, checkGate, toList, proposalText };

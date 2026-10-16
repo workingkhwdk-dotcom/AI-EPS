@@ -11,12 +11,13 @@
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+<a class="skip" href="#main">본문으로 건너뛰기</a>
 <header class="hdr"><div class="hdr-in">
   <div class="brand"><span class="logo">AI-EPS</span><small>한국교원대학교 · Teacher of Teachers</small></div>
-  <span class="who" id="who"></span>
+  <div class="hdr-right"><span class="net hidden" id="net" role="status" aria-live="polite"></span><span class="who" id="who"></span><button class="btn-out hidden" id="logout" type="button">로그아웃</button></div>
 </div></header>
 
-<main class="wrap">
+<main class="wrap" id="main">
   <section id="join" class="card">
     <h2>수업 입장</h2>
     <p class="desc">선생님이 알려 준 수업 코드와 모둠 번호를 입력하세요. 이름 대신 별명을 사용하고, 개인정보는 쓰지 않습니다.</p>
@@ -26,7 +27,11 @@
     <input type="number" id="j-group" min="1" max="12" inputmode="numeric" />
     <label class="lbl" for="j-nick">별명</label>
     <input type="text" id="j-nick" maxlength="12" autocomplete="off" />
+    <label class="lbl" for="j-pw">비밀번호</label>
+    <input type="password" id="j-pw" maxlength="40" autocomplete="off" placeholder="4자 이상" />
+    <p class="meta-line" style="margin:6px 0 0">처음이라면 지금 정한 비밀번호가 내 비밀번호가 됩니다. 다시 들어올 때 같은 별명과 비밀번호를 쓰면 하던 것이 이어집니다. 비밀번호를 잊으면 선생님께 알려 주세요.</p>
     <div style="margin-top:16px"><button class="btn btn-primary" id="j-btn">입장하기</button></div>
+    <p class="meta-line" style="margin:12px 0 0">함께 쓰는 컴퓨터라면 끝낼 때 꼭 <b>로그아웃</b>을 누르세요.</p>
   </section>
 
   <section id="app" class="hidden">
