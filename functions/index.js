@@ -66,6 +66,9 @@ async function ownSession(req) {
   return { auth, code, sess: snap.data() };
 }
 
+// 교사가 닫아 둔 수업인지(closed:true). 닫힌 수업에는 입장·AI 사용·사건 자료 조회가 모두 막힌다.
+const CLOSED_MSG = "수업이 끝났거나 선생님이 닫아 둔 수업입니다. 입장할 수 없습니다.";
+
 async function newCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   for (let i = 0; i < 10; i++) {
@@ -91,6 +94,7 @@ exports.createSession = onCall(opts, async (req) => {
     title,
     eventId,
     groupCount,
+    closed: false,
     createdAt: FieldValue().serverTimestamp(),
   });
   for (let i = 1; i <= groupCount; i++) {
@@ -163,6 +167,7 @@ exports.joinSession = onCall(opts, async (req) => {
   if (pwErr) throw new HttpsError("invalid-argument", pwErr);
   const session = await db.doc(`sessions/${code}`).get();
   if (!session.exists) throw new HttpsError("not-found", "수업 코드를 찾을 수 없습니다.");
+  if (session.data().closed) throw new HttpsError("failed-precondition", CLOSED_MSG);
   if (!(groupNo >= 1 && groupNo <= session.data().groupCount))
     throw new HttpsError("invalid-argument", "모둠 번호가 올바르지 않습니다.");
   const groupId = `g${groupNo}`;
@@ -250,6 +255,7 @@ exports.updateSession = onCall(opts, async (req) => {
     if (!title) throw new HttpsError("invalid-argument", "수업 이름을 입력하세요.");
     patch.title = title;
   }
+  if (req.data?.closed !== undefined) patch.closed = req.data.closed === true;
   if (req.data?.groupCount !== undefined) {
     const n = parseInt(req.data.groupCount, 10);
     if (!(n >= 1 && n <= MAX_GROUPS)) throw new HttpsError("invalid-argument", `모둠 수는 1~${MAX_GROUPS} 사이로 정하세요.`);
@@ -335,6 +341,7 @@ exports.getCase = onCall(opts, async (req) => {
   const code = String(req.data?.code || "").toUpperCase();
   const [sess, mem] = await Promise.all([db.doc(`sessions/${code}`).get(), db.doc(`sessions/${code}/members/${auth.uid}`).get()]);
   if (!sess.exists || !mem.exists) throw new HttpsError("permission-denied", "이 수업의 참여자가 아닙니다.");
+  if (sess.data().closed) throw new HttpsError("failed-precondition", CLOSED_MSG);
   const ev = EVENTS[sess.data().eventId];
   const mine = availablePersonas(ev.id, allowUnverified()).find((p) => p.id === mem.data().personaId);
   const custom = await materialsRef(code).get(); // 교사가 이 수업의 자료를 고쳤다면 그 목록, 아니면 기본 자료
@@ -376,6 +383,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
   if (!memberSnap.exists) throw new HttpsError("permission-denied", "이 수업의 참여자가 아닙니다.");
   const { groupId, nickname, personaId } = memberSnap.data();
   const sessData = (await db.doc(`sessions/${code}`).get()).data();
+  if (sessData.closed) throw new HttpsError("failed-precondition", CLOSED_MSG);
   const ev = EVENTS[sessData.eventId];
   const evCtx = { summary: ev.summary, premise: ev.summary };
   const personas = availablePersonas(ev.id, allowUnverified());

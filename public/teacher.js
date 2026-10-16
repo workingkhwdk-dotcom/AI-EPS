@@ -66,11 +66,11 @@ function listSessions(uid) {
   listUnsub = onSnapshot(query(collection(db, "sessions"), where("teacherUid", "==", uid)), (s) => {
     sessionRows = s.docs.map((d) => ({ code: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
     $("#sessions").innerHTML = sessionRows.map((r) =>
-      `<div class="cell cls"><div class="grow"><b>${esc(r.title)}</b><br><span class="meta-line"><span class="code">${r.code}</span> · ${r.groupCount}모둠 · ${fmt(r.createdAt)}</span></div><button class="btn btn-tinted btn-sm" data-code="${r.code}">열기</button></div>`
+      `<div class="cell cls"><div class="grow"><b>${esc(r.title)}</b>${r.closed ? ` <span class="tag r">닫힘</span>` : ` <span class="tag">진행 중</span>`}<br><span class="meta-line"><span class="code">${r.code}</span> · ${r.groupCount}모둠 · ${fmt(r.createdAt)}</span></div><button class="btn btn-tinted btn-sm" data-code="${r.code}">열기</button></div>`
     ).join("") || `<div class="cell meta-line">아직 만든 수업이 없습니다. 위의 '＋ 새 수업 만들기'로 시작하세요.</div>`;
     if (current) {
       const cur = sessionRows.find((r) => r.code === current);
-      if (cur) { curTitle = cur.title; $("#d-title").textContent = cur.title; }
+      if (cur) { curTitle = cur.title; $("#d-title").textContent = cur.title; renderOpen(); }
     }
   }, (e) => toast(errMsg(e), true));
 }
@@ -102,6 +102,7 @@ function openSession(code, title) {
   $("#detail").classList.add("hidden");
   $("#d-title").textContent = title;
   $("#d-code").textContent = code;
+  renderOpen();
   unsubs.push(onSnapshot(collection(db, `sessions/${code}/members`), (s) => { members = s.docs.map((d) => ({ uid: d.id, ...d.data() })); renderDash(); }));
   unsubs.push(onSnapshot(collection(db, `sessions/${code}/groups`), (s) => {
     groups = s.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => parseInt(a.id.slice(1)) - parseInt(b.id.slice(1)));
@@ -555,5 +556,24 @@ $("#s-delete").onclick = async () => {
   if (typed === null) return;
   if (typed.trim().toUpperCase() !== current) return toast("수업 코드가 맞지 않아 삭제하지 않았습니다.", true);
   try { await call("deleteSession")({ code: current }); toast("수업을 삭제했습니다"); closeSession(); }
+  catch (e) { toast(errMsg(e), true); }
+};
+
+// ---------- 수업 열기/닫기 ----------
+// 닫으면 새로 입장할 수도, 이미 들어와 있던 학생이 이어서 쓸 수도 없다(수업이 끝난 뒤 접속 차단). 언제든 다시 열 수 있다.
+function renderOpen() {
+  const r = sessionRows.find((x) => x.code === current);
+  const closed = !!r?.closed;
+  const b = $("#open-btn");
+  b.textContent = closed ? "수업 열기" : "수업 닫기";
+  b.className = "btn btn-sm " + (closed ? "btn-primary" : "btn-danger");
+  $("#open-note").innerHTML = closed
+    ? `<span class="tag r">닫힘</span> <span class="meta-line">학생은 입장할 수 없고, 들어와 있던 학생도 더 쓸 수 없습니다.</span>`
+    : `<span class="tag">진행 중</span> <span class="meta-line">수업이 끝나면 '수업 닫기'를 눌러 추가 접속을 막으세요.</span>`;
+}
+$("#open-btn").onclick = async () => {
+  const closing = !sessionRows.find((x) => x.code === current)?.closed;
+  if (closing && !confirm("수업을 닫을까요? 학생이 더 이상 입장하거나 AI를 쓸 수 없습니다. 기록은 그대로 보존되고 언제든 다시 열 수 있습니다.")) return;
+  try { await call("updateSession")({ code: current, closed: closing }); toast(closing ? "수업을 닫았습니다" : "수업을 열었습니다"); }
   catch (e) { toast(errMsg(e), true); }
 };

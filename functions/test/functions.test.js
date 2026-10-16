@@ -547,3 +547,17 @@ test("인물이 도구를 계속 불러도 한 응답에서 검색은 2번까지
   assert.equal(calls.filter((x) => x.kind === "search").length, 2);
   assert.equal(r.result, "잘 모르겠어요.");
 });
+
+test("수업 닫기: 닫으면 입장·AI·사건 자료가 막히고 다시 열면 풀린다(교사만)", async () => {
+  const c = await mk();
+  await join("A1", c, "가람", "sesame1");
+  await assert.rejects(api.updateSession({ ...student("A1"), data: { code: c, closed: true } }), /교사/);
+  await api.updateSession({ ...teacher, data: { code: c, closed: true } });
+  await assert.rejects(join("B1", c, "나래", "sesame2"), /닫아 둔/);
+  await assert.rejects(join("A2", c, "가람", "sesame1"), /닫아 둔/);
+  await assert.rejects(chatOnce(c, "A1", "안녕하세요"), /닫아 둔/);
+  await assert.rejects(api.getCase({ ...student("A1"), data: { code: c } }), /닫아 둔/);
+  await api.updateSession({ ...teacher, data: { code: c, closed: false } });
+  await join("B1", c, "나래", "sesame2");
+  assert.ok((await api.getCase({ ...student("A1"), data: { code: c } })).title);
+});

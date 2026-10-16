@@ -7,6 +7,9 @@ service cloud.firestore {
       return signedIn() &&
         get(/databases/$(database)/documents/sessions/$(code)).data.teacherUid == request.auth.uid;
     }
+    function sessionOpen(code) {
+      return get(/databases/$(database)/documents/sessions/$(code)).data.get('closed', false) != true;
+    }
     function myGroup(code) {
       return get(/databases/$(database)/documents/sessions/$(code)/members/$(request.auth.uid)).data.groupId;
     }
@@ -34,7 +37,7 @@ service cloud.firestore {
       match /members/{uid} {
         allow read: if signedIn() && (request.auth.uid == uid || isTeacher(code));
         // 학생은 자기 접속 신호(현재 단계, 마지막 접속 시각)만 갱신할 수 있다. 인물 배정 등은 서버만 쓴다.
-        allow update: if signedIn() && request.auth.uid == uid &&
+        allow update: if signedIn() && request.auth.uid == uid && sessionOpen(code) &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stage', 'lastSeen']) &&
           request.resource.data.stage is int && request.resource.data.stage >= 1 && request.resource.data.stage <= 7 &&
           request.resource.data.lastSeen == request.time;
@@ -50,7 +53,7 @@ service cloud.firestore {
       match /groups/{gid} {
         allow read: if isTeacher(code) || isMember(code, gid);
         // 학생은 모둠 산출물(work)만 수정할 수 있다
-        allow update: if isMember(code, gid) &&
+        allow update: if isMember(code, gid) && sessionOpen(code) &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['work']);
         allow create, delete: if false;
 

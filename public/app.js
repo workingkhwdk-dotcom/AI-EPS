@@ -178,6 +178,8 @@ async function enter(code) {
   resetIdle();
   // 같은 별명으로 다른 화면에서 로그인하면 이 화면은 접근 권한을 잃는다 → 로그아웃 처리
   const lost = (e) => { if (e?.code === "permission-denied") logout("다른 화면에서 같은 별명으로 로그인해서 이 화면은 로그아웃되었습니다."); };
+  // 교사가 수업을 닫으면 이 화면도 로그아웃한다
+  onSnapshot(doc(db, `sessions/${code}`), (s) => { if (s.data()?.closed) logout("수업이 끝나 닫혔습니다. 수고했어요!"); }, lost);
   onSnapshot(groupRef, (s) => {
     const d = s.data() || {};
     S.work = d.work || {};
