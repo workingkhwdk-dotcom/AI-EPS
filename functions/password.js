@@ -6,8 +6,12 @@ const crypto = require("crypto");
 
 const MIN_LEN = 4;
 const MAX_LEN = 40;
+// 잠금은 두 겹이다. (1) 틀린 사람(접속 계정)별: 5번 연속 틀리면 1분. 같은 모둠 친구가 일부러 틀려서 다른 학생을 못 들어오게 하는 일을 막는다.
+// (2) 별명 전체: 여러 계정을 바꿔 가며 알아내려는 시도를 막기 위해 누적 30번 틀리면 5분.
 const MAX_FAILS = 5;
 const LOCK_MS = 60 * 1000;
+const MAX_TOTAL_FAILS = 30;
+const TOTAL_LOCK_MS = 5 * 60 * 1000;
 
 function validatePassword(pw) {
   const s = String(pw ?? "");
@@ -35,9 +39,10 @@ const credKey = (groupNo, nick) => `${groupNo}_${crypto.createHash("sha1").updat
 const lockedSeconds = (cred, now = Date.now()) => (cred?.lockUntil > now ? Math.ceil((cred.lockUntil - now) / 1000) : 0);
 
 // 실패 후 저장할 값
-function afterFail(cred, now = Date.now()) {
+function afterFail(cred, now = Date.now(), max = MAX_FAILS, lockMs = LOCK_MS) {
   const fails = (cred?.fails || 0) + 1;
-  return fails >= MAX_FAILS ? { fails: 0, lockUntil: now + LOCK_MS } : { fails, lockUntil: 0 };
+  return fails >= max ? { fails: 0, lockUntil: now + lockMs } : { fails, lockUntil: 0 };
 }
+const afterTotalFail = (cred, now = Date.now()) => afterFail(cred, now, MAX_TOTAL_FAILS, TOTAL_LOCK_MS);
 
-module.exports = { validatePassword, hashPassword, verifyPassword, normNick, credKey, lockedSeconds, afterFail, MIN_LEN, MAX_LEN, MAX_FAILS, LOCK_MS };
+module.exports = { validatePassword, hashPassword, verifyPassword, normNick, credKey, lockedSeconds, afterFail, afterTotalFail, MIN_LEN, MAX_LEN, MAX_FAILS, LOCK_MS, MAX_TOTAL_FAILS, TOTAL_LOCK_MS };

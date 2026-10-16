@@ -10,6 +10,8 @@ service cloud.firestore {
     function sessionOpen(code) {
       return get(/databases/$(database)/documents/sessions/$(code)).data.get('closed', false) != true;
     }
+    // work 안의 한 칸(예: s1.findings, live)에서 바뀐 키 집합
+    function workKeys(d, section, field) { return d.work.get(section, {}).get(field, {}); }
     function myGroup(code) {
       return get(/databases/$(database)/documents/sessions/$(code)/members/$(request.auth.uid)).data.groupId;
     }
@@ -32,7 +34,12 @@ service cloud.firestore {
 
       // 학생 비밀번호 해시와 수업별 자료는 서버(Cloud Functions)만 읽고 쓴다
       match /creds/{id} { allow read, write: if false; }
+      match /attempts/{id} { allow read, write: if false; }
       match /private/{doc} { allow read, write: if false; }
+      // 인물 배정(누가 어떤 인물인지)과 감독자 판정·원래 응답은 교사만 읽는다. 학생이 읽을 수 있는 문서에는 두지 않는다.
+      match /assign/{id} { allow read: if isTeacher(code); allow write: if false; }
+      match /assignGroup/{id} { allow read: if isTeacher(code); allow write: if false; }
+      match /guardlog/{id} { allow read: if isTeacher(code); allow write: if false; }
 
       match /members/{uid} {
         allow read: if signedIn() && (request.auth.uid == uid || isTeacher(code));
@@ -53,8 +60,11 @@ service cloud.firestore {
       match /groups/{gid} {
         allow read: if isTeacher(code) || isMember(code, gid);
         // 학생은 모둠 산출물(work)만 수정할 수 있다
+        // 모둠 공용 칸은 모둠원 누구나 고칠 수 있지만, 1단계 개인 정리(s1.findings)와 '입력 중' 표시(live)는 자기 칸만 고칠 수 있다.
         allow update: if isMember(code, gid) && sessionOpen(code) &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['work']);
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['work']) &&
+          workKeys(request.resource.data, 's1', 'findings').diff(workKeys(resource.data, 's1', 'findings')).affectedKeys().hasOnly([request.auth.uid]) &&
+          request.resource.data.work.get('live', {}).diff(resource.data.work.get('live', {})).affectedKeys().hasOnly([request.auth.uid]);
         allow create, delete: if false;
 
         // AI 상호작용 로그: 읽기만 허용, 기록은 서버만

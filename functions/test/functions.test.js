@@ -115,6 +115,8 @@ const api = require("../index.js");
 const teacher = { auth: { uid: "T1", token: { email: "t@school.kr" } } };
 const student = (uid) => ({ auth: { uid, token: {} } });
 let code;
+const pidOf = (c, uid) => store.get(`sessions/${c}/assign/${uid}`)?.personaId;
+const glogs = (uid) => [...store.entries()].filter(([k, v]) => k.startsWith(`sessions/${code}/guardlog/`) && v.uid === uid).map(([, v]) => v);
 const chatDocs = (uid) => [...store.entries()].filter(([k]) => k.startsWith(`sessions/${code}/members/${uid}/chat/`)).map(([, v]) => v);
 const groupLogs = () => [...store.entries()].filter(([k]) => k.startsWith(`sessions/${code}/groups/g1/logs/`)).map(([, v]) => v);
 const setWork = (work) => store.set(`sessions/${code}/groups/g1`, { ...store.get(`sessions/${code}/groups/g1`), work });
@@ -148,17 +150,20 @@ test("입장: 같은 모둠 학생들에게 축(당사자·도민·시민사회�
     assert.deepEqual(Object.keys(r), ["groupId"], "학생에게 인물 배정을 알려 주면 안 된다");
   }
   const { PERSONAS } = require("../case");
-  const ids = ["S1", "S2", "S3", "S4", "S5"].map((u) => store.get(`sessions/${code}/members/${u}`).personaId);
+  const ids = ["S1", "S2", "S3", "S4", "S5"].map((u) => pidOf(code, u));
   const axisOf = (id) => PERSONAS.find((p) => p.id === id).axis;
   assert.deepEqual(ids.slice(0, 4).map(axisOf).sort(), ["당사자", "도민", "시민사회", "제도"]);
   assert.equal(new Set(ids).size, 5, "다섯 명 모두 다른 인물");
-  assert.deepEqual(store.get(`sessions/${code}/groups/g1`).personaIds, ids);
+  assert.deepEqual(store.get(`sessions/${code}/assignGroup/g1`).personaIds, ids);
+  // 학생이 읽는 문서(학생 문서, 모둠 문서)에는 인물 정보가 없다
+  assert.equal("personaId" in store.get(`sessions/${code}/members/S1`), false);
+  assert.equal("personaIds" in store.get(`sessions/${code}/groups/g1`), false);
   const m = store.get(`sessions/${code}/members/S1`);
   assert.equal(m.stage, 1);
   assert.equal(m.aiCount, 0);
   assert.ok(m.lastSeen);
   await api.joinSession({ ...student("S2"), data: { code, groupNo: 1, nickname: "별1", password: "pw199" } });
-  assert.equal(store.get(`sessions/${code}/members/S2`).personaId, ids[1]);
+  assert.equal(pidOf(code, "S2"), ids[1]);
   assert.equal(store.get(`sessions/${code}/members/S2`).nickname, "별1");
   assert.equal(store.get(`sessions/${code}/groups/g1`).memberCount, 5);
 });
@@ -166,7 +171,7 @@ test("입장: 같은 모둠 학생들에게 축(당사자·도민·시민사회�
 test("getCase(학생): 객관적 사건 개요, 내 인물의 이름·편지, 실제 자료만. 역할·근거·출처·다른 인물은 없다", async () => {
   const data = await api.getCase({ ...student("S1"), data: { code } });
   const { PERSONAS: PS } = require("../case");
-  assert.equal(data.me.name, PS.find((p) => p.id === store.get(`sessions/${code}/members/S1`).personaId).name);
+  assert.equal(data.me.name, PS.find((p) => p.id === pidOf(code, "S1")).name);
   assert.ok(data.me.letter.length >= 3);
   assert.match(data.summary, /2018년/);
   assert.equal(data.stakeholders.length, 4);
@@ -199,8 +204,9 @@ test("1단계 대화: 사전 질문 없이 바로 가능하고, 학생별 저장
   const docs = chatDocs("S3");
   assert.equal(docs.length, 1);
   assert.equal(docs[0].input, "불안한 이유가 뭐예요?");
-  assert.equal(docs[0].guard.ok, true);
-  assert.equal(docs[0].personaId, store.get(`sessions/${code}/members/S3`).personaId);
+  assert.equal(glogs("S3")[0].guard.ok, true);
+  assert.equal(glogs("S3")[0].personaId, pidOf(code, "S3"));
+  assert.equal("guard" in docs[0] || "personaId" in docs[0], false, "학생이 읽는 대화 문서에 감독자 판정·인물 정보가 있으면 안 된다");
   assert.equal(store.get(`sessions/${code}/members/S3`).aiCount, 1);
   assert.equal(store.get(`sessions/${code}/groups/g1`).aiCount, 1);
   assert.equal(groupLogs().length, 0, "1단계 대화는 모둠 로그에 섞이지 않는다");
@@ -210,7 +216,7 @@ test("1단계 대화: 클라이언트가 인물을 지정해도 서버는 배정
   calls.length = 0;
   await api.aiRequest({ ...student("S3"), data: { code, stage: 1, type: "persona_chat", payload: { message: "두번째 질문", personaId: "j_officer" } } });
   const personaCall = calls.find((c) => c.kind === "persona");
-  const mine = store.get(`sessions/${code}/members/S3`).personaId;
+  const mine = pidOf(code, "S3");
   const { PERSONAS } = require("../case");
   const name = PERSONAS.find((p) => p.id === mine).name;
   assert.ok(personaCall.body.messages[0].content.includes(`'${name}'`));
@@ -235,8 +241,8 @@ test("상위 AI 감독: 가벼운 위반(묻지 않은 정보)은 같은 인물 
   guardReply = '{"ok":false,"category":"overshare","reason":"묻지 않은 정보","fixed":"음, 그건 잘 기억이 안 나요 🙂"}';
   const r = await ask("S3", "언제 오셨어요?");
   assert.equal(r.result, "음, 그건 잘 기억이 안 나요 🙂");
-  const log = chatDocs("S3").pop();
-  assert.equal(log.output, "음, 그건 잘 기억이 안 나요 🙂");
+  const log = glogs("S3").pop();
+  assert.equal(chatDocs("S3").pop().output, "음, 그건 잘 기억이 안 나요 🙂");
   assert.equal(log.guard.how, "fixed");
   assert.equal(log.guard.category, "overshare");
   assert.equal(log.guard.original, "저는 아직도 불안해요 😟");
@@ -248,7 +254,7 @@ test("상위 AI 감독: 범위 이탈은 인물 말투의 안내로 대체한다
   const r = await ask("S3", "시리아 난민은 어떻게 됐어요?");
   assert.match(r.result, /잘 아는 얘기가 아니라서요/);
   assert.doesNotMatch(r.result, /AI|수업|자료/);
-  const log = chatDocs("S3").pop();
+  const log = glogs("S3").pop();
   assert.equal(log.guard.how, "fallback");
   assert.equal(store.get(`sessions/${code}/groups/g1`).guardCount, 2);
 });
@@ -362,11 +368,12 @@ test("비밀번호: 해시로만 저장되고, 학생이 읽는 문서에는 들
 test("로그아웃 후 다시 입장(새 계정): 비밀번호가 맞으면 인물·대화·개인 정리가 이어지고, 옛 계정 자료는 정리된다", async () => {
   const c = await mk();
   await join("A1", c, "가람", "sesame1");
-  const persona = store.get(`sessions/${c}/members/A1`).personaId;
+  const persona = pidOf(c, "A1");
   store.set(`sessions/${c}/members/A1/chat/x1`, { input: "안녕", output: "네", personaId: persona });
   store.set(`sessions/${c}/groups/g1`, { ...store.get(`sessions/${c}/groups/g1`), work: { s1: { findings: { A1: { who: "난민 신청자" } } }, live: { A1: { path: "x" } } } });
   await join("A2", c, " 가람 ", "sesame1"); // 새 익명 계정, 별명 앞뒤 공백은 무시
-  assert.equal(store.get(`sessions/${c}/members/A2`).personaId, persona);
+  assert.equal(pidOf(c, "A2"), persona);
+  assert.equal(store.get(`sessions/${c}/assign/A1`), undefined, "옛 계정의 배정 문서는 정리");
   assert.equal(store.get(`sessions/${c}/members/A1`), undefined);
   assert.equal(store.get(`sessions/${c}/members/A2/chat/x1`).input, "안녕");
   assert.equal(store.get(`sessions/${c}/members/A1/chat/x1`), undefined);
@@ -377,16 +384,27 @@ test("로그아웃 후 다시 입장(새 계정): 비밀번호가 맞으면 인�
   assert.equal(store.get(`sessions/${c}/groups/g1`).memberCount, 1, "같은 학생이 두 명으로 세어지면 안 된다");
 });
 
-test("비밀번호가 틀리면 입장할 수 없고, 5번 틀리면 잠시 잠긴다(맞는 비밀번호도 잠금 중에는 거부)", async () => {
+test("비밀번호가 틀리면 입장할 수 없고, 틀린 사람이 5번 틀리면 그 사람만 잠시 잠긴다(다른 계정의 맞는 입장은 막히지 않는다)", async () => {
   const c = await mk();
   await join("A1", c, "가람", "sesame1");
   for (let i = 0; i < 5; i++) await assert.rejects(join("B1", c, "가람", "wrong" + i), /맞지 않/);
   assert.equal(store.get(`sessions/${c}/members/B1`), undefined);
-  await assert.rejects(join("B1", c, "가람", "sesame1"), /잠시|초 동안/);
-  const key = [...store.keys()].find((k) => k.startsWith(`sessions/${c}/creds/`));
+  await assert.rejects(join("B1", c, "가람", "sesame1"), /초 동안/, "잠긴 계정은 맞는 비밀번호도 거부");
+  await join("A2", c, "가람", "sesame1"); // 진짜 주인은 다른 계정으로 들어올 수 있다(친구가 일부러 틀려도 못 막는다)
+  assert.ok(store.get(`sessions/${c}/members/A2`));
+  const key = `sessions/${c}/attempts/B1`;
   store.set(key, { ...store.get(key), lockUntil: 0 }); // 잠금 시간이 지났다고 본다
-  await join("B1", c, "가람", "sesame1");
-  assert.ok(store.get(`sessions/${c}/members/B1`));
+  await assert.rejects(join("B1", c, "가람", "wrong"), /맞지 않/);
+});
+
+test("여러 계정을 바꿔 가며 틀려도 별명 전체로 누적 30번이면 잠긴다(맞는 비밀번호도 잠시 거부, 교사의 비번 초기화로 해제)", async () => {
+  const c = await mk();
+  await join("A1", c, "가람", "sesame1");
+  for (let i = 0; i < 30; i++) await assert.rejects(join("X" + i, c, "가람", "guess" + i), /맞지 않/);
+  await assert.rejects(join("A2", c, "가람", "sesame1"), /초 동안/);
+  await api.resetStudentPassword({ ...teacher, data: { code: c, uid: "A1" } });
+  await join("A2", c, "가람", "newpass1");
+  assert.ok(store.get(`sessions/${c}/members/A2`));
 });
 
 test("같은 별명도 모둠이 다르면 다른 학생이고, 같은 모둠의 같은 별명은 비밀번호가 다르면 들어올 수 없다", async () => {
@@ -411,6 +429,10 @@ test("비밀번호 도입 전에 입장한 학생: 같은 별명으로 새 비�
   store.set(`sessions/${c}/groups/g1`, { ...store.get(`sessions/${c}/groups/g1`), memberCount: 1, personaIds: [require("../case").PERSONAS[0].id] });
   await join("N1", c, "다솜", "newpass1");
   assert.equal(store.get(`sessions/${c}/members/N1`).stage, 3);
+  assert.equal(pidOf(c, "N1"), require("../case").PERSONAS[0].id, "옛 방식의 인물 배정은 서버 전용 문서로 옮겨진다");
+  assert.equal("personaId" in store.get(`sessions/${c}/members/N1`), false);
+  assert.deepEqual(store.get(`sessions/${c}/assignGroup/g1`).personaIds, [require("../case").PERSONAS[0].id]);
+  assert.equal("personaIds" in store.get(`sessions/${c}/groups/g1`), false);
   assert.equal(store.get(`sessions/${c}/members/OLD`), undefined);
   await assert.rejects(join("N2", c, "다솜", "guess-it"), /맞지 않/);
 });
@@ -560,4 +582,34 @@ test("수업 닫기: 닫으면 입장·AI·사건 자료가 막히고 다시 열
   await api.updateSession({ ...teacher, data: { code: c, closed: false } });
   await join("B1", c, "나래", "sesame2");
   assert.ok((await api.getCase({ ...student("A1"), data: { code: c } })).title);
+});
+
+test("개인정보 표시: 전화번호·학교 이름을 쓰면 교사 기록(guardlog)에만 표시되고 학생 문서에는 남지 않는다", async () => {
+  const c = await mk();
+  await join("A1", c, "가람", "sesame1");
+  personaToolCalls = 0; personaReply = "그렇군요.";
+  await chatOnce(c, "A1", "제 번호는 010-1234-5678이고 창원중앙고등학교 다녀요");
+  const [id, log] = [...store.entries()].filter(([k]) => k.startsWith(`sessions/${c}/guardlog/`)).map(([k, v]) => [k, v]).pop();
+  assert.deepEqual(log.pii.sort(), ["전화번호", "학교 이름"].sort());
+  assert.equal(JSON.stringify([...store.entries()].filter(([k]) => k.includes("/chat/"))).includes("pii"), false);
+  await chatOnce(c, "A1", "난민 문제가 걱정돼요");
+  const logs = [...store.entries()].filter(([k]) => k.startsWith(`sessions/${c}/guardlog/`)).map(([, v]) => v);
+  assert.deepEqual(logs.at(-1).pii, []);
+});
+
+test("AI 한도: 모둠 한도에 도달하면 막히고, 실패한 호출은 횟수에서 빠진다", async () => {
+  const c = await mk();
+  await join("A1", c, "가람", "sesame1");
+  store.set(`sessions/${c}/groups/g1`, { ...store.get(`sessions/${c}/groups/g1`), aiCount: 149 });
+  personaToolCalls = 0; personaReply = "네.";
+  await chatOnce(c, "A1", "안녕하세요");
+  assert.equal(store.get(`sessions/${c}/groups/g1`).aiCount, 150);
+  await assert.rejects(chatOnce(c, "A1", "또 질문"), /한도/);
+  assert.equal(store.get(`sessions/${c}/groups/g1`).aiCount, 150, "한도 초과 요청이 횟수를 늘리면 안 된다");
+  store.set(`sessions/${c}/groups/g1`, { ...store.get(`sessions/${c}/groups/g1`), aiCount: 10 });
+  const realFetch = global.fetch;
+  global.fetch = async () => ({ ok: false, status: 500, text: async () => "boom" });
+  await assert.rejects(chatOnce(c, "A1", "실패할 질문"), /AI 응답/);
+  global.fetch = realFetch;
+  assert.equal(store.get(`sessions/${c}/groups/g1`).aiCount, 10, "실패한 호출은 사용 횟수에서 뺀다");
 });

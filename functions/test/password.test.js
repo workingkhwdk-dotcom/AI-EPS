@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert");
-const { validatePassword, hashPassword, verifyPassword, credKey, normNick, lockedSeconds, afterFail } = require("../password");
+const { validatePassword, hashPassword, verifyPassword, credKey, normNick, lockedSeconds, afterFail, afterTotalFail } = require("../password");
 
 test("비밀번호 길이 규칙", () => {
   assert.ok(validatePassword("abc"));
@@ -33,4 +33,12 @@ test("잠금: 5번째 실패에서 잠기고 시간이 지나면 풀린다", () 
   cred = { ...cred, ...afterFail(cred, 1000) };
   assert.equal(lockedSeconds(cred, 1000), 60);
   assert.equal(lockedSeconds(cred, 1000 + 61000), 0);
+});
+
+test("별명 전체 잠금은 누적 30번에서 5분", () => {
+  let cred = {};
+  for (let i = 0; i < 29; i++) cred = { ...cred, ...afterTotalFail(cred, 0) };
+  assert.equal(lockedSeconds(cred, 0), 0);
+  cred = { ...cred, ...afterTotalFail(cred, 0) };
+  assert.equal(lockedSeconds(cred, 0), 300);
 });

@@ -101,4 +101,13 @@ function resolveOutput(verdict, reply) {
   return s.trimmed ? { ...base, text: s.text, trimmed: true } : base;
 }
 
-module.exports = { guardMessages, parseVerdict, fallbackFor, resolveOutput, stripBackQuestion, FALLBACKS, FIXABLE, CATEGORIES };
+// 학생이 입력에 개인정보(전화번호, 주민등록번호, 이메일, 학교 이름)를 적었는지 표시한다. 막지는 않고 교사 기록에만 남긴다.
+const PII_PATTERNS = [
+  ["전화번호", /01[016789][-.\s]?\d{3,4}[-.\s]?\d{4}/],
+  ["주민등록번호", /\d{6}[-\s]?[1-4]\d{6}/],
+  ["이메일", /[\w.+-]+@[\w-]+\.[\w.-]+/],
+  ["학교 이름", /[가-힣]{2,}(초등학교|중학교|고등학교)|(?<![가-힣])[가-힣](?:여중|여고|남중|남고)/],
+];
+const piiFlags = (text) => PII_PATTERNS.filter(([, re]) => re.test(String(text || ""))).map(([k]) => k);
+
+module.exports = { piiFlags, guardMessages, parseVerdict, fallbackFor, resolveOutput, stripBackQuestion, FALLBACKS, FIXABLE, CATEGORIES };

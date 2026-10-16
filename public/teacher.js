@@ -6,10 +6,12 @@ const $ = (s) => document.querySelector(s);
 const STAGE_NAMES = ["", "사건 경험", "원인 탐색", "검증", "대안 구상", "미래 시나리오", "행동계획", "공유·성찰"];
 const ONLINE_MS = 75 * 1000; // 학생 화면은 30초마다 접속 신호를 보낸다
 const fmt = (ts) => (ts?.toDate ? ts.toDate().toLocaleString("ko-KR") : "");
+// 외부(검색 결과 등)에서 온 주소는 http(s) 만 링크로 쓴다(javascript: 같은 주소 차단)
+const safeUrl = (u) => (/^https?:\/\//i.test(String(u || "")) ? String(u) : "#");
 const hasKeys = (o) => o && typeof o === "object" && Object.keys(o).length > 0;
 const filled = (v) => (typeof v === "string" ? v.trim() !== "" : hasKeys(v));
 
-let current = null, curTitle = "", unsubs = [], members = [], groups = [], gFilter = "all";
+let assigns = {}, current = null, curTitle = "", unsubs = [], members = [], groups = [], gFilter = "all";
 let logsBy = {}, cmpStage = 1, workGid = null; // 모둠별 AI 기록, 단계별 모아 보기 단계, 열어 둔 모둠 산출물
 let tickTimer = null;
 
@@ -93,7 +95,7 @@ function progressOf(work) {
 
 function openSession(code, title) {
   title = title || sessionRows.find((r) => r.code === code)?.title || "수업";
-  current = code; curTitle = title; gFilter = "all"; logsBy = {}; workGid = null; mat.loaded = false;
+  current = code; curTitle = title; gFilter = "all"; logsBy = {}; workGid = null; mat.loaded = false; assigns = {};
   unsubs.forEach((u) => u()); unsubs = [];
   clearInterval(tickTimer);
   $("#class-list-view").classList.add("hidden");
@@ -103,6 +105,7 @@ function openSession(code, title) {
   $("#d-title").textContent = title;
   $("#d-code").textContent = code;
   renderOpen();
+  unsubs.push(onSnapshot(collection(db, `sessions/${code}/assign`), (s) => { assigns = Object.fromEntries(s.docs.map((d) => [d.id, d.data().personaId])); renderDash(); }));
   unsubs.push(onSnapshot(collection(db, `sessions/${code}/members`), (s) => { members = s.docs.map((d) => ({ uid: d.id, ...d.data() })); renderDash(); }));
   unsubs.push(onSnapshot(collection(db, `sessions/${code}/groups`), (s) => {
     groups = s.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => parseInt(a.id.slice(1)) - parseInt(b.id.slice(1)));
@@ -149,7 +152,7 @@ function renderDash() {
     .sort((a, b) => parseInt(a.groupId.slice(1)) - parseInt(b.groupId.slice(1)) || (a.nickname || "").localeCompare(b.nickname || ""));
   $("#students").innerHTML = rows.map((m) => `<tr>
     <td><b>${esc(m.nickname)}</b></td><td>${esc(m.groupId.replace("g", ""))}모둠</td>
-    <td>${esc(personaLabels[m.personaId] || m.personaId)}</td>
+    <td>${esc(personaLabels[assigns[m.uid] || m.personaId] || assigns[m.uid] || m.personaId || "")}</td>
     <td><span class="pill">${m.stage || 1}. ${STAGE_NAMES[m.stage || 1]}</span></td>
     <td><span class="dot ${isOnline(m) ? "on" : ""}"></span>${isOnline(m) ? "접속 중" : `자리 비움 · ${ago(m)}`}</td>
     <td>${m.aiCount || 0}회</td>
@@ -184,20 +187,32 @@ const guardTag = (g) => (!g || g.ok ? "" : ` <span class="tag ${g.how === "fixed
 
 // 인물이 웹에서 찾아 본 기록(검색어, 찾은 내용 요약, 출처)
 const lookupHtml = (ls) => (ls || []).length ? `<details><summary class="meta-line">🔎 웹 검색 ${ls.length}회 (${ls.filter((x) => x.found).length}회 찾음)</summary>${ls.map((x) =>
-  `<div class="meta-line" style="color:var(--ink);margin:4px 0">검색어: ${esc(x.query)}<br>${x.found ? `찾은 내용: ${esc(x.summary)}<br>${(x.sources || []).map((u) => `<a href="${esc(u.url)}" target="_blank" rel="noopener noreferrer">${esc(u.title)}</a>`).join(" · ")}` : "믿을 만한 자료를 찾지 못함 → 인물은 모른다고 답함"}</div>`).join("")}</details>` : "";
+  `<div class="meta-line" style="color:var(--ink);margin:4px 0">검색어: ${esc(x.query)}<br>${x.found ? `찾은 내용: ${esc(x.summary)}<br>${(x.sources || []).map((u) => `<a href="${esc(safeUrl(u.url))}" target="_blank" rel="noopener noreferrer">${esc(u.title)}</a>`).join(" · ")}` : "믿을 만한 자료를 찾지 못함 → 인물은 모른다고 답함"}</div>`).join("")}</details>` : "";
+
+// 교사 전용 기록(감독자 판정·원래 응답·개인정보 표시). 예전 대화는 대화 문서 안에 guard 가 있어 그것도 받아 준다.
+async function loadGuardLogs(uidFilter) {
+  const snap = await getDocs(uidFilter ? query(collection(db, `sessions/${current}/guardlog`), where("uid", "==", uidFilter)) : collection(db, `sessions/${current}/guardlog`));
+  return Object.fromEntries(snap.docs.map((d) => [d.id, d.data()]));
+}
+const piiTag = (pii) => (pii || []).length ? ` <span class="tag r" title="학생이 입력에 개인정보를 적었습니다">개인정보 의심 · ${pii.map(esc).join(", ")}</span>` : "";
 
 async function loadChat(uid) {
   workGid = null;
   const m = members.find((x) => x.uid === uid);
-  const snap = await getDocs(query(collection(db, `sessions/${current}/members/${uid}/chat`), orderBy("createdAt")));
-  const rows = snap.docs.map((d) => d.data());
-  const html = rows.map((l) => `<div class="logline">
-    <div class="q">학생 ${esc(l.input)}</div>
-    <div class="a">${esc(m?.nickname || "")} ↔ ${esc(personaLabels[l.personaId] || l.personaId)}: ${esc(l.output)}${guardTag(l.guard)}</div>
+  const pid = assigns[uid] || m?.personaId;
+  const [snap, glogs] = await Promise.all([getDocs(query(collection(db, `sessions/${current}/members/${uid}/chat`), orderBy("createdAt"))), loadGuardLogs(uid)]);
+  const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const html = rows.map((l) => {
+    const gl = glogs[l.id] || {};
+    const g = gl.guard || l.guard;
+    return `<div class="logline">
+    <div class="q">학생 ${esc(l.input)}${piiTag(gl.pii)}</div>
+    <div class="a">${esc(m?.nickname || "")} ↔ ${esc(personaLabels[pid] || pid || "")}: ${esc(l.output)}${guardTag(g)}</div>
     ${lookupHtml(l.lookups)}
-    ${l.guard && (!l.guard.ok || l.guard.trimmed) ? `<details><summary class="meta-line">감독자 판정 보기</summary><div class="meta-line">사유: ${esc(l.guard.reason)}<br>인물의 원래 응답: ${esc(l.guard.original || "")}</div></details>` : ""}
-    <div class="meta-line">${fmt(l.createdAt)} · ${esc(l.model)}</div></div>`).join("") || `<div class="meta-line">대화가 없습니다.</div>`;
-  showDetail(`${m?.nickname || ""} · ${personaLabels[m?.personaId] || ""} 대화`, html);
+    ${g && (!g.ok || g.trimmed) ? `<details><summary class="meta-line">감독자 판정 보기</summary><div class="meta-line">사유: ${esc(g.reason)}<br>인물의 원래 응답: ${esc(g.original || "")}</div></details>` : ""}
+    <div class="meta-line">${fmt(l.createdAt)} · ${esc(l.model)}</div></div>`;
+  }).join("") || `<div class="meta-line">대화가 없습니다.</div>`;
+  showDetail(`${m?.nickname || ""} · ${personaLabels[pid] || ""} 대화`, html);
 }
 
 const prettyLog = (l) => {
@@ -235,17 +250,23 @@ $("#groups").onclick = (e) => {
 
 // CSV: 연구·평가 기록용. 엑셀에서 한글이 깨지지 않도록 BOM 포함
 $("#csv-btn").onclick = async () => {
-  const lines = [["구분", "모둠", "단계", "별명", "시각", "모델", "학생 입력", "AI 응답", "감독자 판정"]];
+  const lines = [["구분", "모둠", "단계", "별명", "시각", "모델", "학생 입력", "AI 응답", "감독자 판정", "개인정보 의심", "웹 검색(검색어 | 찾음 | 출처)"]];
   const T = (l) => fmt(l.createdAt);
+  const glogs = await loadGuardLogs();
   for (const m of members) {
     const s = await getDocs(query(collection(db, `sessions/${current}/members/${m.uid}/chat`), orderBy("createdAt")));
-    s.docs.map((d) => d.data()).forEach((l) => lines.push(["인물 대화", m.groupId, 1, m.nickname, T(l), l.model, l.input, l.output, l.guard ? `${l.guard.ok ? "통과" : l.guard.how}:${l.guard.category}:${l.guard.original || ""}` : ""]));
+    s.docs.forEach((d) => {
+      const l = d.data(), gl = glogs[d.id] || {}, g = gl.guard || l.guard;
+      lines.push(["인물 대화", m.groupId, 1, m.nickname, T(l), l.model, l.input, l.output,
+        g ? `${g.ok ? "통과" : g.how}:${g.category}:${g.original || ""}` : "", (gl.pii || []).join(" "),
+        (l.lookups || []).map((x) => `${x.query} | ${x.found ? "찾음" : "못 찾음"} | ${(x.sources || []).map((u) => u.url).join(" ")}`).join("\n")]);
+    });
   }
   for (const g of groups) {
     const s = await getDocs(query(collection(db, `sessions/${current}/groups/${g.id}/logs`), orderBy("createdAt")));
-    s.docs.map((d) => d.data()).forEach((l) => lines.push(["모둠 AI", g.id, l.stage, l.nickname, T(l), l.model, l.input, l.output, ""]));
+    s.docs.map((d) => d.data()).forEach((l) => lines.push(["모둠 AI", g.id, l.stage, l.nickname, T(l), l.model, l.input, l.output, "", "", ""]));
   }
-  for (const g of groups) workRows(g).forEach(([st, item, by, text]) => lines.push(["모둠 산출물", g.id, st, by, "", "", item, text, ""]));
+  for (const g of groups) workRows(g).forEach(([st, item, by, text]) => lines.push(["모둠 산출물", g.id, st, by, "", "", item, text, "", "", ""]));
   const csv = lines.map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
@@ -281,7 +302,7 @@ async function loadCheck(eventId) {
         <div style="margin-top:10px"><b>학생에게 보이는 편지</b><div class="ai-out">${p.letter.map(esc).join("\n\n")}</div></div>
         <div style="margin-top:10px"><b>근거 진술</b>${p.claims.map((c) => `<div class="meta-line" style="color:var(--ink);margin-top:4px"><span class="tag ${c.kind === "주장" || c.kind === "의견" ? "y" : ""}">${esc(c.kind)}</span> ${esc(c.text)} <span class="tag x">${esc(c.src)}</span></div>`).join("")}</div>
         <div style="margin-top:10px"><b>출처 (원문을 열어 진술과 대조)</b>${p.sources.map((s) => `<div style="margin-top:8px"><span class="tag ${s.verified ? "" : "x"}">${s.id}</span>
-          <a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title)}</a>${s.titleIsDescriptive ? ' <span class="meta-line">(제목은 설명 문구, 실제 제목 확인)</span>' : ""}
+          <a href="${esc(safeUrl(s.url))}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a>${s.titleIsDescriptive ? ' <span class="meta-line">(제목은 설명 문구, 실제 제목 확인)</span>' : ""}
           <div class="meta-line">${esc(s.outlet)} · ${esc(s.date)}</div><div class="meta-line">확인할 것: ${esc(s.check)}</div></div>`).join("")}</div></div></details>`;
     }).join("");
     $("#material-check").innerHTML = data.materials.map((c) => `<details class="fold"><summary>${esc(c.title)} <span class="meta-line">· ${c.items.length}개</span></summary><div class="inner">

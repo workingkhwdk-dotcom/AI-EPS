@@ -6,9 +6,9 @@ const { EVENTS, PERSONAS, availablePersonas, personaSourceIds, toPublicSource, m
 const { checkGate, toList, proposalText } = require("./policy");
 const prompts = require("./prompts");
 const { chat, extractJson } = require("./openai");
-const { guardMessages, parseVerdict, resolveOutput } = require("./guard");
+const { guardMessages, parseVerdict, resolveOutput, piiFlags } = require("./guard");
 const { isTeacherEmail } = require("./teachers");
-const { validatePassword, hashPassword, verifyPassword, normNick, credKey, lockedSeconds, afterFail } = require("./password");
+const { validatePassword, hashPassword, verifyPassword, normNick, credKey, lockedSeconds, afterFail, afterTotalFail } = require("./password");
 const { defaultMaterials, sanitizeMaterials, toStudentMaterials } = require("./materials");
 const { chatWithLookup, webSearch } = require("./lookup");
 
@@ -134,6 +134,9 @@ async function moveMember(code, groupId, fromUid, toUid) {
     await batch.commit();
   }
   await db.doc(`sessions/${code}/members/${toUid}`).set({ ...from.data(), lastSeen: FieldValue().serverTimestamp() });
+  // 인물 배정(서버 전용 문서)도 함께 옮긴다
+  const asg = await db.doc(`sessions/${code}/assign/${fromUid}`).get();
+  if (asg.exists) await db.doc(`sessions/${code}/assign/${toUid}`).set(asg.data());
   // 모둠 산출물에서 이 학생의 개인 칸(1단계 개인 정리)은 새 uid 로 옮기고, '입력 중' 표시는 지운다
   const groupRef = db.doc(`sessions/${code}/groups/${groupId}`);
   const work = (await groupRef.get()).data()?.work || {};
@@ -149,6 +152,7 @@ async function moveMember(code, groupId, fromUid, toUid) {
     chats.slice(i, i + 200).forEach((d) => batch.delete(db.doc(`sessions/${code}/members/${fromUid}/chat/${d.id}`)));
     await batch.commit();
   }
+  if (asg.exists) await db.doc(`sessions/${code}/assign/${fromUid}`).delete();
   await fromRef.delete();
   return true;
 }
@@ -178,16 +182,19 @@ exports.joinSession = onCall(opts, async (req) => {
   const key = credKey(groupNo, nickname);
   const credRef = db.doc(`sessions/${code}/creds/${key}`);
 
-  // 1) 비밀번호 확인 (틀리면 횟수를 세고, 여러 번 틀리면 잠시 잠근다)
+  // 1) 비밀번호 확인. 잠금은 틀린 사람(접속 계정)별로 먼저 걸리고, 별명 전체에는 더 느슨하게 걸린다(친구가 일부러 틀려서 막는 일 방지).
   const credSnap = await credRef.get();
   const cred = credSnap.exists ? credSnap.data() : null;
+  const attRef = db.doc(`sessions/${code}/attempts/${auth.uid}`);
   if (cred) {
-    const wait = lockedSeconds(cred);
+    const att = (await attRef.get()).data() || {};
+    const wait = Math.max(lockedSeconds(att), lockedSeconds(cred));
     if (wait) throw new HttpsError("resource-exhausted", `비밀번호를 여러 번 틀려서 ${wait}초 동안 입장할 수 없습니다.`);
     if (!verifyPassword(password, cred)) {
-      await credRef.update(afterFail(cred));
+      await Promise.all([attRef.set(afterFail(att)), credRef.update(afterTotalFail(cred))]);
       throw new HttpsError("permission-denied", "비밀번호가 맞지 않습니다. 같은 모둠의 다른 친구가 이 별명을 이미 쓰고 있다면 다른 별명으로 입장하세요.");
     }
+    await attRef.delete();
   }
 
   // 2) 이 기기에 이미 다른 학생이 로그인되어 있으면 막는다(공용 PC에서 남의 자리를 이어받지 않도록)
@@ -212,18 +219,26 @@ exports.joinSession = onCall(opts, async (req) => {
 
   // 4) 입장 처리. 모둠원마다 서로 다른 인물을 무작위로 배정한다(직소). 모둠 안에서 축(당사자·도민·시민사회·제도)이 겹치지 않게 고른다.
   // 배정은 교사에게만 보이며 학생은 모른다. 재입장 시에는 유지한다.
+  // 인물 배정은 학생이 읽을 수 없는 서버 전용 문서(assign, assignGroup)에 둔다. 학생 문서에는 인물 정보가 없다.
+  const assignRef = db.doc(`sessions/${code}/assign/${auth.uid}`);
+  const agRef = db.doc(`sessions/${code}/assignGroup/${groupId}`);
   await db.runTransaction(async (tx) => {
-    const [m, g] = await Promise.all([tx.get(memberRef), tx.get(groupRef)]);
-    if (m.exists && m.data().groupId === groupId && personas.some((p) => p.id === m.data().personaId)) {
-      tx.update(memberRef, { nickname, credKey: key });
+    const [m, g, a, ag] = await Promise.all([tx.get(memberRef), tx.get(groupRef), tx.get(assignRef), tx.get(agRef)]);
+    const curPid = a.exists ? a.data().personaId : m.data()?.personaId; // 옛 방식(학생 문서에 있던 인물 ID)도 읽는다
+    if (m.exists && m.data().groupId === groupId && personas.some((p) => p.id === curPid)) {
+      tx.update(memberRef, { nickname, credKey: key, personaId: FieldValue().delete() });
+      if (!a.exists) tx.set(assignRef, { groupId, personaId: curPid });
+      if (!ag.exists && g.data()?.personaIds) { tx.set(agRef, { personaIds: g.data().personaIds }); tx.update(groupRef, { personaIds: FieldValue().delete() }); }
       return;
     }
     const n = g.data()?.memberCount || 0;
-    const used = g.data()?.personaIds || [];
+    const used = ag.exists ? ag.data().personaIds || [] : g.data()?.personaIds || [];
     const persona = pickPersona(personas, used);
-    tx.update(groupRef, { memberCount: n + 1, personaIds: [...used, persona.id] });
+    tx.update(groupRef, { memberCount: n + 1, personaIds: FieldValue().delete() });
+    tx.set(agRef, { personaIds: [...used, persona.id] });
+    tx.set(assignRef, { groupId, personaId: persona.id });
     tx.set(memberRef, {
-      groupId, nickname, credKey: key, personaId: persona.id,
+      groupId, nickname, credKey: key,
       stage: 1, aiCount: 0, joinedAt: FieldValue().serverTimestamp(), lastSeen: FieldValue().serverTimestamp(),
     });
   });
@@ -232,6 +247,12 @@ exports.joinSession = onCall(opts, async (req) => {
   await credRef.set({ ...(cred ? { salt: cred.salt, hash: cred.hash } : hashPassword(password)), uid: auth.uid, groupId, fails: 0, lockUntil: 0 });
   return { groupId };
 });
+
+// 학생의 인물 ID: 서버 전용 배정 문서에서 읽는다(옛 방식으로 학생 문서에 있던 값도 받아 준다)
+async function personaIdOf(code, uid, member) {
+  const a = await db.doc(`sessions/${code}/assign/${uid}`).get();
+  return a.exists ? a.data().personaId : member?.personaId;
+}
 
 // 교사: 학생의 비밀번호를 지운다(잊어버린 경우). 그 학생이 같은 별명으로 다시 입장하면서 새 비밀번호를 정한다.
 exports.resetStudentPassword = onCall(opts, async (req) => {
@@ -343,7 +364,8 @@ exports.getCase = onCall(opts, async (req) => {
   if (!sess.exists || !mem.exists) throw new HttpsError("permission-denied", "이 수업의 참여자가 아닙니다.");
   if (sess.data().closed) throw new HttpsError("failed-precondition", CLOSED_MSG);
   const ev = EVENTS[sess.data().eventId];
-  const mine = availablePersonas(ev.id, allowUnverified()).find((p) => p.id === mem.data().personaId);
+  const myPersonaId = await personaIdOf(code, auth.uid, mem.data());
+  const mine = availablePersonas(ev.id, allowUnverified()).find((p) => p.id === myPersonaId);
   const custom = await materialsRef(code).get(); // 교사가 이 수업의 자료를 고쳤다면 그 목록, 아니면 기본 자료
   return {
     title: ev.title,
@@ -381,7 +403,8 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
   const memberRef = db.doc(`sessions/${code}/members/${auth.uid}`);
   const memberSnap = await memberRef.get();
   if (!memberSnap.exists) throw new HttpsError("permission-denied", "이 수업의 참여자가 아닙니다.");
-  const { groupId, nickname, personaId } = memberSnap.data();
+  const { groupId, nickname } = memberSnap.data();
+  const personaId = await personaIdOf(code, auth.uid, memberSnap.data());
   const sessData = (await db.doc(`sessions/${code}`).get()).data();
   if (sessData.closed) throw new HttpsError("failed-precondition", CLOSED_MSG);
   const ev = EVENTS[sessData.eventId];
@@ -397,13 +420,18 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
 
   const gate = checkGate({ stage: s, type, work, payload });
   if (!gate.ok) throw new HttpsError("failed-precondition", gate.reason);
-  if ((group.aiCount || 0) >= MAX_AI_CALLS_PER_GROUP)
-    throw new HttpsError("resource-exhausted", "이 모둠의 AI 사용 한도에 도달했습니다. 선생님께 문의하세요.");
+  // 한도 확인과 횟수 증가를 한 번에 처리한다(동시에 요청이 몰려도 한도를 넘지 않게). 실패하면 아래에서 되돌린다.
+  await db.runTransaction(async (tx) => {
+    const g = (await tx.get(groupRef)).data() || {};
+    if ((g.aiCount || 0) >= MAX_AI_CALLS_PER_GROUP)
+      throw new HttpsError("resource-exhausted", "이 모둠의 AI 사용 한도에 도달했습니다. 선생님께 문의하세요.");
+    tx.update(groupRef, { aiCount: FieldValue().increment(1) });
+  });
 
   const apiKey = OPENAI_API_KEY.value();
   const baseModel = OPENAI_MODEL.value();
   const effort = REASONING_EFFORT.value();
-  const bump = { aiCount: FieldValue().increment(1) };
+  const bump = {};
 
   try {
     // ---- 1단계: 학생별 메신저 대화 ----
@@ -453,14 +481,19 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
       if (out.replaced) bump.guardCount = FieldValue().increment(1);
 
       const ref = chatCol.doc();
+      // 학생이 읽는 대화 문서에는 학생에게 보인 내용만 둔다. 감독자 판정·원래 응답·인물 정보는 교사 전용 문서(guardlog)에 따로 남긴다.
       await Promise.all([
         ref.set({
-          uid: auth.uid, nickname, personaId, input, output: out.text, model: personaModel,
-          guard: { ok: verdict.ok, category: verdict.category, reason: verdict.reason, how: out.how || null, original: out.replaced || out.trimmed ? reply : null, trimmed: !!out.trimmed },
+          uid: auth.uid, nickname, input, output: out.text, model: personaModel,
           ...(lookups.length ? { lookups: lookups.map((l) => ({ query: l.query, found: l.found, summary: l.summary, sources: l.sources })) } : {}),
           createdAt: FieldValue().serverTimestamp(),
         }),
-        groupRef.update(bump),
+        db.doc(`sessions/${code}/guardlog/${ref.id}`).set({
+          uid: auth.uid, groupId, personaId, pii: piiFlags(input),
+          guard: { ok: verdict.ok, category: verdict.category, reason: verdict.reason, how: out.how || null, original: out.replaced || out.trimmed ? reply : null, trimmed: !!out.trimmed },
+          createdAt: FieldValue().serverTimestamp(),
+        }),
+        Object.keys(bump).length ? groupRef.update(bump) : null,
         memberRef.update({ aiCount: FieldValue().increment(1) }),
       ]);
       return { logId: ref.id, result: out.text };
@@ -515,11 +548,12 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
     const logRef = groupRef.collection("logs").doc();
     await Promise.all([
       logRef.set({ uid: auth.uid, nickname, stage: s, type, input, output, payload: logPayload, model, createdAt: FieldValue().serverTimestamp() }),
-      groupRef.update(bump),
+      Object.keys(bump).length ? groupRef.update(bump) : null,
       memberRef.update({ aiCount: FieldValue().increment(1) }),
     ]);
     return { logId: logRef.id, result };
   } catch (e) {
+    await groupRef.update({ aiCount: FieldValue().increment(-1) }).catch(() => {}); // 실패한 호출은 학생의 사용 횟수에서 뺀다
     if (e instanceof HttpsError) throw e;
     console.error(`aiRequest 실패 stage=${s}:`, e.message);
     // 교사 화면에서 원인을 볼 수 있도록 모둠 문서에 남긴다
