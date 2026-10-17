@@ -49,7 +49,8 @@ test.before(async () => {
     const u = req.url.split("?")[0];
     const f = path.join(ROOT, u === "/" ? "index.html" : u);
     if (!f.startsWith(ROOT) || !fs.existsSync(f)) { res.writeHead(404); return res.end(); }
-    res.writeHead(200, { "Content-Type": f.endsWith(".webp") ? "image/webp" : (f.endsWith(".js") ? "text/javascript" : f.endsWith(".css") ? "text/css" : "text/html") + "; charset=utf-8" });
+    const types = { ".webp": "image/webp", ".png": "image/png", ".ico": "image/x-icon", ".webmanifest": "application/manifest+json", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8" };
+    res.writeHead(200, { "Content-Type": types[path.extname(f)] || "text/html; charset=utf-8" });
     res.end(fs.readFileSync(f));
   });
   await new Promise((r) => srv.listen(0, r));
@@ -706,5 +707,56 @@ test("학생 모바일: 2·3·4단계에서 학습 내용이 화면 첫머리부
     await s.pg.waitForTimeout(200);
     await shot(s.pg, `m-stage${n}-space`);
     assert.ok((await s.pg.evaluate(() => document.documentElement.scrollWidth)) <= 390);
+  }
+});
+
+// ---------- 브라우저·홈 화면 아이콘 ----------
+const pngSize = (f) => { const b = fs.readFileSync(f); assert.equal(b.slice(1, 4).toString(), "PNG", `${f} 는 PNG 여야 한다`); return [b.readUInt32BE(16), b.readUInt32BE(20), b[25]]; }; // [가로, 세로, 색 종류(2=RGB, 6=RGBA)]
+const headOf = (file) => fs.readFileSync(path.join(ROOT, file), "utf8").split("</head>")[0];
+
+test("아이콘: 학생용·교사용 PNG·ICO가 모두 있고 크기가 맞으며, 홈 화면용(iOS·마스크)은 투명이 없다", () => {
+  for (const role of ["student", "teacher"]) {
+    for (const [name, px] of [["512", 512], ["192", 192], ["maskable-512", 512], ["180", 180], ["32", 32], ["16", 16]]) {
+      const [w, h] = pngSize(path.join(ROOT, `icons/${role}-${name}.png`));
+      assert.deepEqual([w, h], [px, px], `${role}-${name}`);
+    }
+    assert.equal(pngSize(path.join(ROOT, `icons/${role}-180.png`))[2], 2, "iOS 아이콘은 투명 없는 RGB");
+    assert.equal(pngSize(path.join(ROOT, `icons/${role}-maskable-512.png`))[2], 2, "마스크용 아이콘은 투명 없는 RGB");
+    const ico = fs.readFileSync(path.join(ROOT, `icons/${role}.ico`));
+    assert.equal(ico.readUInt16LE(2), 1, "ICO 형식"); assert.ok(ico.readUInt16LE(4) >= 3, "여러 크기가 들어 있다");
+  }
+  assert.ok(fs.statSync(path.join(ROOT, "favicon.ico")).size > 100, "기본 /favicon.ico (학생용)");
+});
+
+test("아이콘: 학생 화면(index, m)은 학생 아이콘, 교사 화면(teacher, m-teacher)은 교사 아이콘만 연결한다", () => {
+  for (const [file, role, other, title] of [["index.html", "student", "teacher", "AI-EPS"], ["m.html", "student", "teacher", "AI-EPS"], ["teacher.html", "teacher", "student", "AI-EPS 교사"], ["m-teacher.html", "teacher", "student", "AI-EPS 교사"]]) {
+    const h = headOf(file);
+    for (const need of [`icons/${role}-32.png`, `icons/${role}-16.png`, `icons/${role}.ico`, `icons/${role}-180.png`, `manifest-${role}.webmanifest`]) assert.ok(h.includes(need), `${file} 에 ${need}`);
+    assert.ok(!h.includes(`icons/${other}`) && !h.includes(`manifest-${other}`), `${file} 에 ${other} 아이콘이 섞이면 안 된다`);
+    assert.ok(h.includes(`rel="apple-touch-icon" sizes="180x180"`));
+    assert.ok(h.includes(`name="apple-mobile-web-app-title" content="${title}"`), `${file} 홈 화면 이름`);
+    assert.ok(h.includes(`name="apple-mobile-web-app-capable"`));
+  }
+});
+
+test("아이콘: 홈 화면 추가용 manifest 는 학생·교사가 따로이고, 가리키는 아이콘 파일이 모두 있다", () => {
+  for (const [role, start, short] of [["student", "/", "AI-EPS"], ["teacher", "/teacher.html", "AI-EPS 교사"]]) {
+    const m = JSON.parse(fs.readFileSync(path.join(ROOT, `manifest-${role}.webmanifest`), "utf8"));
+    assert.equal(m.short_name, short); assert.equal(m.start_url, start); assert.equal(m.display, "standalone"); assert.equal(m.id, `/${role}`);
+    assert.ok(m.icons.some((i) => i.sizes === "192x192") && m.icons.some((i) => i.sizes === "512x512" && i.purpose === "any") && m.icons.some((i) => i.purpose === "maskable"));
+    for (const i of m.icons) { assert.ok(i.src.startsWith(`icons/${role}`), i.src); const [w] = pngSize(path.join(ROOT, i.src)); assert.equal(`${w}x${w}`, i.sizes); }
+  }
+  assert.notDeepEqual(fs.readFileSync(path.join(ROOT, "icons/student-512.png")), fs.readFileSync(path.join(ROOT, "icons/teacher-512.png")), "학생용과 교사용 아이콘은 달라야 한다");
+});
+
+test("아이콘: 페이지를 열면 아이콘이 실제로 불러와지고 manifest 가 읽힌다(학생·교사)", async () => {
+  for (const [file, role] of [["index.html", "student"], ["teacher.html", "teacher"]]) {
+    const { pg } = await newPage(() => { window.__user = null; window.__docs = {}; window.__cols = {}; }, async () => ({}));
+    const bad = []; pg.on("response", (r) => { if (/icons\/|webmanifest/.test(r.url()) && r.status() >= 400) bad.push(r.url()); });
+    await pg.goto(`${base}/${file}`);
+    assert.equal(await pg.evaluate(() => document.querySelector('link[rel="manifest"]').getAttribute("href")), `manifest-${role}.webmanifest`);
+    const m = await pg.evaluate(async () => (await fetch(document.querySelector('link[rel="manifest"]').href)).json());
+    assert.match(m.name, role === "student" ? /수업/ : /교사/);
+    assert.deepEqual(bad, []);
   }
 });
