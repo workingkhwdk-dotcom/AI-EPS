@@ -243,6 +243,21 @@ test("쓰레기 수출 사건 수업: 그 사건의 인물·축·자료·화면 
   assert.doesNotMatch(guard, /예멘/);
 });
 
+test("강서 특수학교 사건 수업: 그 사건의 축·자료·화면 문구가 나간다", async () => {
+  const { code: k } = await api.createSession({ ...teacher, data: { groupCount: 1, eventId: "school2018" } });
+  await api.updateSession({ ...teacher, data: { code: k, started: true } });
+  for (const [i, uid] of ["K1", "K2", "K3", "K4"].entries())
+    await api.joinSession({ ...student(uid), data: { code: k, groupNo: 1, nickname: "들" + i, password: "pw" + i + "99" } });
+  const { PERSONAS, EVENTS } = require("../case");
+  const axisOf = (id) => PERSONAS.find((p) => p.id === id).axis;
+  assert.deepEqual(["K1", "K2", "K3", "K4"].map((u) => axisOf(pidOf(k, u))).sort(), [...EVENTS.school2018.axes].sort());
+  const data = await api.getCase({ ...student("K1"), data: { code: k } });
+  assert.match(data.summary, /특수학교/);
+  assert.equal(data.ui.letterSign, "2018년 9월, 강서구에서");
+  assert.ok(data.materials.some((c) => c.id === "agreement"));
+  assert.equal((await api.getCase({ ...teacher, data: { eventId: "school2018" } })).personas.length, 9);
+});
+
 const ask = (uid, message = "불안한 이유가 뭐예요?") =>
   api.aiRequest({ ...student(uid), data: { code, stage: 1, type: "persona_chat", payload: { message } } });
 

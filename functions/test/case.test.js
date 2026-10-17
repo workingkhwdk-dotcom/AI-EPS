@@ -5,8 +5,8 @@ const { personaPrompt } = require("../prompts");
 
 const KINDS = ["증언", "사실", "주장", "의견"];
 
-test("사건은 제주 예멘과 쓰레기 수출 두 가지이고, 사건마다 인물 9명이 네 축에 나뉘며 축마다 2명 이상이다", () => {
-  assert.deepEqual(Object.keys(EVENTS), ["jeju2018", "waste2019"]);
+test("사건은 제주 예멘·쓰레기 수출·강서 특수학교 세 가지이고, 사건마다 인물 9명이 네 축에 나뉘며 축마다 2명 이상이다", () => {
+  assert.deepEqual(Object.keys(EVENTS), ["jeju2018", "waste2019", "school2018"]);
   assert.equal(DEFAULT_EVENT, "jeju2018");
   assert.equal(new Set(PERSONAS.map((p) => p.id)).size, PERSONAS.length);
   assert.ok(PERSONAS.every((p) => p.events.length === 1 && EVENTS[p.events[0]]));
@@ -100,8 +100,11 @@ test("모든 출처는 미검증으로 시작하므로 기본 설정에서는 �
   assert.equal(availablePersonas("jeju2018", true).length, 9);
   assert.equal(availablePersonas("waste2019", false).length, 0);
   assert.equal(availablePersonas("waste2019", true).length, 9);
+  assert.equal(availablePersonas("school2018", false).length, 0);
+  assert.equal(availablePersonas("school2018", true).length, 9);
   assert.deepEqual(materialsFor("jeju2018", false), []);
   assert.deepEqual(materialsFor("waste2019", false), []);
+  assert.deepEqual(materialsFor("school2018", false), []);
 });
 
 test("학생용 자료에는 출처 ID·URL 없이 매체·날짜 캡션만 있다", () => {
@@ -218,4 +221,24 @@ test("쓰레기 수출 사건: 실제 회사 이름은 인물 이야기에 나�
   assert.match(life("w_ph_activist"), /서울의 젊은 활동가/); assert.match(life("w_kr_activist"), /필리핀 활동가/); // 조이 ↔ 김다은
   assert.match(life("w_pyeongtaek"), /환경부에 전화/); assert.match(life("w_ministry"), /포승/);    // 한경희 ↔ 최윤재
   assert.match(life("w_kr_activist"), /선별장 사장/); assert.match(life("w_recycler"), /환경단체 활동가/); // 김다은 ↔ 박정수
+});
+
+test("강서 특수학교 사건: 그 사건의 시점·범위만 담고, 실존 인물 이름은 인물 이야기에 나오지 않으며, 인물들의 삶은 서로 스친다", () => {
+  const ev = EVENTS.school2018;
+  assert.match(ev.now, /2018년 9월/);
+  assert.ok(ev.scope.outOfScope.some((x) => /실존 인물/.test(x)));
+  const ss = PERSONAS.filter((x) => x.events.includes("school2018"));
+  for (const p of ss) {
+    const prompt = personaPrompt(ev, p);
+    assert.ok(prompt.includes(ev.now) && ev.background.every((c) => prompt.includes(c[0])), p.id);
+    assert.doesNotMatch(prompt, /예멘|필리핀/, p.id);
+    // 실존 인물(교육감·국회의원·단체 대표)의 이름과, 대화 시점 뒤에 정해진 학교 이름은 쓰지 않는다
+    assert.doesNotMatch([...p.letter, ...p.story, ...p.episodes, ...p.views, ...p.claims.map((c) => c[0])].join(" "), /조희연|김성태|손동호|김남연|채유미|양민규|서진학교/, p.id);
+  }
+  const life = (id) => { const p = PERSONAS.find((x) => x.id === id); return [...p.story, ...p.episodes].join(" "); };
+  assert.match(life("s_mother"), /담임 선생님/); assert.match(life("s_teacher"), /버스 노선을 (모두|다) 외우는/);     // 최은숙 ↔ 문소영
+  assert.match(life("s_mother"), /할아버지/); assert.match(life("s_elder"), /미안해요/);                            // 최은숙 ↔ 안덕수
+  assert.match(life("s_sister"), /같은 아파트 단지에 사는 엄마/); assert.match(life("s_neighbor"), /대학생의 글/); // 하늘 ↔ 나윤희
+  assert.match(life("s_opponent"), /젊은 활동가/); assert.match(life("s_mediator"), /부동산 사무소/);               // 송기철 ↔ 고민석
+  assert.match(life("s_parent_group"), /장학사에게 전화/); assert.match(life("s_officer"), /부모 단체 활동가가 전화/); // 임현주 ↔ 백승민
 });

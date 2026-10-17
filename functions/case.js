@@ -9,12 +9,12 @@
 //  4) 모든 출처는 verified:false 로 시작한다. 교사가 원문과 대조해 true 로 바꾸기 전에는 학생에게 노출되지 않는다
 //     (ALLOW_UNVERIFIED_PERSONAS=true 인 리허설 제외).
 //  5) 인물 위에는 상위 AI(사건 규범 감독자, charter.js)가 있어 사건 범위(EVENT.scope)와 근거 진술을 벗어난 응답을 차단한다.
-//  6) 출처 ID 는 사건마다 다른 머리글자를 쓴다(제주 J, 쓰레기 수출 W). 모든 사건의 출처를 한 목록으로 합쳐 쓰기 때문이다.
+//  6) 출처 ID 는 사건마다 다른 머리글자를 쓴다(제주 J, 쓰레기 수출 W, 특수학교 S). 모든 사건의 출처를 한 목록으로 합쳐 쓰기 때문이다.
 //
 // 주의: 진술은 AI가 웹 검색 결과 요약을 바탕으로 정리했으며 원문을 직접 열람하지 못했다.
 //       수업 전에 docs/PERSONA_SOURCES.md 의 체크리스트대로 반드시 원문과 대조할 것.
 
-const CASES = [require("./cases/jeju2018"), require("./cases/waste2019")];
+const CASES = [require("./cases/jeju2018"), require("./cases/waste2019"), require("./cases/school2018")];
 
 const SOURCES = {};
 for (const c of CASES) for (const [id, s] of Object.entries(c.SOURCES)) {
