@@ -362,7 +362,8 @@ test("학생: 단계 순서 — 핵심 원인 전에는 4단계 AI 검토, 최�
 
 test("교사: 새 수업을 만들 때 학생별 인물 질문 횟수를 정해 보내고, 학생 표에 쓴 횟수가 보인다", async () => {
   const st = teacherFixture(), { pg } = await openTeacher(st);
-  assert.match(await pg.locator("#students").innerText(), /0 \/ 5번/);
+  // 학생 표는 수업을 연 뒤 비동기로 그려지므로 내용이 나올 때까지 기다린다
+  await pg.waitForFunction(() => /0 \/ 5번/.test(document.querySelector("#students")?.innerText || ""));
   await pg.click("#back-btn");
   await pg.click("#new-toggle");
   assert.equal(await pg.inputValue("#t-chatlimit"), "5");
