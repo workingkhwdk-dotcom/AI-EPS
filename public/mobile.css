@@ -156,3 +156,11 @@ body.m.typing{ padding-bottom:16px; }
 .m details.fold{ padding:12px 14px; }
 /* 교사: 수업 상태 줄의 설명은 숨기고 '진행 중/닫힘' 표시만 */
 .m-teacher #open-note .meta-line{ display:none; }
+
+/* 대기실·안내 팝업 (모바일): 아래 막대 없이 한 화면에 다 보이도록 촘촘하게 */
+.m .wait-hero{ padding:12px 6px 6px; } .m .wait-hero h2{ font-size:23px; margin:6px 0 4px; }
+.m .journey{ gap:9px; } .m .journey li{ gap:10px; } .m .journey .jn{ width:24px; height:24px; font-size:12px; }
+.m .journey b{ font-size:14px; } .m .journey small{ font-size:12.5px; }
+.m .help-btn{ width:26px; height:26px; }
+/* 알림 창 안의 글은 줄이지 않는다 */
+.m .modal .desc, .m .modal .tip, .m .modal p.meta-line{ display:block; -webkit-line-clamp:unset; line-clamp:none; overflow:visible; cursor:auto; }

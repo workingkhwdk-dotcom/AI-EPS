@@ -101,6 +101,7 @@ function sessionSettings(d) {
 
 // 교사가 닫아 둔 수업인지(closed:true). 닫힌 수업에는 입장·AI 사용·사건 자료 조회가 모두 막힌다.
 const CLOSED_MSG = "수업이 끝났거나 선생님이 닫아 둔 수업입니다. 입장할 수 없습니다.";
+const WAITING_MSG = "아직 수업이 시작되지 않았어요. 선생님이 시작하면 할 수 있어요.";
 
 // 자동 닫힘 시간이 지났으면 지금 닫는다(30분마다 도는 정기 작업을 기다리지 않는다). 닫혔으면 true.
 async function closeIfDue(code, sess) {
@@ -138,6 +139,7 @@ exports.createSession = onCall(opts, async (req) => {
     eventId,
     groupCount,
     closed: false,
+    started: false, // 교사가 '수업 시작'을 누르기 전까지는 대기실. 이 값이 없는 예전 수업은 시작된 것으로 본다.
     aiLimit: MAX_AI_CALLS_PER_GROUP, chatLimit: CHAT_LIMIT, webSearch: true, autoCloseHours: 0,
     ...sessionSettings(req.data),
     createdAt: FieldValue().serverTimestamp(),
@@ -330,6 +332,12 @@ exports.updateSession = onCall(opts, async (req) => {
     patch.closed = req.data.closed === true;
     if (!patch.closed) { patch.openedAt = FieldValue().serverTimestamp(); patch.closedAuto = false; } // 다시 열면 자동 닫힘 시간을 새로 센다
   }
+  // 수업 시작: 대기실의 학생들이 활동을 시작할 수 있게 된다(되돌릴 수 없다). 자동 닫힘 시간은 시작한 때부터 센다.
+  if (req.data?.started === true && sess.started === false) {
+    patch.started = true;
+    patch.startedAt = FieldValue().serverTimestamp();
+    patch.openedAt = FieldValue().serverTimestamp();
+  }
   Object.assign(patch, sessionSettings(req.data));
   if (req.data?.groupCount !== undefined) {
     const n = parseInt(req.data.groupCount, 10);
@@ -454,7 +462,7 @@ exports.cloneSession = onCall(opts, async (req) => {
   const newCodeStr = await newCode();
   const batch = db.batch();
   batch.set(db.doc(`sessions/${newCodeStr}`), {
-    teacherUid: auth.uid, title, eventId: sess.eventId, groupCount: sess.groupCount, closed: false,
+    teacherUid: auth.uid, title, eventId: sess.eventId, groupCount: sess.groupCount, closed: false, started: false,
     aiLimit: sess.aiLimit || MAX_AI_CALLS_PER_GROUP, chatLimit: sess.chatLimit || CHAT_LIMIT, webSearch: sess.webSearch !== false, autoCloseHours: sess.autoCloseHours || 0,
     createdAt: FieldValue().serverTimestamp(),
   });
@@ -582,6 +590,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
   const personaId = await personaIdOf(code, auth.uid, memberSnap.data());
   const sessData = (await db.doc(`sessions/${code}`).get()).data();
   if (!sessData || (await closeIfDue(code, sessData))) throw new HttpsError("failed-precondition", CLOSED_MSG);
+  if (sessData.started === false) throw new HttpsError("failed-precondition", WAITING_MSG);
   const ev = EVENTS[sessData.eventId];
   const evCtx = { summary: ev.summary, premise: ev.summary };
   const personas = await personasFor(code, ev.id);
