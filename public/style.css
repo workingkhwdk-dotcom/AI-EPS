@@ -64,6 +64,9 @@ a{ color:var(--accent); }
 /* 1단계 남은 질문 수 */
 .chat-left{ font-size:12.5px; color:var(--ink-2); padding:6px 14px 0; }
 .chat-left.out{ color:var(--warn); font-weight:700; }
+/* PC 화면 ↔ 모바일 화면 바꾸기 링크 */
+.m-switch{ text-align:center; font-size:13px; margin:18px 0 6px; }
+.m-switch a{ color:var(--ink-3); }
 .who{ font-size:12.5px; opacity:.85; text-align:right; }
 .hdr-right{ display:flex; align-items:center; gap:10px; min-width:0; }
 .btn-out{ font:inherit; font-size:12.5px; font-weight:700; color:#fff; background:rgba(255,255,255,0.16); border:1px solid rgba(255,255,255,0.35); border-radius:20px; padding:5px 12px; cursor:pointer; white-space:nowrap; }

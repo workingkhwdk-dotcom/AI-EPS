@@ -6,6 +6,8 @@
 <meta name="theme-color" content="#06226B" />
 <title>AI-EPS: 확장된 경험 기반 문제해결학습 모형</title>
 <link rel="icon" type="image/webp" href="knue-mark.webp" />
+<!-- 휴대폰이면 모바일 전용 화면(m.html)으로 옮긴다 -->
+<script src="device.js" data-mobile="m.html"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Gowun+Batang&display=swap" rel="stylesheet">
@@ -39,6 +41,7 @@
     <div class="stages" id="tabs"></div>
     <div id="panel"></div>
   </section>
+  <p class="m-switch hidden" id="to-mobile"><a href="m.html?view=m">모바일 화면으로 보기</a></p>
 </main>
 
 <script type="module" src="app.js"></script>

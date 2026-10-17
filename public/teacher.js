@@ -1,7 +1,7 @@
 import { auth, db, call, esc, toast, errMsg } from "./fb.js";
 import { waitHtml, startWaitTicker, STEPS } from "./wait.js";
 startWaitTicker();
-import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { collection, query, where, orderBy, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const $ = (s) => document.querySelector(s);
@@ -18,7 +18,11 @@ let logsBy = {}, cmpStage = 1, workGid = null; // 모둠별 AI 기록, 단계별
 let tickTimer = null;
 
 // ---------- 로그인 ----------
-$("#login-btn").onclick = () => signInWithPopup(auth, new GoogleAuthProvider()).catch((e) => toast(errMsg(e), true));
+// 휴대폰 브라우저가 팝업을 막으면 같은 창에서 구글 로그인으로 넘어갔다가 돌아온다
+$("#login-btn").onclick = () => signInWithPopup(auth, new GoogleAuthProvider()).catch((e) => {
+  if (["auth/popup-blocked", "auth/operation-not-supported-in-this-environment", "auth/cancelled-popup-request"].includes(e?.code)) return signInWithRedirect(auth, new GoogleAuthProvider());
+  toast(errMsg(e), true);
+});
 $("#t-logout").onclick = () => signOut(auth).then(() => location.reload());
 let listUnsub = null;
 onAuthStateChanged(auth, (u) => {

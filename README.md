@@ -9,6 +9,8 @@
 public/            정적 웹 (Firebase Hosting)
   index.html, app.js     학생용: 수업 코드 입장 → 1~7단계 워크스페이스
   teacher.html, teacher.js  교사용: 수업 생성, 모둠 진행 현황, AI 로그, CSV
+  m.html, m-teacher.html    모바일 전용 화면(학생·교사). 같은 app.js·teacher.js 로 움직이고 배치만 휴대폰에 맞춤(mobile.css)
+  device.js        휴대폰으로 PC 화면을 열면 모바일 화면으로 자동 이동(?view=pc 로 PC 화면 고정, ?view=m 으로 되돌림)
 functions/         Cloud Functions (서울 리전)
   policy.js        GYR 규칙 엔진 (단위 테스트 있음)
   prompts.js       단계별 시스템 프롬프트
@@ -20,6 +22,13 @@ docs/PERSONA_SOURCES.md  인물별 근거 진술과 출처 점검표 (수업 전
   index.js         createSession, joinSession, getCase, aiRequest
 firestore.rules    학생은 자기 모둠의 work만 수정, AI 로그는 서버만 기록
 ```
+
+### 모바일 전용 화면
+- 휴대폰(아이폰·안드로이드 폰)으로 `/`(학생)나 `/teacher.html`(교사)을 열면 `m.html`, `m-teacher.html`로 자동으로 옮겨 갑니다. 태블릿과 PC는 그대로입니다. 입장 안내문의 주소는 그대로 쓰면 됩니다.
+- 학생 모바일: 1~7단계 이동은 화면 아래 막대, 대화 입력창은 막대 바로 위에 붙고, 글을 쓰는 동안에는 막대가 숨어 키보드 위 공간이 넓어집니다.
+- 교사 모바일: 학생·모둠 표가 카드로 바뀌고, 수업 안의 메뉴(진행 현황·자료 관리·인물 편집·수업 설정)는 아래 막대로 엽니다. 휴대폰 브라우저가 구글 로그인 팝업을 막으면 같은 창에서 로그인합니다.
+- 화면 맨 아래 **PC 화면으로 보기**를 누르면 그 기기에서는 PC 화면을 기억하고, PC 화면 아래의 **모바일 화면으로 보기**로 되돌립니다.
+- 두 화면은 같은 id 를 써야 합니다. 한쪽 HTML에 칸을 추가하면 다른 쪽에도 넣으세요(화면 테스트가 확인합니다).
 
 ### 핵심 원리: GYR을 서버가 강제한다
 | 단계 | AI | 서버가 확인하는 선행 조건 |

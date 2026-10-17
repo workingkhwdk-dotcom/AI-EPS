@@ -420,7 +420,8 @@ function renderChatLeft() {
 function scrollToLatest() {
   const last = document.querySelector("#msgs .msg:last-child"); if (!last) return;
   const top = ($(".hdr")?.offsetHeight || 0) + 8;
-  const bottom = window.innerHeight - (($("#chat-form")?.offsetHeight || 0) + 8);
+  // 모바일 화면에서는 입력창 아래에 단계 막대가 있다(입력 중에는 숨겨져 높이 0)
+  const bottom = window.innerHeight - (($("#chat-form")?.offsetHeight || 0) + ($(".m-nav")?.offsetHeight || 0) + 8);
   const r = last.getBoundingClientRect();
   if (r.top >= top && r.bottom <= bottom) return;
   const delta = r.height > bottom - top || r.top < top ? r.top - top : r.bottom - bottom;

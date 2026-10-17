@@ -6,6 +6,8 @@
 <meta name="theme-color" content="#06226B" />
 <title>AI-EPS 교사용 · 확장된 경험 기반 문제해결학습 모형</title>
 <link rel="icon" type="image/webp" href="knue-mark.webp" />
+<!-- 휴대폰이면 모바일 전용 화면(m-teacher.html)으로 옮긴다 -->
+<script src="device.js" data-mobile="m-teacher.html"></script>
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -167,6 +169,7 @@
       <div id="material-check"></div>
     </div>
   </section>
+  <p class="m-switch hidden" id="to-mobile"><a href="m-teacher.html?view=m">모바일 화면으로 보기</a></p>
 </main>
 <script type="module" src="teacher.js"></script>
 </body>
