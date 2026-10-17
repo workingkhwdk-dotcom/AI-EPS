@@ -72,6 +72,7 @@ const fakes = {
   },
   "firebase-functions/params": {
     defineSecret: () => ({ value: () => "sk-test" }),
+    defineInt: (name, o) => ({ value: () => o?.default ?? 0 }),
     defineString: (name, o) => ({ value: () => ({ TEACHER_EMAILS: "t@school.kr", ALLOW_UNVERIFIED_PERSONAS: "true", OPENAI_MODEL: "gpt-5-test" }[name] ?? o?.default ?? "") }),
   },
 };
@@ -156,28 +157,70 @@ test("교사 이메일이어도 인증되지 않은 이메일이면 교사가 �
   await assert.rejects(api.createSession({ auth: { uid: "X2", token: { email: "working.khwdk@gmail.com", email_verified: false } }, data: {} }), /교사/);
 });
 
-test("입장: 같은 모둠 학생들에게 축(당사자·도민·시민사회·제도)이 겹치지 않게 서로 다른 인물이 무작위 배정되고(교사 기록에만), 재입장해도 유지된다", async () => {
+const PICKS = ["j_applicant", "j_resident", "j_supporter", "j_officer", "j_applicant2"];
+test("입장: 인물을 배정하지 않고 모든 인물의 편지를 돌려주며, 재입장해도 고른 것이 유지된다", async () => {
   for (const [i, uid] of ["S1", "S2", "S3", "S4", "S5"].entries()) {
     const r = await api.joinSession({ ...student(uid), data: { code, groupNo: 1, nickname: "별" + i, password: "pw" + i + "99" } });
-    assert.deepEqual(Object.keys(r), ["groupId"], "학생에게 인물 배정을 알려 주면 안 된다");
+    assert.equal(r.groupId, "g1");
+    assert.equal(r.case.me, null, "아직 고르지 않았다");
+    assert.ok(r.case.letters.length >= 8, "모든 인물의 편지");
+    assert.ok(r.case.letters.every((l) => l.id && l.name && l.brief && l.letter.length >= 3));
+    assert.equal(r.case.letters.filter((l) => l.refugee).length, 2);
+    assert.equal(store.get(`sessions/${code}/assign/${uid}`), undefined, "랜덤 배정 없음");
   }
-  const { PERSONAS } = require("../case");
+  for (const [i, uid] of ["S1", "S2", "S3", "S4", "S5"].entries()) await api.choosePersona({ ...student(uid), data: { code, personaId: PICKS[i] } });
   const ids = ["S1", "S2", "S3", "S4", "S5"].map((u) => pidOf(code, u));
-  const axisOf = (id) => PERSONAS.find((p) => p.id === id).axis;
-  assert.deepEqual(ids.slice(0, 4).map(axisOf).sort(), ["당사자", "도민", "시민사회", "제도"]);
-  assert.equal(new Set(ids).size, 5, "다섯 명 모두 다른 인물");
+  assert.deepEqual(ids, PICKS);
   assert.deepEqual(store.get(`sessions/${code}/assignGroup/g1`).personaIds, ids);
-  // 학생이 읽는 문서(학생 문서, 모둠 문서)에는 인물 정보가 없다
+  assert.deepEqual(Object.keys(store.get(`sessions/${code}/groups/g1`).picks).sort(), [...PICKS].sort());
   assert.equal("personaId" in store.get(`sessions/${code}/members/S1`), false);
-  assert.equal("personaIds" in store.get(`sessions/${code}/groups/g1`), false);
   const m = store.get(`sessions/${code}/members/S1`);
   assert.equal(m.stage, 1);
   assert.equal(m.aiCount, 0);
   assert.ok(m.lastSeen);
-  await api.joinSession({ ...student("S2"), data: { code, groupNo: 1, nickname: "별1", password: "pw199" } });
+  const re = await api.joinSession({ ...student("S2"), data: { code, groupNo: 1, nickname: "별1", password: "pw199" } });
   assert.equal(pidOf(code, "S2"), ids[1]);
+  assert.equal(re.case.me.id, ids[1]);
   assert.equal(store.get(`sessions/${code}/members/S2`).nickname, "별1");
   assert.equal(store.get(`sessions/${code}/groups/g1`).memberCount, 5);
+});
+
+test("인물 고르기: 모둠원끼리 겹치지 못하고, 대화 전에는 바꿀 수 있으며, 당사자는 모둠에서 사라질 수 없고, 대화 후에는 잠긴다", async () => {
+  const c = await mk();
+  await join("K1", c, "가", "pw1111", 1, false);
+  await join("K2", c, "나", "pw2222", 1, false);
+  await assert.rejects(api.choosePersona({ ...student("K1"), data: { code: c, personaId: "nope" } }), /찾을 수 없/);
+  await api.choosePersona({ ...student("K1"), data: { code: c, personaId: "j_applicant" } });
+  await assert.rejects(api.choosePersona({ ...student("K2"), data: { code: c, personaId: "j_applicant" } }), /이미 고른/);
+  await api.choosePersona({ ...student("K2"), data: { code: c, personaId: "j_resident" } });
+  // 대화 전에는 바꿀 수 있고, 이전에 고른 인물은 풀린다
+  await api.choosePersona({ ...student("K2"), data: { code: c, personaId: "j_host" } });
+  assert.equal(store.get(`sessions/${c}/groups/g1`).picks.j_resident, undefined);
+  assert.equal(store.get(`sessions/${c}/groups/g1`).picks.j_host.uid, "K2");
+  assert.deepEqual(store.get(`sessions/${c}/assignGroup/g1`).personaIds.sort(), ["j_applicant", "j_host"]);
+  // 당사자 인물을 맡은 유일한 학생이 다른 인물로 바꿔 모둠에 당사자가 없어지는 것은 막는다
+  await assert.rejects(api.choosePersona({ ...student("K1"), data: { code: c, personaId: "j_resident" } }), /당사자/);
+  await api.choosePersona({ ...student("K2"), data: { code: c, personaId: "j_applicant2" } });
+  await api.choosePersona({ ...student("K1"), data: { code: c, personaId: "j_resident" } }); // 이제 K2 가 당사자
+  // 대화를 시작한 뒤에는 바꿀 수 없고, 교사는 풀어 줄 수 있다
+  store.set(`sessions/${c}/members/K1`, { ...store.get(`sessions/${c}/members/K1`), chatCount: 1 });
+  store.set(`sessions/${c}/members/K1/chat/x`, { input: "안녕", output: "네" });
+  await assert.rejects(api.choosePersona({ ...student("K1"), data: { code: c, personaId: "j_host" } }), /바꿀 수 없/);
+  await api.resetPersonaChoice({ ...teacher, data: { code: c, uid: "K1" } });
+  assert.equal(pidOf(c, "K1"), undefined);
+  assert.equal(store.get(`sessions/${c}/groups/g1`).picks.j_resident, undefined);
+  assert.equal(store.get(`sessions/${c}/members/K1`).chatCount, 0);
+  assert.equal(store.get(`sessions/${c}/members/K1/chat/x`), undefined);
+  await api.choosePersona({ ...student("K1"), data: { code: c, personaId: "j_host" } });
+  // 교사만 풀 수 있다
+  await assert.rejects(api.resetPersonaChoice({ ...student("K1"), data: { code: c, uid: "K2" } }), /교사/);
+});
+
+test("인물을 고르지 않으면 1단계 대화가 열리지 않고 횟수도 줄지 않는다", async () => {
+  const c = await mk();
+  await join("L1", c, "다", "pw3333", 1, false);
+  await assert.rejects(api.aiRequest({ ...student("L1"), data: { code: c, stage: 1, type: "persona_chat", payload: { message: "안녕하세요" } } }), /인물을 먼저/);
+  assert.equal(store.get(`sessions/${c}/members/L1`).chatCount, 0);
 });
 
 test("getCase(학생): 객관적 사건 개요, 내 인물의 이름·편지, 실제 자료만. 역할·근거·출처·다른 인물은 없다", async () => {
@@ -185,6 +228,7 @@ test("getCase(학생): 객관적 사건 개요, 내 인물의 이름·편지, �
   const { PERSONAS: PS } = require("../case");
   assert.equal(data.me.name, PS.find((p) => p.id === pidOf(code, "S1")).name);
   assert.ok(data.me.letter.length >= 3);
+  assert.ok(data.letters.length >= 8 && data.letters.some((l) => l.id === data.me.id));
   assert.match(data.summary, /2018년/);
   assert.equal(data.stakeholders.length, 4);
   assert.ok(data.materials.length >= 5);
@@ -192,11 +236,11 @@ test("getCase(학생): 객관적 사건 개요, 내 인물의 이름·편지, �
   assert.ok(data.aftermath.length >= 4);
   const json = JSON.stringify(data);
   const { PERSONAS } = require("../case");
-  // 인물의 역할명(label)·ID·근거 진술·출처·검증 여부는 학생에게 새면 안 된다
+  // 인물의 역할명(label)·근거 진술·출처·검증 여부는 학생에게 새면 안 된다
   const { SOURCES } = require("../case");
   // 인물 근거 출처의 링크는 숨긴다(사례 카드·이후 전개의 링크는 학생이 직접 확인하도록 보여 준다)
   const personaUrls = [...new Set(PERSONAS.flatMap((p) => p.claims.map((c) => SOURCES[c[1]].url)))];
-  const leaks = [...PERSONAS.map((p) => p.label), ...PERSONAS.map((p) => p.id), "otherPersonas", "claims", "verified", ...personaUrls, '"src"', "basis", "setting", "voice", "story", "views", "profile"];
+  const leaks = [...PERSONAS.map((p) => p.label), "otherPersonas", "claims", "verified", ...personaUrls, '"src"', "basis", "setting", "voice", "story", "views", "profile"];
   for (const leak of leaks) assert.equal(json.includes(leak), false, `누출: ${leak}`);
   await assert.rejects(api.getCase({ ...student("OUT"), data: { code } }), /참여자/);
 });
@@ -375,20 +419,6 @@ test("선행 사고가 없으면 4·5단계 AI는 열리지 않고, 2·6·7단�
   await assert.rejects(api.aiRequest({ ...student("S3"), data: { code, stage: 2, type: "persona_chat", payload: { message: "x" } } }), /스스로/);
 });
 
-test("무작위 배정: 같은 축이 다 차기 전에는 겹치지 않고, 모든 인물이 쓰이기 전에는 같은 인물이 다시 나오지 않는다", () => {
-  const { PERSONAS } = require("../case");
-  for (let trial = 0; trial < 50; trial++) {
-    const used = [];
-    for (let k = 0; k < PERSONAS.length; k++) used.push(api._pickPersona(PERSONAS, used).id);
-    assert.equal(new Set(used).size, PERSONAS.length);
-    const axes = used.slice(0, 4).map((id) => PERSONAS.find((p) => p.id === id).axis);
-    assert.equal(new Set(axes).size, 4);
-  }
-  // 무작위성: 첫 배정이 매번 같은 인물이 아니다
-  const firsts = new Set(Array.from({ length: 60 }, () => api._pickPersona(PERSONAS, []).id));
-  assert.ok(firsts.size >= 4);
-});
-
 // ---------- 학생 비밀번호 ----------
 // 대부분의 테스트는 수업이 이미 시작된 상태에서 본다(만들면 대기실 상태이므로 시작 버튼을 눌러 둔다)
 const mk = async (groupCount = 2) => {
@@ -396,7 +426,16 @@ const mk = async (groupCount = 2) => {
   await api.updateSession({ ...teacher, data: { code: c, started: true } });
   return c;
 };
-const join = (uid, c, nickname, password, groupNo = 1) => api.joinSession({ ...student(uid), data: { code: c, groupNo, nickname, password } });
+// 기본으로는 입장한 뒤 모둠에서 아직 아무도 고르지 않은 인물을 하나 고른다(인물 고르기를 따로 시험하는 테스트는 autoPick=false)
+const join = async (uid, c, nickname, password, groupNo = 1, autoPick = true) => {
+  const r = await api.joinSession({ ...student(uid), data: { code: c, groupNo, nickname, password } });
+  if (autoPick && !r.case.me) {
+    const taken = store.get(`sessions/${c}/groups/g${groupNo}`).picks || {};
+    const free = r.case.letters.find((l) => !taken[l.id]);
+    await api.choosePersona({ ...student(uid), data: { code: c, personaId: free.id } });
+  }
+  return r;
+};
 
 test("입장: 비밀번호가 없거나 너무 짧으면 거부한다", async () => {
   const c = await mk();
