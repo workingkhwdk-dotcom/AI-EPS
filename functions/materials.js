@@ -12,8 +12,8 @@ const str = (v, max) => String(v ?? "").trim().slice(0, max);
 const makeId = (prefix) => `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 // 교사 화면에서 편집하기 쉬운 형태(항목마다 id)로 기본 자료를 만든다
-function defaultMaterials(allowUnverified = false) {
-  return materialsFor(allowUnverified).map((c) => ({
+function defaultMaterials(eventId, allowUnverified = false) {
+  return materialsFor(eventId, allowUnverified).map((c) => ({
     id: c.id, title: c.title, type: TYPES.includes(c.type) ? c.type : "list",
     ...(c.stats ? { stats: c.stats } : {}),
     items: c.items.map((it, i) => ({ id: `${c.id}-${i + 1}`, date: it.date || "", kind: it.kind, text: it.text, caption: it.caption || "" })),

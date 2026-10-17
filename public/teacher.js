@@ -32,14 +32,14 @@ onAuthStateChanged(auth, (u) => {
   $("#main").classList.toggle("hidden", !ok);
   $("#t-logout").classList.toggle("hidden", !ok);
   $("#who").textContent = ok ? u.email : "";
-  if (ok) { listSessions(u.uid); refreshCase("jeju2018").catch(() => {}); }
+  if (ok) { listSessions(u.uid); eventIds().forEach((id) => refreshCase(id).catch(() => {})); }
 });
 
 // ---------- 탭 ----------
 function showTab(name) {
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
   for (const t of ["classes", "check"]) $(`#tab-${t}`).classList.toggle("hidden", t !== name);
-  if (name === "check") loadCheck($("#t-event").value);
+  if (name === "check") loadCheck($("#check-event").value);
 }
 $("#tabs").onclick = (e) => { const b = e.target.closest("[data-tab]"); if (b) showTab(b.dataset.tab); };
 
@@ -52,6 +52,18 @@ function showCTab(name) {
   if (name === "settings") fillSettings();
 }
 $("#ctabs").onclick = (e) => { const b = e.target.closest("[data-ctab]"); if (b) showCTab(b.dataset.ctab); };
+
+// ---------- 사건 고르기 ----------
+// 사건 목록은 수업 만들기 칸의 <select id="t-event"> 에 있다. 점검 탭의 사건 고르기도 같은 목록을 쓴다.
+const eventIds = () => [...$("#t-event").options].map((o) => o.value);
+$("#check-event").innerHTML = $("#t-event").innerHTML;
+$("#check-event").onchange = () => loadCheck($("#check-event").value);
+// 사건을 바꾸면, 교사가 고치지 않은 수업 이름은 그 사건의 기본 이름으로 바꾼다
+const defaultTitles = new Set([...$("#t-event").options].map((o) => o.dataset.title));
+$("#t-event").onchange = () => {
+  const o = $("#t-event").selectedOptions[0];
+  if (!$("#t-title").value.trim() || defaultTitles.has($("#t-title").value)) $("#t-title").value = o.dataset.title;
+};
 
 // ---------- 수업 만들기·목록 ----------
 const toggleNew = (open) => $("#new-form").classList.toggle("hidden", !open);
@@ -327,7 +339,8 @@ async function loadCheck(eventId) {
     $("#check-note").innerHTML = `<div class="notice muted">교사 메모: ${esc(data.event.teacherNote)}</div>
       <div class="notice muted"><b>모든 인물이 아는 사건 공통 배경</b> (인물은 자기 진술과 이 배경에 있는 핵심 사실만 말합니다)${(data.event.background || []).map((c) =>
         `<div style="margin-top:4px"><span class="tag ${c.kind === "주장" || c.kind === "의견" ? "y" : ""}">${esc(c.kind)}</span> ${esc(c.text)} <span class="tag ${c.verified ? "" : "x"}">${esc(c.src)}</span></div>`).join("")}</div>
-      <div class="notice muted">인물 ${data.personas.length}명은 네 축(당사자·도민·시민사회·제도)으로 나뉩니다. 학생이 입장하면 모둠 안에서 축이 겹치지 않게 무작위로 배정됩니다. 배정은 수업 현황의 '인물(교사용)' 열에서 봅니다.</div>`;
+      <div class="notice muted">인물 ${data.personas.length}명은 네 축(${esc((data.event.axes || []).join("·"))})으로 나뉩니다. 학생이 입장하면 모둠 안에서 축이 겹치지 않게 무작위로 배정됩니다. 배정은 수업 현황의 '인물(교사용)' 열에서 봅니다.</div>`;
+    $("#persona-count").textContent = data.personas.length;
     $("#persona-check").innerHTML = data.personas.map((p) => {
       const ok = p.sources.every((s) => s.verified);
       return `<details class="fold"><summary><span><span class="tag b">${esc(p.axis || "")}</span> ${esc(p.name)} <span class="meta-line">· ${esc(p.label)}</span></span> <span class="tag ${ok ? "" : "y"}">${ok ? "원문 대조 완료" : "대조 필요"}</span></summary><div class="inner">
@@ -495,7 +508,7 @@ function catForm(c) {
   const isNew = !c;
   const v = c || { title: "", type: "list" };
   return `<div class="mform" data-form="${isNew ? "newcat" : "editcat:" + esc(c.id)}">
-    <div class="two"><div><label class="lbl" style="margin-top:0">분류 이름</label><input type="text" data-f="title" maxlength="40" placeholder="예) 제주 도민의 목소리" value="${esc(v.title)}" /></div>
+    <div class="two"><div><label class="lbl" style="margin-top:0">분류 이름</label><input type="text" data-f="title" maxlength="40" placeholder="예) 현지 주민의 목소리" value="${esc(v.title)}" /></div>
       <div><label class="lbl" style="margin-top:0">보여 주는 방식</label><select data-f="type"><option value="list" ${v.type === "list" ? "selected" : ""}>목록</option><option value="timeline" ${v.type === "timeline" ? "selected" : ""}>시간 순 흐름 (시점 입력)</option></select></div></div>
     <div class="row" style="margin-top:10px"><button class="btn btn-primary btn-sm" data-m="${isNew ? "cat-add" : "cat-save"}" ${isNew ? "" : `data-c="${esc(c.id)}"`}>${isNew ? "분류 만들기" : "저장"}</button>
       ${isNew ? "" : `<button class="btn btn-plain btn-sm" data-m="item-cancel">취소</button>`}</div></div>`;
@@ -734,7 +747,7 @@ async function loadPersonaEdit() {
   if (pe.loaded) return renderPersonaEdit();
   $("#persona-edit").innerHTML = `<div class="card">${waitHtml({ steps: STEPS.load })}</div>`;
   try {
-    const [c, o] = await Promise.all([call("getCase")({ eventId: "jeju2018" }), call("getPersonaOverrides")({ code: current })]);
+    const [c, o] = await Promise.all([call("getCase")({ eventId: curRow()?.eventId || "jeju2018" }), call("getPersonaOverrides")({ code: current })]);
     Object.assign(pe, { personas: c.data.personas, overrides: o.data.overrides, loaded: true });
     renderPersonaEdit();
   } catch (e) { $("#persona-edit").innerHTML = `<div class="notice">${esc(errMsg(e))}</div>`; }

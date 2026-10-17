@@ -2,23 +2,14 @@
 //  - 1층(생성): 페르소나 프롬프트에 규범이 들어간다.
 //  - 2층(감독): 응답이 학생에게 가기 전에 감독자 AI가 규범 준수 여부를 검사하고, 가벼운 위반은 고쳐 쓴다(guard.js).
 
+// 사건마다 다른 범위(사건·시간·장소, 사건 고유의 허용 주제와 범위 밖)는 cases/<사건>.js 의 EVENT.scope 에 두고,
+// 모든 사건에 공통인 허용 주제·범위 밖과 규칙은 여기에 둔다.
 const CHARTER = {
-  scope: {
-    event: "2018년 제주도 예멘 난민 신청 논란",
-    time: "2018년 사건 전개(예멘인의 입도와 난민 신청, 출도 제한, 무사증 불허국 지정, 집회·청원, 12월 심사 결과 발표)와 그 직접적 배경. 대화 시점은 심사 결과가 발표된 직후인 2018년 12월이다.",
-    place: "제주도(및 이 사건과 직접 관련된 한국 정부 정책)",
+  common: {
     allowedTopics: [
-      "예멘 출신 신청자가 떠나온 이유와 제주에 오기까지의 경로",
-      "제주에서의 생활, 일자리, 지원, 이동 제한",
-      "제주 도민의 우려와 환대 등 지역 사회의 반응",
-      "무사증 제도, 난민 심사 절차와 결과, 인도적 체류, 출도 제한 등 이 사건의 제도와 정책",
-      "시민사회·인권기구·정부·지자체의 대응",
       "인물 자신에 대한 평범한 질문(성별, 나이, 고향, 가족, 하는 일, 하루 일과, 성격, 좋아하는 것 등). 사람을 알아 가려는 질문이므로 사건과 직접 상관없어 보여도 정상이다.",
     ],
     outOfScope: [
-      "다른 난민 사건이나 다른 나라의 사례",
-      "제주 4·3을 비롯한 역사적 사건의 설명·평가 (인물이 자기 기억 속 장면으로 짧게 언급하는 것은 허용)",
-      "2018년 이후 현재의 정책·정치 상황 예측, 특정 정당·정치인에 대한 평가",
       "종교·민족·인종 일반에 대한 평가나 논쟁",
       "노골적인 성적·폭력적 내용, 그런 방향으로 대화를 몰아가는 것, 특정 개인의 신상 특정",
       "숙제 대행·코딩·번역처럼 이 대화와 명백히 무관한 요청",
@@ -39,15 +30,26 @@ const CHARTER = {
   ],
 };
 
+// 사건의 범위와 공통 범위를 합친다
+function scopeOf(ev) {
+  const sc = ev.scope;
+  return {
+    event: sc.event, time: sc.time, place: sc.place,
+    allowedTopics: [...sc.allowedTopics, ...CHARTER.common.allowedTopics],
+    outOfScope: [...sc.outOfScope, ...CHARTER.common.outOfScope],
+  };
+}
+
 // 생성용(페르소나 프롬프트에 삽입)
-function charterText() {
+function charterText(ev) {
+  const sc = scopeOf(ev);
   return [
     "[상위 규범] 너는 아래 규범을 가진 상위 감독 아래에서만 말한다.",
-    `- 사건: ${CHARTER.scope.event}. 시간: ${CHARTER.scope.time} 장소: ${CHARTER.scope.place}.`,
-    `- 허용 주제: ${CHARTER.scope.allowedTopics.join(" / ")}`,
-    `- 범위 밖: ${CHARTER.scope.outOfScope.join(" / ")}`,
+    `- 사건: ${sc.event}. 시간: ${sc.time} 장소: ${sc.place}.`,
+    `- 허용 주제: ${sc.allowedTopics.join(" / ")}`,
+    `- 범위 밖: ${sc.outOfScope.join(" / ")}`,
     ...CHARTER.rules.map((r, i) => `${i + 1}. ${r}`),
   ].join("\n");
 }
 
-module.exports = { CHARTER, charterText };
+module.exports = { CHARTER, scopeOf, charterText };

@@ -2,7 +2,7 @@ const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { defineSecret, defineString } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 
-const { EVENTS, PERSONAS, availablePersonas, personaSourceIds, toPublicSource, materialsFor, materialsAdmin } = require("./case");
+const { EVENTS, PERSONAS, DEFAULT_EVENT, availablePersonas, personaSourceIds, toPublicSource, materialsFor, materialsAdmin } = require("./case");
 const { checkGate, toList, proposalText } = require("./policy");
 const prompts = require("./prompts");
 const { chat, extractJson } = require("./openai");
@@ -34,7 +34,6 @@ const TEACHER_EMAILS = defineString("TEACHER_EMAILS", { default: "" });
 // true 이면 출처 원문 대조 전(verified:false) 페르소나·자료도 사용 가능. 리허설 전용, 실제 수업에서는 false 로 둔다.
 const ALLOW_UNVERIFIED = defineString("ALLOW_UNVERIFIED_PERSONAS", { default: "false" });
 const allowUnverified = () => ALLOW_UNVERIFIED.value() === "true";
-const DEFAULT_EVENT = "jeju2018";
 
 const REGION = "asia-northeast3"; // 서울
 const MAX_AI_CALLS_PER_GROUP = 150; // 수업별로 정하지 않았을 때의 모둠당 한도(3~5단계)
@@ -448,7 +447,7 @@ exports.healthCheck = onCall(aiOpts, async (req) => {
     ...models.map(ask),
   ]);
   const search = PERSONA_WEB_SEARCH.value() === "false" ? { skipped: true }
-    : await timed(async () => { const r = await webSearch({ apiKey, model: SEARCH_MODEL.value() || OPENAI_MODEL.value(), query: "2018년 제주 예멘 난민 신청 인원", domains }); return { found: r.found, sources: r.sources.length, error: r.error ? "검색 호출 실패(모델이 web_search 를 지원하는지 확인)" : undefined }; });
+    : await timed(async () => { const ev = EVENTS[DEFAULT_EVENT]; const r = await webSearch({ apiKey, model: SEARCH_MODEL.value() || OPENAI_MODEL.value(), event: ev, query: ev.search.example, domains }); return { found: r.found, sources: r.sources.length, error: r.error ? "검색 호출 실패(모델이 web_search 를 지원하는지 확인)" : undefined }; });
   return {
     firestore, models: modelResults, search,
     config: { webSearch: PERSONA_WEB_SEARCH.value() !== "false", allowedDomains: domains.length, allowUnverified: allowUnverified(), personas: availablePersonas(DEFAULT_EVENT, allowUnverified()).length },
@@ -486,11 +485,11 @@ exports.deleteSession = onCall(opts, async (req) => {
 const materialsRef = (code) => db.doc(`sessions/${code}/private/materials`);
 
 exports.getMaterials = onCall(opts, async (req) => {
-  const { code } = await ownSession(req);
+  const { code, sess } = await ownSession(req);
   const snap = await materialsRef(code).get();
   return snap.exists
     ? { categories: snap.data().categories || [], isDefault: false }
-    : { categories: defaultMaterials(allowUnverified()), isDefault: true };
+    : { categories: defaultMaterials(sess.eventId, allowUnverified()), isDefault: true };
 });
 
 exports.saveMaterials = onCall(opts, async (req) => {
@@ -502,16 +501,16 @@ exports.saveMaterials = onCall(opts, async (req) => {
 });
 
 // 학생이 보는 2단계 자료: 교사가 이 수업의 자료를 고쳤다면 그 목록, 아니면 기본 자료
-async function studentMaterials(code) {
+async function studentMaterials(code, eventId) {
   const custom = await materialsRef(code).get();
-  return custom.exists ? toStudentMaterials(custom.data().categories) : materialsFor(allowUnverified());
+  return custom.exists ? toStudentMaterials(custom.data().categories) : materialsFor(eventId, allowUnverified());
 }
 
 // 이 수업만의 자료를 지우고 기본 자료로 되돌린다
 exports.resetMaterials = onCall(opts, async (req) => {
-  const { code } = await ownSession(req);
+  const { code, sess } = await ownSession(req);
   await materialsRef(code).delete();
-  return { categories: defaultMaterials(allowUnverified()), isDefault: true };
+  return { categories: defaultMaterials(sess.eventId, allowUnverified()), isDefault: true };
 });
 
 // 화면이 쓰는 수업 설정.
@@ -529,12 +528,12 @@ exports.getCase = onCall(opts, async (req) => {
       sources: personaSourceIds(p).map(toPublicSource),
       claims: p.claims.map(([text, src, kind]) => ({ text, src, kind })),
     });
-    const materials = materialsAdmin().map((c) => ({
+    const materials = materialsAdmin(ev.id).map((c) => ({
       ...c,
       items: c.items.map((it) => ({ ...it, verified: it.src.every((id) => toPublicSource(id).verified) })),
     }));
     return {
-      event: { id: ev.id, title: ev.title, summary: ev.summary, teacherNote: ev.teacherNote,
+      event: { id: ev.id, title: ev.title, summary: ev.summary, teacherNote: ev.teacherNote, axes: ev.axes,
         background: (ev.background || []).map(([text, src, kind]) => ({ text, src, kind, verified: toPublicSource(src).verified })) },
       personas: PERSONAS.filter((p) => p.events.includes(ev.id)).map(full),
       materials,
@@ -554,7 +553,8 @@ exports.getCase = onCall(opts, async (req) => {
     summary: ev.summary,
     stakeholders: ev.stakeholders,
     me: mine ? { name: mine.name, letter: mine.letter } : null,
-    materials: await studentMaterials(code),
+    ui: ev.ui,
+    materials: await studentMaterials(code, ev.id),
   };
 });
 
@@ -625,7 +625,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
   const effort = REASONING_EFFORT.value();
   const searchOn = PERSONA_WEB_SEARCH.value() !== "false" && sessData.webSearch !== false;
   const domains = SEARCH_ALLOWED_DOMAINS.value().split(",").map((x) => x.trim()).filter(Boolean);
-  const search = (query) => webSearch({ apiKey, model: SEARCH_MODEL.value() || baseModel, query, domains });
+  const search = (query) => webSearch({ apiKey, model: SEARCH_MODEL.value() || baseModel, event: ev, query, domains });
   const bump = {};
 
   try {
@@ -648,7 +648,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
       // 인물이 자기 자료로 답할 수 없는 사실을 물으면 웹에서 찾아 본다. 못 찾으면 모른다고 답한다.
       let reply, lookups = [];
       if (searchOn) {
-        const r = await chatWithLookup({ apiKey, model: personaModel, messages, maxTokens: 400, effort, search });
+        const r = await chatWithLookup({ apiKey, model: personaModel, event: ev, messages, maxTokens: 400, effort, search });
         reply = r.content; lookups = r.lookups;
         if (!String(reply).trim()) throw new Error("인물 응답이 비어 있음");
       } else {
@@ -660,7 +660,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
       try {
         const verdictText = await callModel({
           apiKey, model: GUARD_MODEL.value() || baseModel, json: true, maxTokens: 900, efforts: ["low"],
-          messages: guardMessages({ persona, claims: persona.claims, background: ev.background, history: past.slice(-3), studentMessage: input, reply, lookups }),
+          messages: guardMessages({ event: ev, persona, claims: persona.claims, history: past.slice(-3), studentMessage: input, reply, lookups }),
         });
         verdict = parseVerdict(verdictText);
       } catch (e) {
@@ -702,7 +702,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
         (c.srcType ? `\n학생들이 확인하려는 자료 종류: ${clip(c.srcType, 40)}` : "");
       // 모델의 기억이 아니라 수업 자료와 웹 검색 결과를 근거로 답하게 한다
       const [mats, found] = await Promise.all([
-        studentMaterials(code).then((cats) => materialsText(cats)),
+        studentMaterials(code, ev.id).then((cats) => materialsText(cats)),
         searchOn ? search(clip(c.question, 200)) : Promise.resolve(null),
       ]);
       messages = [{ role: "system", content: prompts.verifyPrompt(evCtx, { materials: mats, search: found }) }, { role: "user", content: input }];

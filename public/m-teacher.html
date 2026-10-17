@@ -43,7 +43,10 @@
           <div id="new-form" class="hidden newbox">
             <h3>새 수업 만들기</h3>
             <label class="lbl" for="t-event">사건</label>
-            <select id="t-event"><option value="jeju2018">제주 예멘 난민 신청 논란 (2018)</option></select>
+            <select id="t-event">
+              <option value="jeju2018" data-title="제주 예멘 난민 사건, 갈등 해결 방안 제안하기">제주 예멘 난민 신청 논란 (2018)</option>
+              <option value="waste2019" data-title="필리핀으로 간 한국 쓰레기, 갈등 해결 방안 제안하기">한국 쓰레기 필리핀 불법 수출·반송 논란 (2018~2019)</option>
+            </select>
             <label class="lbl" for="t-title">수업 이름</label><input type="text" id="t-title" value="제주 예멘 난민 사건, 갈등 해결 방안 제안하기" />
             <label class="lbl" for="t-groups">모둠 수 (1~12)</label><input type="number" id="t-groups" value="6" min="1" max="12" />
             <label class="lbl" for="t-chatlimit">학생 1명이 인물에게 물을 수 있는 횟수 (1~50번)</label><input type="number" id="t-chatlimit" value="5" min="1" max="50" />
@@ -166,11 +169,12 @@
       </div>
       <div class="card">
         <h2>인물·자료 점검</h2>
-        <p class="desc">인물과 실제 자료는 아래 출처의 보도 내용에만 근거합니다. <b>수업 전에 원문 링크를 열어 확인</b>하고, 확인한 출처는 <code>functions/case.js</code>에서 <code>verified</code>를 true로 바꿔 배포하세요. 확인 전 인물과 자료는 학생에게 보이지 않습니다. 이 탭의 내용은 학생에게 공개되지 않습니다.</p>
+        <p class="desc">인물과 실제 자료는 아래 출처의 보도 내용에만 근거합니다. <b>수업 전에 원문 링크를 열어 확인</b>하고, 확인한 출처는 <code>functions/cases/</code>의 사건 파일에서 <code>verified</code>를 true로 바꿔 배포하세요. 확인 전 인물과 자료는 학생에게 보이지 않습니다. 이 탭의 내용은 학생에게 공개되지 않습니다.</p>
+        <label class="lbl" for="check-event">점검할 사건</label><select id="check-event"></select>
         <div id="check-mode"></div>
         <div id="check-note"></div>
       </div>
-      <h3 style="margin:6px 4px 8px">인물 9명 (학생에게는 이름과 편지만 보입니다)</h3>
+      <h3 style="margin:6px 4px 8px">인물 <span id="persona-count">9</span>명 (학생에게는 이름과 편지만 보입니다)</h3>
       <div id="persona-check"></div>
       <h3 style="margin:14px 4px 8px">2단계 실제 자료</h3>
       <div id="material-check"></div>

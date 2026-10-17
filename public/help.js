@@ -59,9 +59,9 @@ export const HELP = {
         ["자료를 읽어요", "'실제 사건 자료'를 열어 인물에게 들은 말과 비교해 보세요."],
         ["나·우리와 이어 봐요", "인물의 처지가 우리 주변과 어떻게 닮았는지 찾아요. 원인을 여러 각도에서 보는 데 도움이 돼요."],
         ["원인을 추측해요", "개인 · 지역·사회 · 제도·정책, 층위마다 하나 이상 써 보세요."],
-        ["검증 질문을 만들어요", "예/아니오나 숫자로 답할 수 있고, 확인할 자료가 있는 질문이 좋아요. 예) '2018년에 제주에 온 예멘 신청자는 몇 명인가?'"],
+        ["검증 질문을 만들어요", "예/아니오나 숫자로 답할 수 있고, 확인할 자료가 있는 질문이 좋아요. 예) '{goodQuestion}'"],
       ],
-      tip: "의견을 묻는 질문('난민은 위험한가?')은 자료로 확인할 수 없어요. 사실을 묻는 질문으로 바꿔 보세요.",
+      tip: "의견을 묻는 질문('{badQuestion}')은 자료로 확인할 수 없어요. 사실을 묻는 질문으로 바꿔 보세요.",
     },
   },
   3: {
@@ -139,18 +139,21 @@ export const HELP = {
   },
 };
 
-const fill = (s, n) => String(s).replaceAll("{n}", n);
+// {n} 은 인물 질문 횟수, {goodQuestion}·{badQuestion} 은 사건에 맞는 예시 질문(ex)으로 바꾼다
+const fill = (s, n, ex = {}) => String(s).replaceAll("{n}", n)
+  .replaceAll("{goodQuestion}", ex.goodQuestion || "그 일이 있었던 해에 몇 명이 그 일을 겪었나?")
+  .replaceAll("{badQuestion}", ex.badQuestion || "그 사람들은 나쁜가?");
 
 // 처음 보여 주는 간단한 안내(무엇을 · 어떻게)
-export function helpSimple(key, esc, n) {
+export function helpSimple(key, esc, n, ex) {
   const h = HELP[key];
-  return `<div class="help-what"><span>무엇을 해요?</span>${esc(fill(h.what, n))}</div>
-    <div class="help-how"><span>어떻게 해요?</span><ol>${h.how.map((x) => `<li>${esc(fill(x, n))}</li>`).join("")}</ol></div>`;
+  return `<div class="help-what"><span>무엇을 해요?</span>${esc(fill(h.what, n, ex))}</div>
+    <div class="help-how"><span>어떻게 해요?</span><ol>${h.how.map((x) => `<li>${esc(fill(x, n, ex))}</li>`).join("")}</ol></div>`;
 }
 // '이해 못했어요'를 눌렀을 때의 자세한 설명
-export function helpDetail(key, esc, n) {
+export function helpDetail(key, esc, n, ex) {
   const d = HELP[key].detail;
-  return `<p class="help-lead">${esc(fill(d.lead, n))}</p>
-    <ol class="help-steps">${d.steps.map(([t, x]) => `<li><div><b>${esc(fill(t, n))}</b><span>${esc(fill(x, n))}</span></div></li>`).join("")}</ol>
-    <div class="help-tip">💡 ${esc(fill(d.tip, n))}</div>`;
+  return `<p class="help-lead">${esc(fill(d.lead, n, ex))}</p>
+    <ol class="help-steps">${d.steps.map(([t, x]) => `<li><div><b>${esc(fill(t, n, ex))}</b><span>${esc(fill(x, n, ex))}</span></div></li>`).join("")}</ol>
+    <div class="help-tip">💡 ${esc(fill(d.tip, n, ex))}</div>`;
 }

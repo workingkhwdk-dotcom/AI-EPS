@@ -205,6 +205,44 @@ test("getCase(교사): 인물별 역할·근거 진술·출처와 자료 전체(
   await assert.rejects(api.getCase({ ...student("S1"), data: { eventId: "jeju2018" } }), /교사/);
 });
 
+test("쓰레기 수출 사건 수업: 그 사건의 인물·축·자료·화면 문구가 나가고, 인물·감독자·검색이 그 사건 범위로 동작한다", async () => {
+  const { code: w } = await api.createSession({ ...teacher, data: { groupCount: 1, eventId: "waste2019" } });
+  await api.updateSession({ ...teacher, data: { code: w, started: true } });
+  assert.equal(store.get(`sessions/${w}`).eventId, "waste2019");
+  assert.equal(store.get(`sessions/${w}`).title, "한국 쓰레기 필리핀 불법 수출·반송 논란 (2018~2019)");
+  for (const [i, uid] of ["W1", "W2", "W3", "W4"].entries())
+    await api.joinSession({ ...student(uid), data: { code: w, groupNo: 1, nickname: "숲" + i, password: "pw" + i + "99" } });
+  const { PERSONAS, EVENTS } = require("../case");
+  const axisOf = (id) => PERSONAS.find((p) => p.id === id).axis;
+  assert.deepEqual(["W1", "W2", "W3", "W4"].map((u) => axisOf(pidOf(w, u))).sort(), [...EVENTS.waste2019.axes].sort());
+
+  const data = await api.getCase({ ...student("W1"), data: { code: w } });
+  assert.match(data.summary, /필리핀/);
+  assert.equal(data.ui.letterSign, "2019년 2월");
+  assert.ok(data.materials.some((c) => c.id === "return"));
+  assert.doesNotMatch(JSON.stringify(data), /예멘/);
+  const mats = await api.getMaterials({ ...teacher, data: { code: w } });
+  assert.ok(mats.isDefault && mats.categories.some((c) => c.id === "return"));
+  assert.ok((await api.resetMaterials({ ...teacher, data: { code: w } })).categories.some((c) => c.id === "return"));
+  const admin = await api.getCase({ ...teacher, data: { eventId: "waste2019" } });
+  assert.equal(admin.personas.length, 9);
+  assert.deepEqual(admin.event.axes, EVENTS.waste2019.axes);
+  assert.ok(admin.materials.every((c) => c.items.every((i) => i.src.every((id) => id.startsWith("W")))));
+
+  calls.length = 0;
+  personaToolCalls = 1;
+  await api.aiRequest({ ...student("W1"), data: { code: w, stage: 1, type: "persona_chat", payload: { message: "남은 쓰레기는 얼마나 돼요?" } } });
+  const persona = calls.find((c) => c.kind === "persona").body;
+  assert.match(persona.messages[0].content, /타골로안/);
+  assert.match(persona.messages[0].content, /2019년 2월 말/);
+  assert.doesNotMatch(persona.messages[0].content, /예멘/);
+  assert.match(JSON.stringify(persona.tools), /평택항에 돌아온/);
+  assert.match(calls.find((c) => c.kind === "search").body.instructions, /필리핀/);
+  const guard = calls.find((c) => c.kind === "guard").body.messages[0].content;
+  assert.match(guard, /한국 쓰레기의 필리핀 불법 수출/);
+  assert.doesNotMatch(guard, /예멘/);
+});
+
 const ask = (uid, message = "불안한 이유가 뭐예요?") =>
   api.aiRequest({ ...student(uid), data: { code, stage: 1, type: "persona_chat", payload: { message } } });
 

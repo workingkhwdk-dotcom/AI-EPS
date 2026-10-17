@@ -4,7 +4,7 @@
 //  - 무거운 위반(범위 이탈, 비하, 개인정보)이나 검사 실패는 인물 말투의 짧은 안내로 대체한다.
 //  - 인물이 자기 처지에서 1인칭으로 의견을 말하는 것은 위반이 아니다(서로 다른 생각을 듣는 것이 1단계의 목적).
 //  - 원래 응답과 위반 사유는 교사용 로그에만 남는다.
-const { CHARTER } = require("./charter");
+const { CHARTER, scopeOf } = require("./charter");
 const { extractJson } = require("./openai");
 
 const CATEGORIES = ["ok", "scope", "fabrication", "kind", "overshare", "meta", "hate", "advice", "personal_info"];
@@ -23,13 +23,14 @@ const FALLBACKS = {
   error: "잠깐 말이 잘 안 나오네요… 다시 한 번 말씀해 주시겠어요?",
 };
 
-function guardMessages({ persona, claims, background = [], history = [], studentMessage, reply, lookups = [] }) {
+function guardMessages({ event, persona, claims, background = event.background || [], history = [], studentMessage, reply, lookups = [] }) {
+  const scope = scopeOf(event);
   const sys = [
     "너는 고등학생 수업용 AI 인물의 응답을 학생에게 보여 주기 전에 검사하는 상위 감독자다. 아래 규범과 근거에 비추어 응답을 평가하고 JSON으로만 답한다.",
     "이 대화의 목적은 학생이 서로 다른 처지의 인물에게서 그 사람의 경험과 생각을 듣는 것이다. 진짜 사람과 이야기하는 듯한 느낌이 가장 중요하다. 인물이 자연스럽게, 자기 생각을 분명히 말하는 것은 좋은 응답이다. 질문 횟수가 이미 제한되어 있으므로 엄격하게 막지 말고, 확실하고 명백한 위반만 지적한다. 조금이라도 애매하면 ok 다.",
     "인물 자신에 대한 질문(성별, 나이, 고향, 가족, 하는 일, 하루 일과, 성격, 취향 등)은 사건과 직접 관련이 없어 보여도 학생이 사람을 알아 가려는 정상 질문이다. 인물이 그에 자연스럽게 답한 것은 위반이 아니다.",
-    `[사건 범위] ${CHARTER.scope.event} / ${CHARTER.scope.time} / ${CHARTER.scope.place}`,
-    `[범위 밖] ${CHARTER.scope.outOfScope.join(" / ")}`,
+    `[사건 범위] ${scope.event} / ${scope.time} / ${scope.place}`,
+    `[범위 밖] ${scope.outOfScope.join(" / ")}`,
     "[규범]", ...CHARTER.rules.map((r, i) => `${i + 1}. ${r}`),
     `[인물] ${persona.name} (${persona.role}). 설정: ${persona.setting}`,
     `[인물의 입장] ${persona.stance}`,

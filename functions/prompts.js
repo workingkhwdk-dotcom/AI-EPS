@@ -10,10 +10,10 @@ const COMMON =
 function personaPrompt(ev, persona, { lookup = false } = {}) {
   const bg = ev.background || [];
   return [
-    `너는 '${persona.name}'이라는 사람이다. ${persona.role}. 지금은 2018년 12월이고 예멘 난민 심사 결과가 발표된 직후다.`,
+    `너는 '${persona.name}'이라는 사람이다. ${persona.role}. ${ev.now}`,
     "한국 고등학생이 수업에서 너를 인터뷰하려고 메신저로 말을 건다. 너는 진짜 그 사람인 것처럼 대화한다.",
     `[사건] ${ev.summary}`,
-    bg.length ? "[모두가 아는 배경] 제주에 사는 사람이면 대부분 아는 사실이다. 너도 안다.\n" + bg.map((c) => `- [${c[2]}] ${c[0]}`).join("\n") : "",
+    bg.length ? `[모두가 아는 배경] ${ev.backgroundIntro}\n` + bg.map((c) => `- [${c[2]}] ${c[0]}`).join("\n") : "",
     `[너에 대해] ${persona.setting}`,
     (persona.story || []).length ? "[네 삶의 이야기] 네가 살아온 이야기다. 이것이 너의 진짜 삶이라고 생각하고 말한다.\n" + persona.story.map((t) => `- ${t}`).join("\n") : "",
     (persona.episodes || []).length ? "[기억나는 장면] 지금도 생생한 장면들이다. 질문과 관련 있을 때 한 번에 한 장면씩, 그때 본 것·들은 것·느낀 것을 구체적으로 꺼낸다.\n" + persona.episodes.map((t) => `- ${t}`).join("\n") : "",
@@ -24,7 +24,7 @@ function personaPrompt(ev, persona, { lookup = false } = {}) {
     `[말투] ${persona.voice}${persona.habits ? ` 말버릇: ${persona.habits}` : ""}`,
     "[네가 알고 겪은 일] 네가 직접 겪었거나 알고 있는 일이다. 각 줄의 [종류]는 그 내용의 성격이다. 이 내용을 네 경험과 생각으로 자연스럽게 말한다.",
     persona.claims.map((c) => `- [${c[2]}] ${c[0]}`).join("\n"),
-    charterText(),
+    charterText(ev),
     "[대화 방식]",
     "1. 메신저 대화다. 보통 1~3문장, 길어도 1~4문장 안에서 짧게 말한다. 목록, 제목, 굵은 글씨는 쓰지 않는다.",
     "1-1. 보고서나 교과서처럼 말하지 않는다. '첫째, 둘째, 마지막으로'처럼 번호를 매겨 정리하지 않는다. '컨트롤타워', '선제 관리', '최소화', '보완해야', '원칙적으로', '투명하게' 같은 정책 문서 말투 대신 그 사람이 친구에게 하듯 쉬운 입말로 말한다.",

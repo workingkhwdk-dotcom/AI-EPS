@@ -204,11 +204,11 @@ test("교사: 연결 점검 — 기다리는 동안 움직이는 표시와 초�
 
 // ---------- 학생 ----------
 function studentFixture() {
-  const st = { joined: [], chatCalls: [], releaseChat: null, failNext: false, calls: [] };
+  const st = { joined: [], chatCalls: [], releaseChat: null, failNext: false, calls: [], caseExtra: {} };
   st.handler = async (name, data) => {
     st.calls.push(name);
     if (name === "joinSession") { st.joined.push(data); if (data.password !== "pw1234") throw new Error("functions: 비밀번호가 맞지 않습니다."); return { groupId: "g1" }; }
-    if (name === "getCase") return { title: "제목", summary: "요약", stakeholders: [], me: { name: "김씨", letter: ["안녕하세요"] }, materials: [] };
+    if (name === "getCase") return { title: "제목", summary: "요약", stakeholders: [], me: { name: "김씨", letter: ["안녕하세요"] }, materials: [], ...st.caseExtra };
     if (name === "aiRequest") {
       st.chatCalls.push(data);
       await new Promise((r) => { st.releaseChat = r; });
@@ -266,6 +266,17 @@ test("학생: 로그아웃하면 입장 정보가 지워지고 처음 화면으�
   await pg.waitForSelector("#j-pw");
   assert.equal(await pg.evaluate(() => sessionStorage.getItem("eps_code")), null);
   assert.ok(await pg.locator("#join").isVisible());
+});
+
+test("학생: 편지 서명은 사건마다 서버가 보낸 문구를 쓴다", async () => {
+  const st = studentFixture();
+  st.caseExtra = { ui: { letterSign: "2019년 2월", goodQuestion: "평택항으로 돌아온 쓰레기는 몇 t인가?" } };
+  const { pg } = await openStudent(st);
+  await login(pg);
+  await pg.waitForSelector("details.letter .sign", { state: "attached" }); // 대화가 있으면 편지는 접혀 있다
+  const sign = await pg.locator("details.letter .sign").textContent();
+  assert.match(sign, /2019년 2월/);
+  assert.doesNotMatch(sign, /제주/);
 });
 
 test("학생: 인물의 답을 기다리는 동안 움직이는 표시·흐르는 초·안내가 보이고, 실패하면 오류와 '다시 보내기'가 나온다", async () => {

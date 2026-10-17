@@ -1,27 +1,34 @@
 const test = require("node:test");
 const assert = require("node:assert");
 const { guardMessages, parseVerdict, fallbackFor, resolveOutput, stripBackQuestion, FALLBACKS, FIXABLE } = require("../guard");
-const { CHARTER, charterText } = require("../charter");
-const { PERSONAS } = require("../case");
+const { CHARTER, scopeOf, charterText } = require("../charter");
+const { PERSONAS, EVENTS } = require("../case");
 
 test("규범은 사건 범위·시점과 새 규칙(사람처럼, 묻는 것에만, 핵심 사실은 모르면 모른다)을 명시한다", () => {
-  assert.match(CHARTER.scope.event, /제주/);
-  assert.match(CHARTER.scope.event, /예멘/);
-  assert.match(CHARTER.scope.time, /2018년 12월/);
-  assert.ok(CHARTER.scope.outOfScope.some((x) => /다른 난민 사건/.test(x)));
+  const jeju = scopeOf(EVENTS.jeju2018);
+  assert.match(jeju.event, /제주/);
+  assert.match(jeju.event, /예멘/);
+  assert.match(jeju.time, /2018년 12월/);
+  assert.ok(jeju.outOfScope.some((x) => /다른 난민 사건/.test(x)));
+  // 사건마다 범위가 다르고, 공통 범위(노골적 내용 등)는 모든 사건에 붙는다
+  const waste = scopeOf(EVENTS.waste2019);
+  assert.match(waste.event, /필리핀/);
+  assert.match(waste.time, /2019년 2월/);
+  assert.ok(waste.outOfScope.some((x) => /노골적인 성적·폭력적/.test(x)));
+  assert.ok(!waste.outOfScope.some((x) => /다른 난민 사건/.test(x)));
+  assert.match(charterText(EVENTS.waste2019), /타골로안/);
   const rules = CHARTER.rules.join(" ");
   assert.match(rules, /모른다고/);
   assert.match(rules, /사소한 일상/);
   assert.match(rules, /생각·느낌·판단을 물으면 피하지 않고/);
   assert.match(rules, /설득하지 않는다/);
-  assert.match(charterText(), /상위 규범/);
+  assert.match(charterText(EVENTS.jeju2018), /상위 규범/);
 });
 
 test("감독자 메시지: 근거 진술, 인물 설정, 판정 기준(날조·정체 노출·과다 응답), 학생 질문과 응답이 들어간다", () => {
   const p = PERSONAS[0];
-  const { EVENTS } = require("../case");
   const history = [{ input: "넌 뭐하는 사람이야?", output: "저는 예멘에서 왔어요." }];
-  const [sys, user] = guardMessages({ persona: p, claims: p.claims, background: EVENTS.jeju2018.background, history, studentMessage: "시리아 난민은 어때요?", reply: "그건..." });
+  const [sys, user] = guardMessages({ event: EVENTS.jeju2018, persona: p, claims: p.claims, history, studentMessage: "시리아 난민은 어때요?", reply: "그건..." });
   assert.equal(sys.role, "system");
   assert.match(sys.content, /명백한 위반만 지적한다/);
   assert.match(sys.content, /overshare/);
@@ -110,7 +117,6 @@ test("마지막에 학생의 생각을 되묻는 문장은 지우고, 확인 질
 
 test("인물 자신에 대한 질문은 자연스럽게 답하게 하고, 아주 노골적이거나 완전히 무관한 요청만 막는다(프롬프트·규범·감독자 기준)", () => {
   const { personaPrompt } = require("../prompts");
-  const { EVENTS } = require("../case");
   const p = PERSONAS[0];
   const prompt = personaPrompt(EVENTS.jeju2018, p);
   assert.match(prompt, /학생에게 되묻지 않는다/);
@@ -120,9 +126,9 @@ test("인물 자신에 대한 질문은 자연스럽게 답하게 하고, 아주
   assert.doesNotMatch(prompt, /한 문장으로 가볍게 넘긴다\(예: '하하, 그건 비밀이에요/, "사적 질문을 일률적으로 넘기라는 옛 규칙이 없어야 한다");
   assert.match(CHARTER.rules.join(" "), /되묻지 않는다/);
   assert.match(CHARTER.rules.join(" "), /성별, 나이, 가족, 고향/);
-  assert.match(CHARTER.scope.allowedTopics.join(" "), /성별, 나이/);
-  assert.match(CHARTER.scope.outOfScope.join(" "), /노골적인 성적·폭력적/);
-  const [sys] = guardMessages({ persona: p, claims: p.claims, studentMessage: "남자예요?", reply: "네, 남자예요." });
+  assert.match(CHARTER.common.allowedTopics.join(" "), /성별, 나이/);
+  assert.match(CHARTER.common.outOfScope.join(" "), /노골적인 성적·폭력적/);
+  const [sys] = guardMessages({ event: EVENTS.jeju2018, persona: p, claims: p.claims, studentMessage: "남자예요?", reply: "네, 남자예요." });
   assert.match(sys.content, /인물 자신에 대한 질문\(성별, 나이/);
   assert.match(sys.content, /scope: 아주 노골적인 위반만 해당한다/);
   assert.match(sys.content, /8문장을 넘겨 아주 길게/);
