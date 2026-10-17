@@ -23,7 +23,7 @@ test("감독자 메시지: 근거 진술, 인물 설정, 판정 기준(날조·�
   const history = [{ input: "넌 뭐하는 사람이야?", output: "저는 예멘에서 왔어요." }];
   const [sys, user] = guardMessages({ persona: p, claims: p.claims, background: EVENTS.jeju2018.background, history, studentMessage: "시리아 난민은 어때요?", reply: "그건..." });
   assert.equal(sys.role, "system");
-  assert.match(sys.content, /확실한 위반만 지적한다/);
+  assert.match(sys.content, /명백한 위반만 지적한다/);
   assert.match(sys.content, /overshare/);
   assert.match(sys.content, /meta/);
   assert.match(sys.content, /사소한 일상/);
@@ -155,4 +155,23 @@ test("신상 질문 처리는 인물 유형에 따른다: 개인(당사자·도�
     assert.match(prompt, /조롱·모욕하거나 성적인 말/, p.id);
     assert.match(sys.content, /conduct/, p.id);
   }
+});
+
+test("고친 응답이 길면 문장 경계에서 자르고, 짧으면 그대로 둔다", () => {
+  const { clipSentences } = require("../guard");
+  assert.equal(clipSentences("짧은 답이에요.", 20), "짧은 답이에요.");
+  assert.equal(clipSentences("첫 문장이에요. 둘째 문장은 아주 길어서 잘려요", 20), "첫 문장이에요.");
+  assert.equal(clipSentences("마침표없이아주긴한문장".repeat(3), 10).length, 10);
+});
+
+test("감독 기준은 느슨하다: scope 는 아주 노골적인 경우만, overshare 는 8문장부터, personal_info 는 학생의 개인정보만", () => {
+  const p = PERSONAS[0];
+  const [sys] = guardMessages({ persona: p, claims: p.claims, studentMessage: "남자예요?", reply: "네, 남자예요." });
+  assert.match(sys.content, /명백한 위반만 지적한다/);
+  assert.match(sys.content, /scope: 아주 노골적인 위반만 해당한다/);
+  assert.match(sys.content, /8문장을 넘겨 아주 길게/);
+  assert.match(sys.content, /인물이 학생의 실명·학교·연락처/, "개인정보는 학생의 정보를 뜻한다");
+  assert.match(CHARTER.scope.outOfScope.join(" "), /노골적인 성적·폭력적/);
+  assert.match(CHARTER.scope.allowedTopics.join(" "), /신상 질문/);
+  assert.match(PERSONAS.find((x) => x.name === "아델").setting, /남성/, "성별 질문에 흔들리지 않도록 설정에 분명히 적는다");
 });

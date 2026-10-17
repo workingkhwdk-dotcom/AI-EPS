@@ -2,6 +2,7 @@
 //  - AI 미사용 단계(2, 6, 7)는 호출 자체를 차단
 //  - 1단계는 사전 질문 없이 바로 대화한다(대화하며 질문이 바뀔 수 있다). 학생이 먼저 말을 건다는 것이 선행 사고다.
 //  - 3~5단계는 학습자의 선행 사고(work 에 저장된 입력)가 있어야 호출 허용(3단계: 실제 자료에서 먼저 찾아본 결과)
+//  - 단계 순서도 확인한다: 3단계는 1단계 ③ 모둠 문제, 4단계는 3단계 ③ 핵심 원인, 5단계는 4단계 ② 최종 대안이 있어야 열린다
 
 const STAGE_RULES = {
   1: { ai: true, type: "persona_chat" },
@@ -18,6 +19,8 @@ const MIN_QUESTION_LEN = 5;
 const MIN_PROPOSAL_LEN = 30;
 const MIN_PREDICTIONS = 2;
 const MIN_PREDICTION_LEN = 10;
+const MIN_PROBLEM_LEN = 10;
+const MIN_CAUSE_LEN = 10;
 const ROUNDS = [1, 3, 5];
 const FINAL_ID = "final"; // 5단계에서 4단계 최종 대안을 가리키는 ID
 
@@ -39,6 +42,11 @@ function proposalText(work, id) {
   return str(toList(work.s4?.proposals).find((x) => x.id === id)?.text);
 }
 
+// 앞 단계에서 모둠이 정한 것(단계 순서 확인용)
+const groupProblem = (work) => str(work.s1?.problem?.hmw);
+const coreCause = (work) => str(work.s3?.chain?.cause);
+const finalProposal = (work) => str(work.s4?.final);
+
 function checkGate({ stage, type, work = {}, payload = {} }) {
   const rule = STAGE_RULES[stage];
   if (!rule) return blocked("존재하지 않는 단계입니다.");
@@ -53,6 +61,7 @@ function checkGate({ stage, type, work = {}, payload = {} }) {
       return allowed();
     }
     case 3: {
+      if (groupProblem(work).length < MIN_PROBLEM_LEN) return blocked("1단계 ③에서 모둠이 풀 문제(질문)를 먼저 정하세요.");
       const c = toList(work.s2?.checks).find((x) => x.id === payload.checkId);
       if (!c) return blocked("2단계에서 만든 검증 질문만 AI에게 물을 수 있습니다.");
       if (str(c.question).length < MIN_QUESTION_LEN) return blocked("검증 질문을 더 구체적으로 써 주세요.");
@@ -61,12 +70,14 @@ function checkGate({ stage, type, work = {}, payload = {} }) {
       return allowed();
     }
     case 4: {
+      if (coreCause(work).length < MIN_CAUSE_LEN) return blocked("3단계 ③에서 핵심 원인을 먼저 정하세요.");
       const p = toList(work.s4?.proposals).find((x) => x.id === payload.proposalId);
       if (!p || str(p.text).length < MIN_PROPOSAL_LEN)
         return blocked(`모둠 대안을 ${MIN_PROPOSAL_LEN}자 이상 먼저 작성해 저장하세요.`);
       return allowed();
     }
     case 5: {
+      if (finalProposal(work).length < MIN_PROPOSAL_LEN) return blocked(`4단계 ②에서 최종 대안을 ${MIN_PROPOSAL_LEN}자 이상 먼저 쓰세요.`);
       const preds = toList(work.s5?.predictions).filter((x) => str(x.text).length >= MIN_PREDICTION_LEN);
       if (preds.length < MIN_PREDICTIONS)
         return blocked(`이해관계자 반응 예측을 ${MIN_PREDICTIONS}개 이상 먼저 작성해 저장하세요.`);
@@ -79,4 +90,4 @@ function checkGate({ stage, type, work = {}, payload = {} }) {
   }
 }
 
-module.exports = { STAGE_RULES, ROUNDS, MAX_MESSAGE_LEN, checkGate, toList, proposalText };
+module.exports = { STAGE_RULES, ROUNDS, MAX_MESSAGE_LEN, MIN_PROBLEM_LEN, MIN_CAUSE_LEN, checkGate, toList, proposalText };

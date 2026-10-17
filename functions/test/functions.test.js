@@ -30,13 +30,18 @@ const docRef = (path) => ({
   async delete() { store.delete(path); },
   collection: (name) => collRef(`${path}/${name}`),
 });
-const collRef = (path, filters = []) => ({
+// 저장 순서를 시간 순서로 본다(가짜 serverTimestamp 는 모두 같은 값이라)
+const collRef = (path, filters = [], order = null, lim = null) => ({
   doc: (id) => docRef(`${path}/${id || "auto" + ++autoId}`),
-  where: (f, _op, val) => collRef(path, [...filters, [f, val]]),
+  where: (f, _op, val) => collRef(path, [...filters, [f, val]], order, lim),
+  orderBy: (_f, dir = "asc") => collRef(path, filters, dir, lim),
+  limit: (n) => collRef(path, filters, order, n),
   async get() {
-    const docs = [...store.entries()].filter(([k]) => k.startsWith(path + "/") && !k.slice(path.length + 1).includes("/"))
+    let docs = [...store.entries()].filter(([k]) => k.startsWith(path + "/") && !k.slice(path.length + 1).includes("/"))
       .filter(([, v]) => filters.every(([f, val]) => v[f] === val))
       .map(([k, v]) => ({ id: k.split("/").pop(), data: () => JSON.parse(JSON.stringify(v)) }));
+    if (order === "desc") docs.reverse();
+    if (lim) docs = docs.slice(0, lim);
     return { docs };
   },
 });
@@ -112,7 +117,7 @@ global.fetch = async (url, init) => {
 };
 
 const api = require("../index.js");
-const teacher = { auth: { uid: "T1", token: { email: "t@school.kr" } } };
+const teacher = { auth: { uid: "T1", token: { email: "t@school.kr", email_verified: true } } };
 const student = (uid) => ({ auth: { uid, token: {} } });
 let code;
 const pidOf = (c, uid) => store.get(`sessions/${c}/assign/${uid}`)?.personaId;
@@ -124,24 +129,31 @@ const setWork = (work) => store.set(`sessions/${code}/groups/g1`, { ...store.get
 test("교사: 수업 만들기 → 코드와 모둠 문서 생성", async () => {
   const { code: c } = await api.createSession({ ...teacher, data: { groupCount: 2, eventId: "bogus" } });
   code = c;
+  assert.equal(store.get(`sessions/${code}`).started, false, "만들면 대기실 상태");
+  await api.updateSession({ ...teacher, data: { code, started: true, chatLimit: 50 } }); // 이 수업의 여러 테스트가 한 학생으로 많이 묻는다(질문 횟수 제한은 아래 별도 테스트)
   assert.match(code, /^[A-Z2-9]{6}$/);
   assert.equal(store.get(`sessions/${code}`).eventId, "jeju2018");
   assert.deepEqual(Object.keys(store.get(`sessions/${code}/groups/g2`)).sort(), ["aiCount", "guardCount", "memberCount", "name", "work"]);
 });
 
 test("Firestore config/teachers 에 이메일을 넣으면 재배포 없이 교사가 되고, 관리자는 항상 교사", async () => {
-  const newTeacher = { auth: { uid: "T2", token: { email: "New.Teacher@School.kr" } } };
+  const newTeacher = { auth: { uid: "T2", token: { email: "New.Teacher@School.kr", email_verified: true } } };
   await assert.rejects(api.createSession({ ...newTeacher, data: {} }), /교사/);
   store.set("config/teachers", { emails: ["new.teacher@school.kr"] });
   assert.match((await api.createSession({ ...newTeacher, data: { groupCount: 1 } })).code, /^[A-Z2-9]{6}$/);
   store.delete("config/teachers");
   await assert.rejects(api.createSession({ ...newTeacher, data: {} }), /교사/);
-  const admin = { auth: { uid: "A1", token: { email: "working.khwdk@gmail.com" } } };
+  const admin = { auth: { uid: "A1", token: { email: "working.khwdk@gmail.com", email_verified: true } } };
   assert.match((await api.createSession({ ...admin, data: { groupCount: 1 } })).code, /^[A-Z2-9]{6}$/);
 });
 
 test("교사가 아니면 수업을 만들 수 없다", async () => {
   await assert.rejects(api.createSession({ ...student("S0"), data: {} }), /교사/);
+});
+
+test("교사 이메일이어도 인증되지 않은 이메일이면 교사가 아니다(관리자 이메일 포함)", async () => {
+  await assert.rejects(api.createSession({ auth: { uid: "X1", token: { email: "t@school.kr" } }, data: {} }), /교사/);
+  await assert.rejects(api.createSession({ auth: { uid: "X2", token: { email: "working.khwdk@gmail.com", email_verified: false } }, data: {} }), /교사/);
 });
 
 test("입장: 같은 모둠 학생들에게 축(당사자·도민·시민사회·제도)이 겹치지 않게 서로 다른 인물이 무작위 배정되고(교사 기록에만), 재입장해도 유지된다", async () => {
@@ -213,7 +225,8 @@ test("1단계 대화: 사전 질문 없이 바로 가능하고, 학생별 저장
   assert.equal(glogs("S3")[0].personaId, pidOf(code, "S3"));
   assert.equal("guard" in docs[0] || "personaId" in docs[0], false, "학생이 읽는 대화 문서에 감독자 판정·인물 정보가 있으면 안 된다");
   assert.equal(store.get(`sessions/${code}/members/S3`).aiCount, 1);
-  assert.equal(store.get(`sessions/${code}/groups/g1`).aiCount, 1);
+  assert.equal(store.get(`sessions/${code}/members/S3`).chatCount, 1, "인물 대화는 학생별로 센다");
+  assert.equal(store.get(`sessions/${code}/groups/g1`).aiCount || 0, 0, "인물 대화는 모둠 한도를 쓰지 않는다");
   assert.equal(groupLogs().length, 0, "1단계 대화는 모둠 로그에 섞이지 않는다");
 });
 
@@ -266,27 +279,51 @@ test("상위 AI 감독: 범위 이탈은 인물 말투의 안내로 대체한다
 
 test("상위 AI 감독: 감독자 응답이 깨지면 안전 쪽(안내)으로 처리한다", async () => {
   guardReply = "이건 JSON이 아님";
+  const before = store.get(`sessions/${code}/members/S3`).chatCount;
   const r = await ask("S3");
   assert.match(r.result, /말이 잘 안 나오네요/);
+  assert.equal(store.get(`sessions/${code}/members/S3`).chatCount, before, "감독자 검사가 실패해 다시 말해 달라고 한 경우는 질문 횟수에서 빠진다");
   guardReply = '{"ok":true,"category":"ok","reason":"","fixed":""}';
 });
 
+const s1Work = { problem: { hmw: "어떻게 하면 주민의 불안을 줄이면서도 신청자의 생계를 지킬 수 있을까?" } };
+const s3Work = { chain: { cause: "취업 허가가 늦어 신청자의 생계가 막혔다", evidence: "6월에 취업 허가가 났다" } };
+
 test("3단계: 2단계에서 만든 검증 질문(들은 이야기+질문)만 AI에게 물을 수 있다", async () => {
-  setWork({ s2: { checks: { c1: { heard: "일자리를 구하기 어렵대요", question: "예멘 신청자의 취업은 어떻게 제한되었나?", real: "자료: 5일 이내 단기 노무", t: 1 } } } });
+  setWork({ s1: s1Work, s2: { checks: { c1: { heard: "일자리를 구하기 어렵대요", question: "예멘 신청자의 취업은 어떻게 제한되었나?", real: "자료: 5일 이내 단기 노무", t: 1 } } } });
   await assert.rejects(
     api.aiRequest({ ...student("S3"), data: { code, stage: 3, type: "verify_query", payload: { checkId: "없음" } } }), /검증 질문/);
   calls.length = 0;
+  searchReply = "2018년 6월 법무부가 취업 허가를 내줬다."; searchSources = ["https://news.example/a"];
   const r = await api.aiRequest({ ...student("S3"), data: { code, stage: 3, type: "verify_query", payload: { checkId: "c1" } } });
+  searchReply = "NOT_FOUND"; searchSources = [];
   assert.equal(r.result, "일반적인 설명입니다.");
-  const userMsg = calls[0].body.messages[1].content;
+  const verify = calls.find((c) => c.kind === "verify");
+  const sys = verify.body.messages[0].content;
+  assert.match(sys, /\[수업 자료\][^\n]*\n- \[/, "수업 자료를 근거로 준다");
+  assert.match(sys, /법무부가 취업 허가를 내줬다/, "웹 검색 결과를 근거로 준다");
+  assert.match(sys, /원래 알고 있는 지식으로/);
+  assert.equal(calls.find((c) => c.kind === "search").body.input, "예멘 신청자의 취업은 어떻게 제한되었나?");
+  const userMsg = verify.body.messages[1].content;
   assert.match(userMsg, /일자리를 구하기 어렵대요/);
   assert.match(userMsg, /예멘 신청자의 취업은 어떻게 제한되었나/);
   assert.equal(groupLogs().filter((l) => l.stage === 3).length, 1);
   assert.equal(groupLogs().find((l) => l.stage === 3).payload.checkId, "c1");
+  assert.equal(groupLogs().find((l) => l.stage === 3).payload.sources[0].url, "https://news.example/a", "학생이 확인할 수 있게 출처를 남긴다");
+});
+
+test("단계 순서: 모둠 문제 없이는 3단계, 핵심 원인 없이는 4단계, 최종 대안 없이는 5단계 AI가 열리지 않는다", async () => {
+  const req = (stage, type, payload) => api.aiRequest({ ...student("S3"), data: { code, stage, type, payload } });
+  setWork({ s2: { checks: { c1: { heard: "x", question: "예멘 신청자의 취업은 어떻게 제한되었나?", t: 1 } } } });
+  await assert.rejects(req(3, "verify_query", { checkId: "c1" }), /모둠이 풀 문제/);
+  setWork({ s1: s1Work, s4: { proposals: { a1: { text: "가".repeat(40), t: 1 } } } });
+  await assert.rejects(req(4, "proposal_feedback", { proposalId: "a1" }), /핵심 원인/);
+  setWork({ ...sixWork(), s4: { proposals: { a1: { text: "가".repeat(40), t: 1 } } } });
+  await assert.rejects(req(5, "scenario", { proposalId: "a1", round: 1 }), /최종 대안/);
 });
 
 test("4단계: 서로 다른 관점의 독립 검토 3개를 만든다", async () => {
-  setWork({ s4: { proposals: { a1: { text: "가".repeat(40), t: 1 } } } });
+  setWork({ s1: s1Work, s3: s3Work, s4: { proposals: { a1: { text: "가".repeat(40), t: 1 } } } });
   calls.length = 0;
   const r = await api.aiRequest({ ...student("S3"), data: { code, stage: 4, type: "proposal_feedback", payload: { proposalId: "a1" } } });
   assert.equal(r.result.reviews.length, 3);
@@ -294,14 +331,16 @@ test("4단계: 서로 다른 관점의 독립 검토 3개를 만든다", async (
   const sys = calls.filter((c) => c.kind === "review").map((c) => c.body.messages[0].content);
   assert.equal(sys.length, 3);
   assert.equal(new Set(sys).size, 3, "관점마다 프롬프트가 달라야 한다");
+  assert.ok(sys.every((x) => x.includes("취업 허가가 늦어 신청자의 생계가 막혔다")), "3단계 핵심 원인을 검토자에게 준다");
   const log = groupLogs().find((l) => l.stage === 4);
   assert.equal(JSON.parse(log.output).reviews.length, 3);
 });
 
-const sixWork = () => ({
-  s4: { proposals: { a1: { text: "가".repeat(40), t: 1 } } },
+function sixWork() { return {
+  s1: s1Work, s3: s3Work,
+  s4: { proposals: { a1: { text: "가".repeat(40), t: 1 } }, final: "나".repeat(40) },
   s5: { predictions: { p1: { stakeholder: "도민", text: "가".repeat(12), t: 1 }, p2: { stakeholder: "신청자", text: "나".repeat(12), t: 2 } } },
-});
+}; }
 
 test("5단계 시뮬레이션: 첫 시도가 빈 답이면 사고량을 낮춰 다시 시도해 성공하고 작동 기제를 포함한다", async () => {
   setWork(sixWork());
@@ -315,6 +354,7 @@ test("5단계 시뮬레이션: 첫 시도가 빈 답이면 사고량을 낮춰 �
   assert.equal(sc[0].body.reasoning_effort, "medium");
   assert.equal(sc[1].body.reasoning_effort, "low");
   assert.ok(sc[0].body.max_completion_tokens >= 8000);
+  assert.match(sc[0].body.messages[0].content, /3단계에서 정한 핵심 원인\] 취업 허가가 늦어/, "핵심 원인을 시나리오에 반영한다");
 });
 
 test("5단계 시뮬레이션: 두 번 다 실패하면 오류를 돌려주고 원인을 모둠 문서에 남긴다", async () => {
@@ -330,7 +370,7 @@ test("5단계 시뮬레이션: 두 번 다 실패하면 오류를 돌려주고 �
 });
 
 test("선행 사고가 없으면 4·5단계 AI는 열리지 않고, 2·6·7단계는 항상 닫혀 있다", async () => {
-  setWork({});
+  setWork({ s3: s3Work });
   await assert.rejects(api.aiRequest({ ...student("S3"), data: { code, stage: 4, type: "proposal_feedback", payload: { proposalId: "a1" } } }), /대안/);
   await assert.rejects(api.aiRequest({ ...student("S3"), data: { code, stage: 2, type: "persona_chat", payload: { message: "x" } } }), /스스로/);
 });
@@ -350,7 +390,12 @@ test("무작위 배정: 같은 축이 다 차기 전에는 겹치지 않고, 모
 });
 
 // ---------- 학생 비밀번호 ----------
-const mk = async (groupCount = 2) => (await api.createSession({ ...teacher, data: { groupCount } })).code;
+// 대부분의 테스트는 수업이 이미 시작된 상태에서 본다(만들면 대기실 상태이므로 시작 버튼을 눌러 둔다)
+const mk = async (groupCount = 2) => {
+  const c = (await api.createSession({ ...teacher, data: { groupCount } })).code;
+  await api.updateSession({ ...teacher, data: { code: c, started: true } });
+  return c;
+};
 const join = (uid, c, nickname, password, groupNo = 1) => api.joinSession({ ...student(uid), data: { code: c, groupNo, nickname, password } });
 
 test("입장: 비밀번호가 없거나 너무 짧으면 거부한다", async () => {
@@ -445,7 +490,7 @@ test("비밀번호 도입 전에 입장한 학생: 같은 별명으로 새 비�
 test("교사: 비밀번호 초기화 → 학생이 같은 별명으로 새 비밀번호를 정해 이어서 입장한다(내 수업의 학생만)", async () => {
   const c = await mk();
   await join("A1", c, "가람", "sesame1");
-  const other = { auth: { uid: "T9", token: { email: "t@school.kr" } } };
+  const other = { auth: { uid: "T9", token: { email: "t@school.kr", email_verified: true } } };
   await assert.rejects(api.resetStudentPassword({ ...other, data: { code: c, uid: "A1" } }), /내가 만든/);
   await assert.rejects(api.resetStudentPassword({ ...student("A1"), data: { code: c, uid: "A1" } }), /교사/);
   const r = await api.resetStudentPassword({ ...teacher, data: { code: c, uid: "A1" } });
@@ -602,21 +647,41 @@ test("개인정보 표시: 전화번호·학교 이름을 쓰면 교사 기록(g
   assert.deepEqual(logs.at(-1).pii, []);
 });
 
-test("AI 한도: 모둠 한도에 도달하면 막히고, 실패한 호출은 횟수에서 빠진다", async () => {
+test("인물 대화 한도: 학생마다 수업에서 정한 횟수(기본 5번)까지만 묻고, 실패한 호출은 횟수에서 빠진다", async () => {
   const c = await mk();
+  assert.equal(store.get(`sessions/${c}`).chatLimit, 5);
   await join("A1", c, "가람", "sesame1");
-  store.set(`sessions/${c}/groups/g1`, { ...store.get(`sessions/${c}/groups/g1`), aiCount: 149 });
+  await join("A2", c, "나래", "sesame2");
   personaToolCalls = 0; personaReply = "네.";
-  await chatOnce(c, "A1", "안녕하세요");
-  assert.equal(store.get(`sessions/${c}/groups/g1`).aiCount, 150);
-  await assert.rejects(chatOnce(c, "A1", "또 질문"), /한도/);
-  assert.equal(store.get(`sessions/${c}/groups/g1`).aiCount, 150, "한도 초과 요청이 횟수를 늘리면 안 된다");
-  store.set(`sessions/${c}/groups/g1`, { ...store.get(`sessions/${c}/groups/g1`), aiCount: 10 });
+  for (let i = 0; i < 5; i++) await chatOnce(c, "A1", `질문 ${i}`);
+  await assert.rejects(chatOnce(c, "A1", "여섯째 질문"), /5번을 모두 썼어요/);
+  assert.equal(store.get(`sessions/${c}/members/A1`).chatCount, 5, "한도 초과 요청이 횟수를 늘리면 안 된다");
+  await chatOnce(c, "A2", "다른 학생은 따로 센다");
+  assert.equal(store.get(`sessions/${c}/members/A2`).chatCount, 1);
+  assert.equal(store.get(`sessions/${c}/groups/g1`).aiCount || 0, 0, "인물 대화는 모둠 AI 한도를 쓰지 않는다");
   const realFetch = global.fetch;
   global.fetch = async () => ({ ok: false, status: 500, text: async () => "boom" });
-  await assert.rejects(chatOnce(c, "A1", "실패할 질문"), /AI 응답/);
+  await assert.rejects(chatOnce(c, "A2", "실패할 질문"), /AI 응답/);
   global.fetch = realFetch;
-  assert.equal(store.get(`sessions/${c}/groups/g1`).aiCount, 10, "실패한 호출은 사용 횟수에서 뺀다");
+  assert.equal(store.get(`sessions/${c}/members/A2`).chatCount, 1, "실패한 호출은 사용 횟수에서 뺀다");
+});
+
+test("모둠 AI 한도(3~5단계): 한도에 도달하면 막히고, 실패한 호출은 횟수에서 빠진다", async () => {
+  const c = await mk();
+  await join("A1", c, "가람", "sesame1");
+  const g = () => store.get(`sessions/${c}/groups/g1`);
+  const verify = () => api.aiRequest({ ...student("A1"), data: { code: c, stage: 3, type: "verify_query", payload: { checkId: "c1" } } });
+  store.set(`sessions/${c}/groups/g1`, { ...g(), aiCount: 149, work: { s1: s1Work, s2: { checks: { c1: { heard: "x", question: "예멘 신청자는 몇 명이었나?", real: "자료에 없다", t: 1 } } } } });
+  await verify();
+  assert.equal(g().aiCount, 150);
+  await assert.rejects(verify(), /한도/);
+  assert.equal(g().aiCount, 150, "한도 초과 요청이 횟수를 늘리면 안 된다");
+  store.set(`sessions/${c}/groups/g1`, { ...g(), aiCount: 10 });
+  const realFetch = global.fetch;
+  global.fetch = async () => ({ ok: false, status: 500, text: async () => "boom" });
+  await assert.rejects(verify(), /AI 응답/);
+  global.fetch = realFetch;
+  assert.equal(g().aiCount, 10, "실패한 호출은 사용 횟수에서 뺀다");
 });
 
 // ---------- 수업 설정·복제·자동 닫힘 ----------
@@ -629,16 +694,23 @@ test("수업 설정: AI 한도·웹 검색·자동 닫힘을 교사만, 올바�
   await assert.rejects(upd({ aiLimit: 5 }), /10~500/);
   await assert.rejects(upd({ aiLimit: 9999 }), /10~500/);
   await assert.rejects(upd({ autoCloseHours: 3 }), /자동 닫힘/);
+  assert.equal(store.get(`sessions/${c}`).chatLimit, 5);
+  await upd({ chatLimit: 8 });
+  assert.equal(store.get(`sessions/${c}`).chatLimit, 8);
+  await assert.rejects(upd({ chatLimit: 0 }), /1~50/);
+  await assert.rejects(upd({ chatLimit: 51 }), /1~50/);
+  const c2 = (await api.createSession({ ...teacher, data: { groupCount: 1, chatLimit: 3 } })).code;
+  assert.equal(store.get(`sessions/${c2}`).chatLimit, 3, "수업을 만들 때 정할 수 있다");
   await assert.rejects(api.updateSession({ ...student("A1"), data: { code: c, aiLimit: 500 } }), /교사/);
 });
 
-test("수업별 AI 한도와 웹 검색 끄기가 실제로 적용된다", async () => {
+test("수업별 대화 횟수와 웹 검색 끄기가 실제로 적용된다", async () => {
   const c = await mk();
   await join("A1", c, "가람", "sesame1");
-  await api.updateSession({ ...teacher, data: { code: c, aiLimit: 10, webSearch: false } });
-  store.set(`sessions/${c}/groups/g1`, { ...store.get(`sessions/${c}/groups/g1`), aiCount: 10 });
-  await assert.rejects(chatOnce(c, "A1", "안녕하세요"), /한도/);
-  store.set(`sessions/${c}/groups/g1`, { ...store.get(`sessions/${c}/groups/g1`), aiCount: 0 });
+  await api.updateSession({ ...teacher, data: { code: c, chatLimit: 2, webSearch: false } });
+  store.set(`sessions/${c}/members/A1`, { ...store.get(`sessions/${c}/members/A1`), chatCount: 2 });
+  await assert.rejects(chatOnce(c, "A1", "안녕하세요"), /2번을 모두 썼어요/);
+  store.set(`sessions/${c}/members/A1`, { ...store.get(`sessions/${c}/members/A1`), chatCount: 0 });
   calls.length = 0; personaToolCalls = 5; personaReply = "네.";
   await chatOnce(c, "A1", "인도적 체류는 몇 명이에요?");
   personaToolCalls = 0;
@@ -653,7 +725,7 @@ test("수업 복제: 설정과 고친 자료는 가져오고 학생·기록은 �
   await join("A1", c, "가람", "sesame1");
   const cats = (await api.getMaterials({ ...teacher, data: { code: c } })).categories;
   await api.saveMaterials({ ...teacher, data: { code: c, categories: [{ ...cats[0], title: "고친 분류" }] } });
-  const other = { auth: { uid: "T9", token: { email: "t@school.kr" } } };
+  const other = { auth: { uid: "T9", token: { email: "t@school.kr", email_verified: true } } };
   await assert.rejects(api.cloneSession({ ...other, data: { code: c } }), /내가 만든/);
   const r = await api.cloneSession({ ...teacher, data: { code: c } });
   const n = store.get(`sessions/${r.code}`);
@@ -676,7 +748,20 @@ test("자동 닫힘: 마지막 접속 후 시간이 지나면 다음 입장 시�
   assert.equal(store.get(`sessions/${c}`).closed, true);
   assert.equal(store.get(`sessions/${c}`).closedAuto, true);
   await api.updateSession({ ...teacher, data: { code: c, closed: false } });
+  assert.equal(store.get(`sessions/${c}`).closedAuto, false);
   await join("B1", c, "나래", "sesame2"); // 다시 열었으므로 입장 가능
+});
+
+test("자동 닫힘: 정기 작업을 기다리지 않고, 이미 들어와 있던 학생의 AI 요청에서도 바로 닫힌다", async () => {
+  const c = await mk();
+  await api.updateSession({ ...teacher, data: { code: c, autoCloseHours: 1 } });
+  await join("A1", c, "가람", "sesame1");
+  const two = Date.now() - 2 * 3600 * 1000;
+  store.set(`sessions/${c}`, { ...store.get(`sessions/${c}`), createdAt: two, openedAt: two });
+  store.set(`sessions/${c}/members/A1`, { ...store.get(`sessions/${c}/members/A1`), lastSeen: two });
+  await assert.rejects(chatOnce(c, "A1", "안녕하세요"), /닫아 둔/);
+  assert.equal(store.get(`sessions/${c}`).closed, true);
+  assert.equal(store.get(`sessions/${c}/members/A1`).chatCount || 0, 0);
 });
 
 // ---------- 인물 편집 · 모둠 이동 · 일괄 초기화 · 점검 ----------
@@ -763,6 +848,35 @@ test("수업 전 점검: Firestore·각 모델·웹 검색 결과를 시간과 �
   await assert.rejects(api.healthCheck({ ...student("A1"), data: {} }), /교사/);
 });
 
+test("대기실: 수업을 만들면 시작 전 상태이고, 입장은 되지만 AI는 시작 전까지 막히며, 교사만 시작할 수 있다", async () => {
+  const c = (await api.createSession({ ...teacher, data: { groupCount: 1 } })).code;
+  assert.equal(store.get(`sessions/${c}`).started, false);
+  await join("W1", c, "가람", "sesame1");
+  assert.ok(store.get(`sessions/${c}/members/W1`), "대기실에서도 입장은 된다");
+  await assert.rejects(chatOnce(c, "W1", "안녕하세요"), /수업이 시작되지 않았어요/);
+  assert.equal(store.get(`sessions/${c}/members/W1`).chatCount || 0, 0, "막힌 요청은 질문 횟수를 쓰지 않는다");
+  await assert.rejects(api.updateSession({ ...student("W1"), data: { code: c, started: true } }), /교사/);
+  await api.updateSession({ ...teacher, data: { code: c, started: true } });
+  const s = store.get(`sessions/${c}`);
+  assert.equal(s.started, true);
+  assert.ok(s.startedAt && s.openedAt, "시작한 때를 기록하고 자동 닫힘 시간을 새로 센다");
+  personaToolCalls = 0; personaReply = "네.";
+  await chatOnce(c, "W1", "안녕하세요");
+  assert.equal(store.get(`sessions/${c}/members/W1`).chatCount, 1);
+});
+
+test("대기실: 예전 수업(started 값이 없음)은 시작된 것으로 보고, 복제한 수업은 다시 대기실에서 시작한다", async () => {
+  const c = await mk();
+  await join("W2", c, "나래", "sesame2");
+  const old = { ...store.get(`sessions/${c}`) }; delete old.started;
+  store.set(`sessions/${c}`, old);
+  personaToolCalls = 0; personaReply = "네.";
+  await chatOnce(c, "W2", "안녕하세요");
+  assert.equal(store.get(`sessions/${c}/members/W2`).chatCount, 1);
+  const { code: copy } = await api.cloneSession({ ...teacher, data: { code: c } });
+  assert.equal(store.get(`sessions/${copy}`).started, false);
+});
+
 // ---------- 학생 대화 태도 감시 (조롱·성적 희롱) ----------
 const alerts = () => [...store.entries()].filter(([k]) => k.startsWith(`sessions/${code}/alerts/`)).map(([, v]) => v);
 
@@ -816,7 +930,7 @@ test("1단계: 경고 3번이면 대화가 멈추고, 교사만 다시 열 수 �
   assert.equal(store.get(`sessions/${code}/members/S3`).chatLocked, true);
   await assert.rejects(ask("S3", "다시 이야기해요"), /대화가 멈췄어요/);
   await assert.rejects(api.unlockChat({ ...student("S3"), data: { code, uid: "S3" } }), /교사/);
-  const other = { auth: { uid: "T9", token: { email: "t@school.kr" } } };
+  const other = { auth: { uid: "T9", token: { email: "t@school.kr", email_verified: true } } };
   await assert.rejects(api.unlockChat({ ...other, data: { code, uid: "S3" } }), /내가 만든/);
   await api.unlockChat({ ...teacher, data: { code, uid: "S3" } });
   const m = store.get(`sessions/${code}/members/S3`);

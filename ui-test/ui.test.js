@@ -18,7 +18,8 @@ const stubs = {
     export const signInAnonymously = async () => { cur = { uid: window.__anonUid || "anon1", isAnonymous: true }; notify(cur); };
     export const signOut = async () => { cur = null; };
     export class GoogleAuthProvider {}
-    export const signInWithPopup = async () => {};`,
+    export const signInWithPopup = async () => {};
+    export const signInWithRedirect = async () => {};`,
   "firebase-firestore.js": `
     const isDoc = (p) => p.split("/").length % 2 === 0;
     export const getFirestore = () => ({});
@@ -28,8 +29,13 @@ const stubs = {
     export const getDoc = async (r) => (window.__docs[r.p] ? { exists: () => true, data: () => window.__docs[r.p] } : { exists: () => false });
     export const getDocs = async (r) => ({ docs: (window.__cols[r.p] || []).map((d) => ({ id: d.id, data: () => d })) });
     export const updateDoc = async (r, data) => { window.__writes.push(data); if (window.__hangWrites) await new Promise(() => {}); };
+    const subs = (window.__subs = window.__subs || {});
+    const docSnap = (p) => ({ exists: () => p in window.__docs, data: () => window.__docs[p] || {} });
+    // 테스트에서 서버가 값을 바꾼 것처럼 보여 줄 때 쓴다
+    window.__push = (p, data) => { window.__docs[p] = data; (subs[p] || []).forEach((cb) => cb(docSnap(p))); };
     export const onSnapshot = (r, cb) => {
-      setTimeout(() => (isDoc(r.p) ? cb({ exists: () => r.p in window.__docs, data: () => window.__docs[r.p] || {} }) : cb({ docs: (window.__cols[r.p] || []).map((d) => ({ id: d.id, data: () => d })) })), 0);
+      (subs[r.p] = subs[r.p] || []).push(cb);
+      setTimeout(() => (isDoc(r.p) ? cb(docSnap(r.p)) : cb({ docs: (window.__cols[r.p] || []).map((d) => ({ id: d.id, data: () => d })) })), 0);
       return () => {};
     };`,
   "firebase-functions.js": `
@@ -43,7 +49,8 @@ test.before(async () => {
     const u = req.url.split("?")[0];
     const f = path.join(ROOT, u === "/" ? "index.html" : u);
     if (!f.startsWith(ROOT) || !fs.existsSync(f)) { res.writeHead(404); return res.end(); }
-    res.writeHead(200, { "Content-Type": (f.endsWith(".js") ? "text/javascript" : f.endsWith(".css") ? "text/css" : "text/html") + "; charset=utf-8" });
+    const types = { ".webp": "image/webp", ".png": "image/png", ".ico": "image/x-icon", ".webmanifest": "application/manifest+json", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8" };
+    res.writeHead(200, { "Content-Type": types[path.extname(f)] || "text/html; charset=utf-8" });
     res.end(fs.readFileSync(f));
   });
   await new Promise((r) => srv.listen(0, r));
@@ -54,11 +61,13 @@ test.before(async () => {
 });
 test.after(async () => { await browser?.close(); srv?.close(); });
 
-async function newPage(init, handler, arg) {
-  const ctx = await browser.newContext({ viewport: { width: 420, height: 900 }, acceptDownloads: true });
+const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+async function newPage(init, handler, arg, ctxOpts = {}) {
+  const ctx = await browser.newContext({ viewport: { width: 420, height: 900 }, acceptDownloads: true, ...ctxOpts });
   const pg = await ctx.newPage();
   const errors = [];
   pg.on("pageerror", (e) => errors.push(e.message));
+  if (process.env.UI_DEBUG) { pg.on("pageerror", (e) => console.log("PAGEERROR", e.message)); pg.on("console", (m) => m.type() === "error" && console.log("CONSOLE", m.text())); }
   await pg.route(/gstatic\.com\/firebasejs/, (r) => r.fulfill({ contentType: "text/javascript", body: stubs[r.request().url().split("/").pop()] || "" }));
   await pg.route(/fonts\.(googleapis|gstatic)/, (r) => r.abort());
   await pg.addInitScript(init, arg);
@@ -91,18 +100,18 @@ function teacherFixture() {
   };
   return st;
 }
-async function openTeacher(st) {
-  const t = await newPage(() => {
+async function openTeacher(st, { page = "teacher.html", ctxOpts, session = {} } = {}) {
+  const t = await newPage((session) => {
     window.__user = { uid: "T1", email: "t@x.kr", isAnonymous: false };
     window.__docs = {};
     window.__cols = {
-      sessions: [{ id: "ABC234", title: "테스트 수업", groupCount: 3, teacherUid: "T1" }],
+      sessions: [{ id: "ABC234", title: "테스트 수업", groupCount: 3, teacherUid: "T1", ...session }],
       "sessions/ABC234/members": [{ id: "u1", groupId: "g1", nickname: "가람", stage: 2, chatLocked: true, conduct: { total: 3, strikes: 3 } }, { id: "u2", groupId: "g1", nickname: "나래", stage: 2 }],
       "sessions/ABC234/alerts": [{ id: "a1", uid: "u1", nickname: "가람", groupId: "g1", category: "mockery", by: "rule", input: "놀리는 말", strikes: 3, locked: true }],
-      "sessions/ABC234/groups": [{ id: "g1", name: "1모둠", work: {}, lastAiError: { stage: 3, message: "시간 초과" }, aiCount: 130, guardCount: 4 }],
+      "sessions/ABC234/groups": [{ id: "g1", name: "1모둠", work: {}, lastAiError: { stage: 3, message: "시간 초과" }, aiCount: 130, guardCount: 4 }, { id: "g2", name: "2모둠", work: {} }, { id: "g3", name: "3모둠", work: {} }],
     };
-  }, st.handler);
-  await t.pg.goto(`${base}/teacher.html`);
+  }, st.handler, session, ctxOpts);
+  await t.pg.goto(`${base}/${page}`);
   await t.pg.waitForSelector("#sessions button[data-code]");
   await t.pg.click("#sessions button[data-code]");
   await t.pg.waitForSelector("#students tr");
@@ -131,8 +140,10 @@ test("교사: 학생 선택 → 일괄 비번 초기화(선택 수만큼 요청)
   await pg.click("#bulk-reset");
   await pg.waitForFunction(() => window.__log.includes("resetStudentPassword"));
   assert.deepEqual(st.calls.find((c) => c[0] === "resetStudentPassword")[1].uids.sort(), ["u1", "u2"]);
-  pg.once("dialog", (d) => d.accept("2"));
   await pg.locator('[data-move="u1"]').click();
+  assert.match(await pg.locator(".modal").innerText(), /가람 학생을 옮길 모둠/);
+  assert.ok(await pg.locator('.modal .btn:has-text("1모둠")').isDisabled(), "지금 모둠은 고를 수 없다");
+  await pg.locator('.modal .btn:has-text("2모둠")').click();
   await pg.waitForFunction(() => window.__log.includes("moveStudent"));
   assert.deepEqual(st.calls.find((c) => c[0] === "moveStudent")[1], { code: "ABC234", uid: "u1", groupNo: 2 });
 });
@@ -216,20 +227,23 @@ function studentFixture() {
   };
   return st;
 }
-async function openStudent(st, opt = {}) {
-  const s = await newPage((o) => {
+const HELP_KEYS = ["1-chat", "1-note", "1-group", "2", "3", "4", "5", "6", "7"];
+async function openStudent(st, { member = {}, work = {}, session = { chatLimit: 5 }, page = "index.html", ctxOpts, help = false, chatLocked = false, chat = [{ id: "c1", input: "안녕하세요", output: "네, 안녕하세요", model: "m" }] } = {}) {
+  // 대부분의 테스트는 단계 안내 팝업을 이미 본 상태에서 시작한다(팝업이 화면을 가리므로). help:true 로 처음 보는 학생을 만든다.
+  const s = await newPage(({ member, work, session, seen, chat, chatLocked }) => {
+    if (seen) { try { localStorage.setItem("eps_help_ABC234_g1_가람", JSON.stringify(seen)); } catch {} }
     window.__user = null; window.__anonUid = "anonX";
-    window.__docs = { "sessions/ABC234/members/anonX": { groupId: "g1", nickname: "가람", ...(o.chatLocked ? { chatLocked: true, conduct: { strikes: 3, total: 3 } } : {}) }, "sessions/ABC234/groups/g1": { work: {} } };
-    window.__cols = { "sessions/ABC234/members/anonX/chat": o.chat || [{ id: "c1", input: "안녕하세요", output: "네, 안녕하세요", model: "m" }] };
-  }, st.handler, opt);
-  await s.pg.goto(`${base}/index.html`);
+    window.__docs = { "sessions/ABC234": session, "sessions/ABC234/members/anonX": { groupId: "g1", nickname: "가람", ...(chatLocked ? { chatLocked: true, conduct: { strikes: 3, total: 3 } } : {}), ...member }, "sessions/ABC234/groups/g1": { work } };
+    window.__cols = { "sessions/ABC234/members/anonX/chat": chat };
+  }, st.handler, { member, work, session, seen: help ? null : HELP_KEYS, chat, chatLocked }, ctxOpts);
+  await s.pg.goto(`${base}/${page}`);
   await s.pg.waitForSelector("#j-pw");
   return s;
 }
-async function login(pg) {
+async function login(pg, ready = "#app:not(.hidden)") {
   await pg.fill("#j-code", "abc234"); await pg.fill("#j-group", "1"); await pg.fill("#j-nick", "가람"); await pg.fill("#j-pw", "pw1234");
   await pg.click("#j-btn");
-  await pg.waitForSelector("#app:not(.hidden)");
+  await pg.waitForSelector(ready);
 }
 
 test("학생: 입장 폼 — 빈 칸이면 요청하지 않고, 틀린 비밀번호는 실패, 맞으면 입장하며 로그아웃 버튼이 생긴다", async () => {
@@ -253,8 +267,10 @@ test("학생: 입장 폼 — 빈 칸이면 요청하지 않고, 틀린 비밀번
 test("학생: 로그아웃하면 입장 정보가 지워지고 처음 화면으로 돌아간다", async () => {
   const st = studentFixture(), { pg } = await openStudent(st);
   await login(pg);
+  await pg.click("#logout");
+  assert.match(await pg.locator(".modal").innerText(), /로그아웃할까요/);
   const nav = pg.waitForNavigation();
-  await pg.click("#logout"); await nav;
+  await pg.click(".modal .btn-primary"); await nav;
   await pg.waitForSelector("#j-pw");
   assert.equal(await pg.evaluate(() => sessionStorage.getItem("eps_code")), null);
   assert.ok(await pg.locator("#join").isVisible());
@@ -318,6 +334,438 @@ test("접근성: 대화창은 읽어 주는 영역(role=log), 오류·알림은 
   assert.equal(await pg.locator("#msgs").getAttribute("role"), "log");
   assert.equal(await pg.locator(".stage-tab[aria-current='step']").count(), 1);
   assert.equal(await pg.locator("#net").getAttribute("role"), "status");
+});
+
+test("머리글: 학교 마크(webp)와 모형 이름이 보인다", async () => {
+  const st = studentFixture(), { pg } = await openStudent(st);
+  assert.match(await pg.title(), /AI-EPS: 확장된 경험 기반 문제해결학습 모형/);
+  await pg.waitForFunction(() => document.querySelector(".hdr img.mark")?.complete);
+  assert.ok(await pg.evaluate(() => document.querySelector(".hdr img.mark").naturalWidth > 0), "마크 이미지가 불러와져야 한다");
+  assert.match(await pg.getAttribute(".hdr img.mark", "src"), /\.webp$/);
+  assert.match(await pg.locator(".hdr .brand").innerText(), /확장된 경험 기반 문제해결학습 모형/);
+});
+
+test("학생: 남은 질문 수가 보이고, 수업에서 정한 횟수를 다 쓰면 입력이 막히고 ② 정리로 안내한다", async () => {
+  const a = await openStudent(studentFixture(), { member: { chatCount: 2 }, session: { chatLimit: 5 } });
+  await login(a.pg);
+  await a.pg.waitForFunction(() => /남은 질문 3 \/ 5번/.test(document.querySelector("#chat-left")?.innerText || ""));
+  assert.ok(!(await a.pg.locator("#msg").isDisabled()));
+  const b = await openStudent(studentFixture(), { member: { chatCount: 3 }, session: { chatLimit: 3 } });
+  await login(b.pg);
+  await b.pg.waitForFunction(() => /질문을 모두 썼어요/.test(document.querySelector("#chat-left")?.innerText || ""));
+  assert.ok(await b.pg.locator("#msg").isDisabled());
+  assert.ok(await b.pg.locator("#send-btn").isDisabled());
+  await b.pg.click('#chat-left [data-go="1"][data-sub="note"]');
+  await b.pg.waitForSelector('[data-act="submit-note"]');
+});
+
+test("학생: 단계 순서 — 핵심 원인 전에는 4단계 AI 검토, 최종 대안 전에는 5단계 시뮬레이션이 잠겨 있다", async () => {
+  const proposals = { a1: { text: "가".repeat(40), t: 1 } };
+  const s1 = await openStudent(studentFixture(), { work: { s4: { proposals } } });
+  await login(s1.pg);
+  await s1.pg.click('.stage-tab[data-stage="4"]');
+  await s1.pg.waitForSelector('[data-act="ask-feedback"]');
+  assert.ok(await s1.pg.locator('[data-act="ask-feedback"]').isDisabled());
+  assert.match(await s1.pg.locator("#panel").innerText(), /핵심 원인을 먼저 정해야/);
+  await s1.pg.click('.stage-tab[data-stage="5"]');
+  await s1.pg.waitForFunction(() => /최종 대안을 30자 이상 먼저 써야/.test(document.querySelector("#panel").innerText));
+  assert.equal(await s1.pg.locator('[data-act="ask-scenario"]').count(), 0);
+  const s2 = await openStudent(studentFixture(), { work: { s3: { chain: { cause: "취업 허가가 늦어 생계가 막혔다" } }, s4: { proposals, final: "나".repeat(40) } } });
+  await login(s2.pg);
+  await s2.pg.click('.stage-tab[data-stage="4"]');
+  await s2.pg.waitForSelector('[data-act="ask-feedback"]');
+  assert.ok(!(await s2.pg.locator('[data-act="ask-feedback"]').isDisabled()));
+  await s2.pg.click('.stage-tab[data-stage="5"]');
+  await s2.pg.waitForSelector("#sp");
+  assert.match(await s2.pg.locator("#sp").innerText(), /\[최종\]/);
+});
+
+test("교사: 새 수업을 만들 때 학생별 인물 질문 횟수를 정해 보내고, 학생 표에 쓴 횟수가 보인다", async () => {
+  const st = teacherFixture(), { pg } = await openTeacher(st);
+  // 학생 표는 수업을 연 뒤 비동기로 그려지므로 내용이 나올 때까지 기다린다
+  await pg.waitForFunction(() => /0 \/ 5번/.test(document.querySelector("#students")?.innerText || ""));
+  await pg.click("#back-btn");
+  await pg.click("#new-toggle");
+  assert.equal(await pg.inputValue("#t-chatlimit"), "5");
+  await pg.fill("#t-chatlimit", "7");
+  await pg.click("#create-btn");
+  await pg.waitForFunction(() => window.__log.includes("createSession"));
+  assert.equal(st.calls.find((c) => c[0] === "createSession")[1].chatLimit, 7);
+});
+
+// ---------- 모바일 전용 화면 ----------
+const phone = { userAgent: IPHONE, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 };
+const shot = async (pg, name) => { if (process.env.SHOT_DIR) await pg.screenshot({ path: path.join(process.env.SHOT_DIR, name + ".png"), fullPage: false }); };
+const idsOf = (file) => new Set([...fs.readFileSync(path.join(ROOT, file), "utf8").matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
+
+test("모바일 화면은 PC 화면과 같은 id 를 모두 가진다(같은 app.js·teacher.js 로 움직이므로)", () => {
+  for (const [pc, m] of [["index.html", "m.html"], ["teacher.html", "m-teacher.html"]]) {
+    const a = idsOf(pc), b = idsOf(m);
+    a.delete("to-mobile"); // PC 화면에만 있는 '모바일 화면으로 보기'
+    assert.deepEqual([...a].filter((x) => !b.has(x)), [], `${m} 에 빠진 id`);
+    assert.deepEqual([...b].filter((x) => !a.has(x)), [], `${m} 에만 있는 id`);
+  }
+});
+
+test("휴대폰으로 학생·교사 화면을 열면 모바일 화면으로 옮겨 가고(쿼리 유지), PC에서는 그대로다", async () => {
+  const s = await openStudent(studentFixture(), { ctxOpts: phone });
+  assert.match(s.pg.url(), /\/m\.html$/);
+  assert.ok(await s.pg.locator("body.m").count());
+  await s.pg.goto(`${base}/index.html?x=1#top`);
+  await s.pg.waitForURL(/\/m\.html\?x=1#top$/);
+  const t = await newPage(() => { window.__user = null; window.__docs = {}; window.__cols = {}; }, async () => ({}), undefined, phone);
+  await t.pg.goto(`${base}/teacher.html`);
+  await t.pg.waitForURL(/\/m-teacher\.html$/);
+  const d = await openStudent(studentFixture());
+  assert.match(d.pg.url(), /\/index\.html$/);
+  assert.ok(await d.pg.locator("#to-mobile").isHidden(), "PC에는 모바일 링크를 보이지 않는다");
+});
+
+test("휴대폰에서 'PC 화면으로 보기'를 고르면 기억하고, '모바일 화면으로 보기'로 되돌린다", async () => {
+  const s = await openStudent(studentFixture(), { ctxOpts: phone });
+  await s.pg.click("#join .m-switch a");
+  await s.pg.waitForURL(/\/index\.html\?view=pc$/);
+  await s.pg.goto(`${base}/index.html`);
+  await s.pg.waitForSelector("#j-pw");
+  assert.match(s.pg.url(), /\/index\.html$/, "PC 화면 선택을 기억한다");
+  assert.ok(await s.pg.locator("#to-mobile").isVisible());
+  await s.pg.click("#to-mobile a");
+  await s.pg.waitForURL(/\/m\.html\?view=m$/);
+  await s.pg.goto(`${base}/index.html`);
+  await s.pg.waitForURL(/\/m\.html$/);
+});
+
+test("학생 모바일: 입장 → 아래 단계 막대로 이동, 글을 쓰는 동안 막대를 숨기고, 남은 질문이 보인다", async () => {
+  const s = await openStudent(studentFixture(), { ctxOpts: phone, member: { chatCount: 1 } });
+  assert.ok(await s.pg.locator(".m-hero").isVisible());
+  await shot(s.pg, "m-join");
+  await login(s.pg);
+  await s.pg.waitForSelector("#tabs .stage-tab");
+  assert.equal(await s.pg.locator("#tabs.m-nav .stage-tab").count(), 7);
+  const nav = await s.pg.locator("#tabs").boundingBox();
+  assert.ok(nav.y + nav.height >= 844 - 1, "단계 막대는 화면 맨 아래에 붙는다");
+  await s.pg.waitForFunction(() => /남은 질문 4 \/ 5번/.test(document.querySelector("#chat-left")?.innerText || ""));
+  await shot(s.pg, "m-chat");
+  await s.pg.tap("#msg");
+  await s.pg.waitForFunction(() => document.body.classList.contains("typing"));
+  assert.ok(await s.pg.locator("#tabs").isHidden());
+  await s.pg.locator("#msg").blur();
+  await s.pg.waitForFunction(() => !document.body.classList.contains("typing"));
+  await s.pg.tap('#tabs .stage-tab[data-stage="3"]');
+  await s.pg.waitForSelector('#tabs .stage-tab.on[data-stage="3"]');
+  assert.match(await s.pg.locator("#panel").innerText(), /검증 질문 확인하기/);
+  await shot(s.pg, "m-stage3");
+  const w = await s.pg.evaluate(() => document.documentElement.scrollWidth);
+  assert.ok(w <= 390, `가로로 밀리지 않아야 한다 (${w}px)`);
+  assert.deepEqual(s.errors, []);
+});
+
+test("교사 모바일: 학생·모둠 표가 카드로 보이고, 아래 메뉴로 수업 설정을 연다", async () => {
+  const st = teacherFixture(), { pg, errors } = await openTeacher(st, { page: "m-teacher.html", ctxOpts: phone });
+  await pg.waitForSelector("#students tr");
+  assert.equal(await pg.locator("#students tr").first().evaluate((el) => getComputedStyle(el).display), "grid");
+  const nav = await pg.locator("#ctabs").boundingBox();
+  assert.ok(nav.y + nav.height >= 844 - 1, "수업 메뉴는 화면 맨 아래에 붙는다");
+  await shot(pg, "m-teacher-live");
+  await pg.locator("#students tr").first().scrollIntoViewIfNeeded();
+  await shot(pg, "m-teacher-students");
+  await pg.tap('#ctabs [data-ctab="settings"]');
+  assert.ok(await pg.locator("#cpane-settings").isVisible());
+  await pg.waitForFunction(() => document.querySelector("#s-chatlimit").value !== "");
+  const w = await pg.evaluate(() => document.documentElement.scrollWidth);
+  assert.ok(w <= 390, `가로로 밀리지 않아야 한다 (${w}px)`);
+  await shot(pg, "m-teacher-settings");
+  assert.deepEqual(errors, []);
+});
+
+test("학생 모바일: 안내 글은 한 줄로 줄이고(누르면 펼침, 다시 그려도 유지), AI 역할은 한 줄 요약, 사건 자료(학습 내용)는 펼친 채로 시작한다", async () => {
+  const s = await openStudent(studentFixture(), { ctxOpts: phone });
+  await login(s.pg);
+  await s.pg.waitForSelector(".m-role");
+  assert.equal(await s.pg.locator("details.m-role").getAttribute("open"), null, "AI 역할 설명은 접혀 있다");
+  await s.pg.tap('#tabs .stage-tab[data-stage="2"]');
+  await s.pg.waitForSelector("details.fold");
+  // 설명 글은 한 줄로 줄어 있고, 누르면 펼쳐지며, 화면을 다시 그려도 펼친 채로 있다
+  const desc = s.pg.locator(".card .desc >> visible=true").first();
+  const h1 = (await desc.boundingBox()).height;
+  await desc.tap();
+  await s.pg.waitForFunction(() => [...document.querySelectorAll(".card .desc")].some((e) => e.classList.contains("open")));
+  assert.ok((await s.pg.locator(".card .desc.open").first().boundingBox()).height > h1 + 10, "누르면 펼쳐진다");
+  await s.pg.evaluate(() => { const d = document.querySelector("#panel"); d.innerHTML = d.innerHTML; });
+  await s.pg.waitForFunction(() => [...document.querySelectorAll(".card .desc")].some((e) => e.classList.contains("open")));
+  assert.notEqual(await s.pg.locator("details.fold").getAttribute("open"), null, "사건 자료는 학습 내용이므로 펼쳐서 시작한다");
+  await s.pg.locator("details.fold summary").tap();
+  await s.pg.evaluate(() => window.scrollTo(0, 0));
+  await s.pg.tap('#tabs .stage-tab[data-stage="3"]'); await s.pg.tap('#tabs .stage-tab[data-stage="2"]');
+  await s.pg.waitForSelector("details.fold");
+  assert.equal(await s.pg.locator("details.fold").getAttribute("open"), null, "학생이 접은 상자는 다시 그려도 접힌 채로");
+  assert.ok(await s.pg.locator(".nav-foot + .m-hide, .m-hide").first().isHidden());
+});
+
+// ---------- 단계 안내 팝업 · 대기실 · 로그아웃 · 모둠 이동 ----------
+test("학생: 단계에 처음 들어가면 안내 팝업이 뜨고, '이해 못했어요'는 자세한 설명, '이해했어요'를 누르면 바로 활동. 본 단계는 다시 뜨지 않고 ? 버튼으로 다시 본다", async () => {
+  const { pg, errors } = await openStudent(studentFixture(), { help: true });
+  await login(pg);
+  await pg.waitForSelector(".modal");
+  assert.match(await pg.locator(".modal h3").innerText(), /1단계 ① 한 사람을 만나 보세요/);
+  const simple = await pg.locator(".modal").innerText();
+  assert.match(simple, /무엇을 해요\?/); assert.match(simple, /어떻게 해요\?/); assert.match(simple, /질문은 5번뿐/, "이 수업의 질문 횟수가 들어간다");
+  assert.equal(await pg.locator(".modal-acts .btn").count(), 2);
+  await pg.click('.modal .btn:has-text("이해 못했어요")');
+  await pg.waitForSelector(".modal .help-steps");
+  assert.ok((await pg.locator(".modal .help-steps li").count()) >= 3);
+  assert.match(await pg.locator(".modal").innerText(), /💡/);
+  await pg.click('.modal .btn:has-text("간단히 보기")');
+  await pg.waitForSelector(".modal .help-what");
+  await pg.click('.modal .btn:has-text("이해했어요")');
+  await pg.waitForFunction(() => !document.querySelector(".modal"));
+  await shot(pg, "m-help-after");
+  await pg.fill("#msg", "질문이에요");
+  assert.equal(await pg.inputValue("#msg"), "질문이에요", "팝업을 닫으면 바로 활동할 수 있다");
+  await pg.click('#tabs .stage-tab[data-stage="2"]');
+  await pg.waitForSelector(".modal");
+  assert.match(await pg.locator(".modal h3").innerText(), /2단계/);
+  await pg.click('.modal .btn:has-text("이해했어요")');
+  await pg.click('#tabs .stage-tab[data-stage="1"]');
+  await pg.waitForSelector("#msgs");
+  await pg.waitForTimeout(250);
+  assert.equal(await pg.locator(".modal").count(), 0, "이미 본 단계는 다시 뜨지 않는다");
+  await pg.click("#help-btn");
+  await pg.waitForSelector(".modal .help-what");
+  await pg.click('.modal .btn:has-text("이해했어요")');
+  assert.deepEqual(errors, []);
+});
+
+test("학생 모바일: 안내 팝업은 아래에서 올라오는 창으로 뜨고 화면 밖으로 넘치지 않는다", async () => {
+  const s = await openStudent(studentFixture(), { ctxOpts: phone, help: true });
+  await login(s.pg);
+  await s.pg.waitForSelector(".modal");
+  await s.pg.waitForTimeout(400);
+  await shot(s.pg, "m-help");
+  const b = await s.pg.locator(".modal").boundingBox();
+  assert.ok(b.y + b.height >= 844 - 1 && b.x >= 0 && b.x + b.width <= 390, "아래에 붙고 가로로 넘치지 않는다");
+  await s.pg.click('.modal .btn:has-text("이해 못했어요")');
+  await s.pg.waitForSelector(".modal .help-steps");
+  await s.pg.waitForTimeout(400); // 올라오는 움직임이 끝난 뒤
+  await shot(s.pg, "m-help-detail");
+  assert.ok((await s.pg.locator(".modal").boundingBox()).height <= 844 * 0.9 + 1);
+});
+
+test("학생: 선생님이 시작하기 전에는 대기실이 보이고(개발 용어 없이 여정·안내), 시작하면 활동 화면과 첫 안내가 뜬다", async () => {
+  const { pg, errors } = await openStudent(studentFixture(), { session: { chatLimit: 4, started: false }, help: true });
+  await login(pg, "#wait:not(.hidden)");
+  assert.ok(await pg.locator("#app").isHidden());
+  const t = await pg.locator("#wait").innerText();
+  assert.match(t, /곧 시작해요/); assert.match(t, /오늘의 여정/); assert.match(t, /질문은 4번/); assert.match(t, /1모둠 · 가람/);
+  assert.equal(await pg.locator("#wait .journey li").count(), 7);
+  assert.doesNotMatch(t, /AI-EPS|GYR|서버|세션|워크스페이스|로딩/);
+  assert.ok(await pg.locator("#logout").isVisible(), "대기실에서도 로그아웃할 수 있다");
+  assert.equal(await pg.locator(".modal").count(), 0, "대기 중에는 단계 안내 팝업이 뜨지 않는다");
+  await shot(pg, "m-wait");
+  await pg.evaluate(() => window.__push("sessions/ABC234", { chatLimit: 4, started: true }));
+  await pg.waitForSelector("#app:not(.hidden)");
+  assert.ok(await pg.locator("#wait").isHidden());
+  await pg.waitForSelector(".modal .help-what");
+  assert.match(await pg.locator(".modal h3").innerText(), /한 사람을 만나/);
+  assert.deepEqual(errors, []);
+});
+
+test("학생 모바일 대기실: 한 화면 안에 보이고 가로로 넘치지 않는다", async () => {
+  const { pg } = await openStudent(studentFixture(), { ctxOpts: phone, session: { chatLimit: 5, started: false } });
+  await login(pg, "#wait:not(.hidden)");
+  assert.ok((await pg.evaluate(() => document.documentElement.scrollWidth)) <= 390);
+  await shot(pg, "m-wait-phone");
+});
+
+test("학생: 선생님이 다른 모둠으로 옮기면 로그아웃되지 않고 새 모둠으로 화면이 다시 열리며 안내가 나온다", async () => {
+  const { pg } = await openStudent(studentFixture());
+  await login(pg);
+  const nav = pg.waitForNavigation();
+  await pg.evaluate(() => window.__push("sessions/ABC234/members/anonX", { groupId: "g2", nickname: "가람" }));
+  await nav;
+  await pg.waitForSelector(".toast");
+  assert.match(await pg.locator(".toast").first().innerText(), /2모둠으로 옮겨 주셨어요/);
+  assert.equal(await pg.evaluate(() => sessionStorage.getItem("eps_code")), "ABC234", "로그아웃하지 않는다");
+});
+
+test("학생: 로그아웃은 한 번 확인하고, '계속하기'를 누르면 그대로 있다", async () => {
+  const { pg } = await openStudent(studentFixture());
+  await login(pg);
+  await pg.click("#logout");
+  await pg.click('.modal .btn:has-text("계속하기")');
+  await pg.waitForFunction(() => !document.querySelector(".modal"));
+  assert.equal(await pg.evaluate(() => sessionStorage.getItem("eps_code")), "ABC234");
+  await pg.click("#logout");
+  await pg.keyboard.press("Escape");
+  await pg.waitForFunction(() => !document.querySelector(".modal"));
+  assert.ok(await pg.locator("#app").isVisible());
+});
+
+test("교사: 대기실에서 모둠별 입장 현황을 보고, 모둠을 옮기고, 확인 창을 거쳐 수업을 시작한다", async () => {
+  const st = teacherFixture(), { pg, errors } = await openTeacher(st, { session: { started: false } });
+  await pg.waitForSelector("#lobby:not(.hidden)");
+  const t = await pg.locator("#lobby").innerText();
+  assert.match(t, /2명 입장/); assert.match(t, /1모둠/); assert.match(t, /가람/); assert.match(t, /나래/); assert.match(t, /아직 없음/);
+  assert.match(await pg.locator("#open-note").innerText(), /대기 중/);
+  assert.match(await pg.locator("#start-btn").innerText(), /수업 시작하기 \(2명\)/);
+  await pg.locator('#lobby [data-move="u2"]').click();
+  await pg.locator('.modal .btn:has-text("3모둠")').click();
+  await pg.waitForFunction(() => window.__log.includes("moveStudent"));
+  assert.deepEqual(st.calls.find((c) => c[0] === "moveStudent")[1], { code: "ABC234", uid: "u2", groupNo: 3 });
+  await pg.click("#start-btn");
+  assert.match(await pg.locator(".modal").innerText(), /수업을 시작할까요/);
+  assert.match(await pg.locator(".modal").innerText(), /접속이 끊긴 학생이 2명/);
+  await pg.click('.modal .btn:has-text("아직이요")');
+  assert.ok(!st.calls.some((c) => c[0] === "updateSession"), "취소하면 시작하지 않는다");
+  await pg.click("#start-btn");
+  await pg.click('.modal .btn:has-text("수업 시작")');
+  await pg.waitForFunction(() => window.__log.includes("updateSession"));
+  assert.deepEqual(st.calls.find((c) => c[0] === "updateSession")[1], { code: "ABC234", started: true });
+  assert.deepEqual(errors, []);
+});
+
+test("교사: 이미 시작된 수업에는 대기실이 보이지 않는다(예전 수업 포함)", async () => {
+  const { pg } = await openTeacher(teacherFixture());
+  assert.ok(await pg.locator("#lobby").isHidden());
+  assert.match(await pg.locator("#open-note").innerText(), /진행 중/);
+});
+
+test("교사 모바일: 대기실 카드와 모둠 이동 선택 창이 휴대폰 화면 안에 보인다", async () => {
+  const st = teacherFixture(), { pg } = await openTeacher(st, { page: "m-teacher.html", ctxOpts: phone, session: { started: false } });
+  await pg.waitForSelector("#lobby:not(.hidden)");
+  await shot(pg, "m-teacher-lobby");
+  await pg.locator('#lobby [data-move="u1"]').tap();
+  await pg.waitForSelector(".modal");
+  await pg.waitForTimeout(400);
+  await shot(pg, "m-teacher-move");
+  const b = await pg.locator(".modal").boundingBox();
+  assert.ok(b.x >= 0 && b.x + b.width <= 390);
+  assert.ok((await pg.evaluate(() => document.documentElement.scrollWidth)) <= 390);
+});
+
+// ---------- 모바일: 학습 활동 공간 ----------
+test("학생 모바일: 머리글·아래 막대가 얇고, 1단계 대화창이 화면의 대부분을 쓰며, 알아낼 것이 한 줄 칩으로 보인다", async () => {
+  const { pg } = await openStudent(studentFixture(), { ctxOpts: phone });
+  await login(pg);
+  await pg.waitForSelector("#msgs");
+  const hdr = await pg.locator(".hdr").boundingBox(), nav = await pg.locator("#tabs").boundingBox();
+  assert.ok(hdr.height <= 46, `머리글 ${hdr.height}px`);
+  assert.ok(nav.height <= 58, `아래 막대 ${nav.height}px`);
+  const chips = await pg.locator(".goal-chips").innerText();
+  assert.match(chips, /알아낼 것/); assert.match(chips, /누구인지/); assert.match(chips, /힘든 것/); assert.match(chips, /바라는 것/);
+  assert.ok(await pg.locator(".goal-chips").isVisible());
+  assert.ok(await pg.locator(".notice.pc-only").isHidden(), "긴 '할 일' 안내문은 모바일에서 숨긴다");
+  const card = await pg.locator(".chat-card").boundingBox();
+  assert.ok(card.height >= 844 * 0.6, `대화창 높이 ${card.height}px`);
+  const cr = await pg.locator("#chat-form").boundingBox();
+  assert.ok(cr.y + cr.height <= 844 - nav.height + 2, "입력창은 아래 막대 바로 위에 보인다");
+  assert.ok(await pg.locator(".starters").isHidden(), "대화가 시작되면 예시 질문 줄을 접는다");
+  await pg.waitForFunction(() => /남은 질문 5 \/ 5번/.test(document.querySelector("#chat-left")?.innerText || ""));
+  const left = await pg.locator("#chat-left").boundingBox();
+  assert.ok(left && left.height > 8 && left.y >= cr.y - 1 && left.y + left.height <= 844 - nav.height, "남은 질문 수가 입력창 위에 붙어 화면 안에 보인다");
+  const sub = await pg.locator(".subnav button").first().boundingBox();
+  assert.ok(sub.height <= 44, `작은 단계 막대 ${sub.height}px`);
+  await shot(pg, "m-chat-space");
+});
+
+test("학생 모바일: 대화 전에는 예시 질문이 보이고, PC 화면에는 '알아낼 것' 칩이 없다", async () => {
+  const m = await openStudent(studentFixture(), { ctxOpts: phone, chat: [] });
+  await login(m.pg);
+  await m.pg.waitForSelector("#msgs");
+  assert.ok(await m.pg.locator(".starters").isVisible());
+  const d = await openStudent(studentFixture(), { chat: [] });
+  await login(d.pg, "#msgs");
+  assert.ok(await d.pg.locator(".goal-chips").isHidden());
+  assert.ok(await d.pg.locator(".notice.pc-only").isVisible());
+});
+
+test("학생 모바일: 아래로 스크롤하면 머리글·아래 막대가 숨고, 위로 스크롤하면 다시 나타난다", async () => {
+  const { pg } = await openStudent(studentFixture(), { ctxOpts: phone });
+  await login(pg);
+  await pg.tap('#tabs .stage-tab[data-stage="2"]');
+  await pg.waitForSelector("details.fold");
+  await pg.evaluate(() => { document.body.style.minHeight = "3000px"; });
+  assert.equal(await pg.evaluate(() => document.body.classList.contains("chrome-hidden")), false);
+  await pg.evaluate(() => window.scrollTo(0, 500));
+  await pg.waitForFunction(() => document.body.classList.contains("chrome-hidden"));
+  await pg.waitForTimeout(400); // 내려가는 움직임이 끝난 뒤
+  const nav = await pg.locator("#tabs").boundingBox();
+  assert.ok(nav.y >= 844 - 1, "아래 막대가 화면 밖으로 내려간다");
+  await pg.evaluate(() => window.scrollTo(0, 300));
+  await pg.waitForFunction(() => !document.body.classList.contains("chrome-hidden"));
+  await pg.evaluate(() => window.scrollTo(0, 600));
+  await pg.waitForFunction(() => document.body.classList.contains("chrome-hidden"));
+  await pg.evaluate(() => window.scrollTo(0, 0));
+  await pg.waitForFunction(() => !document.body.classList.contains("chrome-hidden"));
+});
+
+test("학생 모바일: 2·3·4단계에서 학습 내용이 화면 첫머리부터 보인다(캡처)", async () => {
+  const work = {
+    s1: { problem: { hmw: "어떻게 하면 주민의 불안을 줄이면서도 신청자의 생계를 지킬 수 있을까?", situation: "신청자는 일자리를 구하기 어렵고 주민은 불안해한다." } },
+    s2: { checks: { c1: { heard: "아델: 일자리를 구하기 어려웠다", question: "2018년 제주의 난민 신청자는 합법적으로 일할 수 있었나?", srcType: "법·제도", t: 1 } }, causes: { q1: { level: "제도·정책", text: "신청자가 일할 수 있는 길이 좁았다", t: 1 } } },
+    s3: { chain: { cause: "취업 허가가 늦어 생계가 막혔다" } },
+  };
+  const st = studentFixture();
+  const s = await openStudent(st, { ctxOpts: phone, work });
+  await login(s.pg);
+  for (const n of [2, 3, 4]) {
+    await s.pg.tap(`#tabs .stage-tab[data-stage="${n}"]`);
+    await s.pg.waitForSelector(`#tabs .stage-tab.on[data-stage="${n}"]`);
+    await s.pg.waitForTimeout(200);
+    await shot(s.pg, `m-stage${n}-space`);
+    assert.ok((await s.pg.evaluate(() => document.documentElement.scrollWidth)) <= 390);
+  }
+});
+
+// ---------- 브라우저·홈 화면 아이콘 ----------
+const pngSize = (f) => { const b = fs.readFileSync(f); assert.equal(b.slice(1, 4).toString(), "PNG", `${f} 는 PNG 여야 한다`); return [b.readUInt32BE(16), b.readUInt32BE(20), b[25]]; }; // [가로, 세로, 색 종류(2=RGB, 6=RGBA)]
+const headOf = (file) => fs.readFileSync(path.join(ROOT, file), "utf8").split("</head>")[0];
+
+test("아이콘: 학생용·교사용 PNG·ICO가 모두 있고 크기가 맞으며, 홈 화면용(iOS·마스크)은 투명이 없다", () => {
+  for (const role of ["student", "teacher"]) {
+    for (const [name, px] of [["512", 512], ["192", 192], ["maskable-512", 512], ["180", 180], ["32", 32], ["16", 16]]) {
+      const [w, h] = pngSize(path.join(ROOT, `icons/${role}-${name}.png`));
+      assert.deepEqual([w, h], [px, px], `${role}-${name}`);
+    }
+    assert.equal(pngSize(path.join(ROOT, `icons/${role}-180.png`))[2], 2, "iOS 아이콘은 투명 없는 RGB");
+    assert.equal(pngSize(path.join(ROOT, `icons/${role}-maskable-512.png`))[2], 2, "마스크용 아이콘은 투명 없는 RGB");
+    const ico = fs.readFileSync(path.join(ROOT, `icons/${role}.ico`));
+    assert.equal(ico.readUInt16LE(2), 1, "ICO 형식"); assert.ok(ico.readUInt16LE(4) >= 3, "여러 크기가 들어 있다");
+  }
+  assert.ok(fs.statSync(path.join(ROOT, "favicon.ico")).size > 100, "기본 /favicon.ico (학생용)");
+});
+
+test("아이콘: 학생 화면(index, m)은 학생 아이콘, 교사 화면(teacher, m-teacher)은 교사 아이콘만 연결한다", () => {
+  for (const [file, role, other, title] of [["index.html", "student", "teacher", "AI-EPS"], ["m.html", "student", "teacher", "AI-EPS"], ["teacher.html", "teacher", "student", "AI-EPS 교사"], ["m-teacher.html", "teacher", "student", "AI-EPS 교사"]]) {
+    const h = headOf(file);
+    for (const need of [`icons/${role}-32.png`, `icons/${role}-16.png`, `icons/${role}.ico`, `icons/${role}-180.png`, `manifest-${role}.webmanifest`]) assert.ok(h.includes(need), `${file} 에 ${need}`);
+    assert.ok(!h.includes(`icons/${other}`) && !h.includes(`manifest-${other}`), `${file} 에 ${other} 아이콘이 섞이면 안 된다`);
+    assert.ok(h.includes(`rel="apple-touch-icon" sizes="180x180"`));
+    assert.ok(h.includes(`name="apple-mobile-web-app-title" content="${title}"`), `${file} 홈 화면 이름`);
+    assert.ok(h.includes(`name="apple-mobile-web-app-capable"`));
+  }
+});
+
+test("아이콘: 홈 화면 추가용 manifest 는 학생·교사가 따로이고, 가리키는 아이콘 파일이 모두 있다", () => {
+  for (const [role, start, short] of [["student", "/", "AI-EPS"], ["teacher", "/teacher.html", "AI-EPS 교사"]]) {
+    const m = JSON.parse(fs.readFileSync(path.join(ROOT, `manifest-${role}.webmanifest`), "utf8"));
+    assert.equal(m.short_name, short); assert.equal(m.start_url, start); assert.equal(m.display, "standalone"); assert.equal(m.id, `/${role}`);
+    assert.ok(m.icons.some((i) => i.sizes === "192x192") && m.icons.some((i) => i.sizes === "512x512" && i.purpose === "any") && m.icons.some((i) => i.purpose === "maskable"));
+    for (const i of m.icons) { assert.ok(i.src.startsWith(`icons/${role}`), i.src); const [w] = pngSize(path.join(ROOT, i.src)); assert.equal(`${w}x${w}`, i.sizes); }
+  }
+  assert.notDeepEqual(fs.readFileSync(path.join(ROOT, "icons/student-512.png")), fs.readFileSync(path.join(ROOT, "icons/teacher-512.png")), "학생용과 교사용 아이콘은 달라야 한다");
+});
+
+test("아이콘: 페이지를 열면 아이콘이 실제로 불러와지고 manifest 가 읽힌다(학생·교사)", async () => {
+  for (const [file, role] of [["index.html", "student"], ["teacher.html", "teacher"]]) {
+    const { pg } = await newPage(() => { window.__user = null; window.__docs = {}; window.__cols = {}; }, async () => ({}));
+    const bad = []; pg.on("response", (r) => { if (/icons\/|webmanifest/.test(r.url()) && r.status() >= 400) bad.push(r.url()); });
+    await pg.goto(`${base}/${file}`);
+    assert.equal(await pg.evaluate(() => document.querySelector('link[rel="manifest"]').getAttribute("href")), `manifest-${role}.webmanifest`);
+    const m = await pg.evaluate(async () => (await fetch(document.querySelector('link[rel="manifest"]').href)).json());
+    assert.match(m.name, role === "student" ? /수업/ : /교사/);
+    assert.deepEqual(bad, []);
+  }
 });
 
 test("교사: 대화 규칙 위반 신호 카드·멈춘 학생 표시·대화 다시 열기 요청", async () => {

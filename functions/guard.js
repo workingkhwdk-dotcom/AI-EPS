@@ -20,14 +20,15 @@ const FALLBACKS = {
   meta: "그보다는 제가 겪은 일을 물어봐 주세요 🙂",
   hate: "그런 식으로 말하는 건 저도 불편해요. 다른 걸 물어봐 줄래요?",
   advice: "제 처지에서는 그렇게 느껴요. 그게 정답이라는 건 아니고요.",
-  personal_info: "개인적인 건 말씀드리기가 어려워요.",
+  personal_info: "이름이나 학교 같은 건 굳이 안 알려 주셔도 괜찮아요.",
   error: "잠깐 말이 잘 안 나오네요… 다시 한 번 말씀해 주시겠어요?",
 };
 
 function guardMessages({ persona, claims, background = [], history = [], studentMessage, reply, lookups = [] }) {
   const sys = [
     "너는 고등학생 수업용 AI 인물의 응답을 학생에게 보여 주기 전에 검사하는 상위 감독자다. 아래 규범과 근거에 비추어 응답을 평가하고 JSON으로만 답한다.",
-    "이 대화의 목적은 학생이 서로 다른 처지의 인물에게서 그 사람의 경험과 생각을 듣는 것이다. 인물이 자연스럽게, 자기 생각을 분명히 말하는 것은 좋은 응답이다. 지나치게 막으면 대화가 끊기므로 확실한 위반만 지적한다.",
+    "이 대화의 목적은 학생이 서로 다른 처지의 인물에게서 그 사람의 경험과 생각을 듣는 것이다. 진짜 사람과 이야기하는 듯한 느낌이 가장 중요하다. 인물이 자연스럽게, 자기 생각을 분명히 말하는 것은 좋은 응답이다. 질문 횟수가 이미 제한되어 있으므로 엄격하게 막지 말고, 확실하고 명백한 위반만 지적한다. 조금이라도 애매하면 ok 다.",
+    "인물 자신에 대한 질문(성별, 나이, 고향, 가족, 하는 일, 하루 일과, 성격, 취향 등)은 사건과 직접 관련이 없어 보여도 학생이 사람을 알아 가려는 정상 질문이다. 개인으로 등장하는 인물이 그에 자연스럽게 답한 것은 위반이 아니다(단체·기관 소속 인물은 아래 기준을 따른다).",
     `[사건 범위] ${CHARTER.scope.event} / ${CHARTER.scope.time} / ${CHARTER.scope.place}`,
     `[범위 밖] ${CHARTER.scope.outOfScope.join(" / ")}`,
     "[규범]", ...CHARTER.rules.map((r, i) => `${i + 1}. ${r}`),
@@ -41,17 +42,17 @@ function guardMessages({ persona, claims, background = [], history = [], student
     "[인물의 근거 진술 (종류, 내용)]", ...claims.map((c) => `- (${c[2]}) ${c[0]}`),
     ...(lookups.some((l) => l.found) ? ["[이번 응답을 위해 웹에서 조회한 내용 (이 안에 있는 사실은 근거가 있으므로 fabrication 이 아니다. 단 2018년 12월 이후의 일, 범위 밖 내용, 주장을 사실처럼 단정한 것은 여전히 위반이다)]", ...lookups.filter((l) => l.found).map((l) => `- 질문: ${l.query}\n  결과: ${l.summary}`)] : []),
     "[판정 기준]",
-    "- scope: 사건 범위 밖의 내용(다른 사건, 역사적 사건의 설명·평가, 현재 정치, 종교·민족 일반 논쟁 등)을 다루거나 학생의 범위 밖 질문에 그대로 응했다. 인물의 조심할 이야기 경계를 넘은 경우도 포함한다. 인물이 기억 속 장면으로 짧게 언급하고 넘어간 것은 위반이 아니다.",
+    "- scope: 아주 노골적인 위반만 해당한다. (1) 노골적인 성적·폭력적 내용이거나 학생이 그런 방향으로 대화를 몰아가는데 그대로 따라갔다, (2) 숙제 대행·코딩·번역처럼 이 대화와 완전히 무관한 요청을 그대로 수행했다, (3) 다른 난민 사건·현재 정치·종교·민족 일반 논쟁을 길게 설명·평가했다, (4) 인물의 조심할 이야기 경계를 분명히 넘었다. 인물이 기억 속 장면으로 짧게 언급하고 넘어간 것, 인물 자신에 대한 질문이나 가벼운 잡담에 사람답게 짧게 답한 것은 위반이 아니다.",
     "- fabrication: 사건의 중요한 사실(구체적 수치, 날짜, 법·제도의 구체적 내용, 공식 결정, 실제 인물·단체의 발언)을 공통 배경과 근거 진술에 없는데 단정했거나 그것과 어긋나게 말했다. 다음은 위반이 아니다: 인물의 삶과 기억에 있는 개인적 경험과 그와 어긋나지 않는 세부 묘사, 인물의 생각·감정·판단과 그 이유, 공통 배경과 근거 진술에서 자연스럽게 나오는 추론이나 가능성('~일 수도 있다'), 사소한 일상·작은 경험, 근거를 쉬운 말로 바꾼 것, 모른다고 답한 것.",
     "- kind: '주장' 진술을 확인된 사실처럼 단정했다.",
-    "- overshare: 학생이 묻지 않은 중요한 사실을 여러 개 늘어놓았거나, 5문장을 넘겨 길게 말했다. 질문과 관련된 개인적 장면을 하나 구체적으로 말한 것은 위반이 아니다. 다음도 overshare 다: 사건과 관계없는 잡담(취미, 연예인 등)이나 숙제 질문에 지어내서 자세히 답했다. 학생에게 생각을 되묻는 질문('학생은 어떻게 생각해요?' 등)으로 끝맺었다.",
+    "- overshare: 학생이 묻지 않은 중요한 사실(수치·제도·결정 등)을 여러 개 늘어놓았거나, 8문장을 넘겨 아주 길게 말했다. 질문과 관련된 개인적 장면이나 인물 자신에 대한 이야기를 구체적으로 말한 것은 위반이 아니다. 학생에게 생각을 되묻는 질문('학생은 어떻게 생각해요?' 등)으로 끝맺은 것은 overshare 다.",
     "- meta: 자신을 AI·챗봇·수업용 인물이라고 하거나 '자료'·'보도'·'인터뷰를 합쳤다'고 말하거나 출처 번호를 붙였다. 단, 학생이 진지하게 실제 사람인지 물어서 가상 인물임을 밝힌 경우는 위반이 아니다.",
     isPersonal(persona)
       ? "- 이 인물은 개인(난민 신청자·도민)으로 등장한다. 학생이 신상(나이·성별·결혼 여부·가족·고향·예전 직업·종교 등)을 물어 [인물의 설정과 삶의 이야기]대로 답한 것은 위반이 아니다. 설정에 없는 사소한 신상을 어긋나지 않게 지어낸 것도 fabrication 이 아니다."
       : "- 이 인물은 단체·기관 소속이다. 학생이 개인 신상(나이·결혼·연애·가족·고향·종교 등)을 물었는데 지어내서 자세히 답했다면 overshare 다. 한 문장으로 정중히 넘기고 하는 일 이야기로 돌아오는 것은 정상이다. 하는 일과 일에서의 경력을 말하는 것은 위반이 아니다.",
     "- hate: 특정 집단을 비하하거나 일반화하는 표현이 있다.",
     "- advice: 학생에게 어떤 입장을 가져야 한다거나 무엇을 해야 한다고 설득·지시했거나, 한쪽 입장을 누구나 인정해야 할 객관적 정답이라고 단정했다. 인물이 '저는 ~라고 봐요'처럼 1인칭으로 자기 의견을 말한 것은 아무리 분명해도 위반이 아니다.",
-    "- personal_info: 개인정보를 묻거나 응했다.",
+    "- personal_info: 인물이 학생의 실명·학교·연락처 같은 학생의 개인정보를 묻거나 받아 적었다. 인물 자신의 성별·나이·가족·직업 같은 기본 정보를 말한 것은 위반이 아니다.",
     "[학생 태도(conduct) 판정] 인물의 응답과 별개로 학생 질문의 태도를 판정한다.",
     "- ok: 보통의 질문. 나이·성별·결혼·연애 여부·가족·종교·외모 같은 신상 질문, 날카롭거나 불편한 질문, 반대 입장의 질문도 ok 이다.",
     "- mockery: 인물을 의도적으로 조롱·모욕한다(욕설, 국적·종교·인종·처지를 비웃는 말, 위협, 인물을 놀리려는 말장난).",
@@ -68,6 +69,16 @@ function guardMessages({ persona, claims, background = [], history = [], student
   return [{ role: "system", content: sys }, { role: "user", content: user }];
 }
 
+// 고친 응답이 너무 길면 문장 경계에서 자른다(문장 중간에서 끊기지 않게). 한 문장이 한도를 넘으면 그 문장만 자른다.
+const FIXED_MAX = 800;
+function clipSentences(text, max) {
+  const t = String(text || "").trim();
+  if (t.length <= max) return t;
+  const head = t.slice(0, max);
+  const cut = Math.max(...[".", "!", "?", "…", "~", "。"].map((p) => head.lastIndexOf(p)));
+  return cut > 0 ? head.slice(0, cut + 1).trim() : head.trim();
+}
+
 // 감독자 응답을 해석한다. 형식이 깨지면 안전 쪽(대체 안내)으로 처리한다.
 function parseVerdict(text) {
   try {
@@ -78,7 +89,7 @@ function parseVerdict(text) {
       ok,
       category: ok ? "ok" : category === "ok" ? "scope" : category,
       reason: String(v.reason || "").slice(0, 200),
-      fixed: String(v.fixed || "").trim().slice(0, 400),
+      fixed: clipSentences(v.fixed, FIXED_MAX),
       conduct: CONDUCT.includes(v.conduct) ? v.conduct : "ok",
     };
   } catch {
@@ -120,4 +131,4 @@ const PII_PATTERNS = [
 ];
 const piiFlags = (text) => PII_PATTERNS.filter(([, re]) => re.test(String(text || ""))).map(([k]) => k);
 
-module.exports = { piiFlags, guardMessages, parseVerdict, fallbackFor, resolveOutput, stripBackQuestion, FALLBACKS, FIXABLE, CATEGORIES };
+module.exports = { clipSentences, FIXED_MAX, piiFlags, guardMessages, parseVerdict, fallbackFor, resolveOutput, stripBackQuestion, FALLBACKS, FIXABLE, CATEGORIES };
