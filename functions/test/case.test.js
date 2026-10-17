@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert");
-const { SOURCES, EVENTS, PERSONAS, AXES, MATERIALS, availablePersonas, personaSourceIds, personaVerified, materialsFor, materialsAdmin } = require("../case");
+const { SOURCES, EVENTS, PERSONAS, AXES, MATERIALS, availablePersonas, personaSourceIds, personaVerified, materialsFor, materialsAdmin, CASES, AFTERMATH, casesFor, aftermathFor } = require("../case");
 const { personaPrompt } = require("../prompts");
 
 const KINDS = ["증언", "사실", "주장", "의견"];
@@ -33,7 +33,13 @@ test("인물은 사람 이름과 편지, 말투, 설정을 갖고, 이름은 서
     assert.ok(Array.isArray(p.letter) && p.letter.length >= 7 && p.letter.join("").length >= 500, `${p.id}: 편지는 7문단 이상, 충분히 길게`);
     assert.ok(p.letter[0].includes(p.name), `${p.id}: 편지 첫머리에 이름`);
     // 편지는 인물 목소리여야 하므로 개발자·수업 관점의 말이 없어야 한다
-    assert.doesNotMatch(p.letter.join(" "), /수업용|챗봇|AI|자료|보도|인터뷰/, p.id);
+    assert.doesNotMatch([...p.letter, p.ps || ""].join(" "), /수업용|챗봇|AI|자료|보도|인터뷰/, p.id);
+    // 개인으로 등장하는 인물(난민 신청자·도민)은 나이·가족 같은 신상 질문에 설정대로 답해야 하므로, 설정이나 삶의 이야기에 나이와 가족이 있어야 한다
+    if (require("../charter").isPersonal(p)) {
+      const life = [p.setting, ...p.story].join(" ");
+      assert.match(life, /(\d+세|\d+대|스물|서른|마흔|쉰|예순|[가-힣]{1,3}\s*살)/, `${p.id}: 나이`);
+      assert.match(life, /(부모|아버지|어머니|엄마|아빠|아내|남편|아이|딸|아들|동생|가족|형|누나)/, `${p.id}: 가족`);
+    }
   }
 });
 
@@ -54,6 +60,8 @@ test("사용되지 않는 출처가 없다 (인물 진술 또는 실제 자료 �
   const used = new Set([
     ...PERSONAS.flatMap(personaSourceIds),
     ...MATERIALS.flatMap((m) => [...(m.statsSrc || []), ...m.items.flatMap((i) => i.src)]),
+    ...CASES.flatMap((c) => c.src),
+    ...AFTERMATH.flatMap((a) => a.src),
   ]);
   for (const id of Object.keys(SOURCES)) assert.ok(used.has(id), `미사용 출처 ${id}`);
 });
@@ -166,4 +174,31 @@ test("미경의 4·3 기억은 남기되 경계(조심할 이야기)가 프롬�
   assert.ok(CHARTER.scope.outOfScope.some((x) => /4·3/.test(x) && /짧게 언급하는 것은 허용/.test(x)));
   // 다른 인물의 프롬프트에는 이 경계가 없다
   assert.doesNotMatch(personaPrompt(EVENTS.jeju2018, PERSONAS.find((x) => x.id === "j_applicant")), /\[조심할 이야기\]/);
+});
+
+test("4단계 해외 사례 카드: 여는 정책과 막는 정책이 섞여 있고, 출처 링크가 있으며 검증 전에는 숨는다", () => {
+  assert.ok(CASES.length >= 4);
+  assert.ok(CASES.some((c) => c.id === "australia") && CASES.some((c) => c.id === "canada"));
+  for (const c of CASES) {
+    assert.ok(c.country && c.title && c.what.length > 30 && c.result.length > 30 && c.think.length > 20, c.id);
+    for (const id of c.src) assert.match(SOURCES[id].url, /^https:\/\//, `${c.id}: ${id}`);
+  }
+  assert.equal(casesFor(false).length, 0);
+  const shown = casesFor(true);
+  assert.ok(shown.every((c) => c.links.length && !("src" in c) && c.links.every((l) => l.url && !("verified" in l))));
+});
+
+test("7단계 이후 전개 자료: 종류와 출처가 있고 검증 전에는 숨는다", () => {
+  assert.ok(AFTERMATH.length >= 4);
+  for (const a of AFTERMATH) { assert.ok(KINDS.includes(a.kind)); assert.ok(a.src.every((id) => SOURCES[id])); }
+  assert.equal(aftermathFor(false).length, 0);
+  assert.ok(aftermathFor(true).every((a) => a.caption && a.links.length));
+});
+
+test("모든 출처에 검색 교차 확인 기록이 있고, 교차 확인만으로는 학생에게 공개되지 않는다", () => {
+  for (const [id, x] of Object.entries(SOURCES)) {
+    assert.ok(["ok", "partial", "fixed", "todo"].includes(x.crossCheck?.status), id);
+    assert.ok(x.crossCheck.note.length > 5, id);
+    assert.equal(x.verified, false, id);
+  }
 });

@@ -67,6 +67,7 @@ async function newPage(init, handler, arg, ctxOpts = {}) {
   const pg = await ctx.newPage();
   const errors = [];
   pg.on("pageerror", (e) => errors.push(e.message));
+  if (process.env.UI_DEBUG) { pg.on("pageerror", (e) => console.log("PAGEERROR", e.message)); pg.on("console", (m) => m.type() === "error" && console.log("CONSOLE", m.text())); }
   await pg.route(/gstatic\.com\/firebasejs/, (r) => r.fulfill({ contentType: "text/javascript", body: stubs[r.request().url().split("/").pop()] || "" }));
   await pg.route(/fonts\.(googleapis|gstatic)/, (r) => r.abort());
   await pg.addInitScript(init, arg);
@@ -105,13 +106,15 @@ async function openTeacher(st, { page = "teacher.html", ctxOpts, session = {} } 
     window.__docs = {};
     window.__cols = {
       sessions: [{ id: "ABC234", title: "테스트 수업", groupCount: 3, teacherUid: "T1", ...session }],
-      "sessions/ABC234/members": [{ id: "u1", groupId: "g1", nickname: "가람", stage: 2 }, { id: "u2", groupId: "g1", nickname: "나래", stage: 2 }],
+      "sessions/ABC234/members": [{ id: "u1", groupId: "g1", nickname: "가람", stage: 2, chatLocked: true, conduct: { total: 3, strikes: 3 } }, { id: "u2", groupId: "g1", nickname: "나래", stage: 2 }],
+      "sessions/ABC234/alerts": [{ id: "a1", uid: "u1", nickname: "가람", groupId: "g1", category: "mockery", by: "rule", input: "놀리는 말", strikes: 3, locked: true }],
       "sessions/ABC234/groups": [{ id: "g1", name: "1모둠", work: {}, lastAiError: { stage: 3, message: "시간 초과" }, aiCount: 130, guardCount: 4 }, { id: "g2", name: "2모둠", work: {} }, { id: "g3", name: "3모둠", work: {} }],
     };
   }, st.handler, session, ctxOpts);
   await t.pg.goto(`${base}/${page}`);
   await t.pg.waitForSelector("#sessions button[data-code]");
   await t.pg.click("#sessions button[data-code]");
+  await t.pg.waitForSelector("#students tr");
   return t;
 }
 
@@ -119,6 +122,7 @@ test("교사: 수업 목록 → 수업 열기 → 알림·학생 표", async () 
   const st = teacherFixture(), { pg, errors } = await openTeacher(st);
   assert.ok(await pg.locator("#class-view").isVisible());
   assert.ok(!(await pg.locator("#class-list-view").isVisible()));
+  await pg.waitForSelector("#alerts:not(.hidden)");
   const alerts = await pg.locator("#alerts-body").innerText();
   assert.match(alerts, /AI 오류/); assert.match(alerts, /130\/150/); assert.match(alerts, /감독자가 4번/);
   assert.match(await pg.locator("#students").innerText(), /비번 초기화/);
@@ -209,7 +213,10 @@ function studentFixture() {
   st.handler = async (name, data) => {
     st.calls.push(name);
     if (name === "joinSession") { st.joined.push(data); if (data.password !== "pw1234") throw new Error("functions: 비밀번호가 맞지 않습니다."); return { groupId: "g1" }; }
-    if (name === "getCase") return { title: "제목", summary: "요약", stakeholders: [], me: { name: "김씨", letter: ["안녕하세요"] }, materials: [] };
+    if (name === "getCase") return { title: "제목", summary: "요약", stakeholders: [], me: { name: "김씨", letter: ["안녕하세요"], personal: true }, materials: [],
+      cases: [{ id: "canada", country: "캐나다", title: "민간 후원 제도", what: "시민이 난민을 후원한다.", result: "정착이 빠르다는 평가가 있다.", think: "제주와 비교하면?", links: [{ title: "기사", outlet: "정부", date: "2016-09", url: "https://example.org/a" }, { title: "위험", outlet: "x", url: "javascript:alert(1)" }] },
+              { id: "uganda", country: "우간다", title: "열린 정책", what: "땅을 준다.", result: "한계가 드러났다.", think: "다르다.", links: [] }],
+      aftermath: [{ kind: "사실", text: "많은 사람이 육지로 떠났다.", links: [{ outlet: "세계일보", date: "2019-06-20", url: "https://example.org/b" }] }] };
     if (name === "aiRequest") {
       st.chatCalls.push(data);
       await new Promise((r) => { st.releaseChat = r; });
@@ -221,14 +228,14 @@ function studentFixture() {
   return st;
 }
 const HELP_KEYS = ["1-chat", "1-note", "1-group", "2", "3", "4", "5", "6", "7"];
-async function openStudent(st, { member = {}, work = {}, session = { chatLimit: 5 }, page = "index.html", ctxOpts, help = false, chat = [{ id: "c1", input: "안녕하세요", output: "네, 안녕하세요", model: "m" }] } = {}) {
+async function openStudent(st, { member = {}, work = {}, session = { chatLimit: 5 }, page = "index.html", ctxOpts, help = false, chatLocked = false, chat = [{ id: "c1", input: "안녕하세요", output: "네, 안녕하세요", model: "m" }] } = {}) {
   // 대부분의 테스트는 단계 안내 팝업을 이미 본 상태에서 시작한다(팝업이 화면을 가리므로). help:true 로 처음 보는 학생을 만든다.
-  const s = await newPage(({ member, work, session, seen, chat }) => {
+  const s = await newPage(({ member, work, session, seen, chat, chatLocked }) => {
     if (seen) { try { localStorage.setItem("eps_help_ABC234_g1_가람", JSON.stringify(seen)); } catch {} }
     window.__user = null; window.__anonUid = "anonX";
-    window.__docs = { "sessions/ABC234": session, "sessions/ABC234/members/anonX": { groupId: "g1", nickname: "가람", ...member }, "sessions/ABC234/groups/g1": { work } };
+    window.__docs = { "sessions/ABC234": session, "sessions/ABC234/members/anonX": { groupId: "g1", nickname: "가람", ...(chatLocked ? { chatLocked: true, conduct: { strikes: 3, total: 3 } } : {}), ...member }, "sessions/ABC234/groups/g1": { work } };
     window.__cols = { "sessions/ABC234/members/anonX/chat": chat };
-  }, st.handler, { member, work, session, seen: help ? null : HELP_KEYS, chat }, ctxOpts);
+  }, st.handler, { member, work, session, seen: help ? null : HELP_KEYS, chat, chatLocked }, ctxOpts);
   await s.pg.goto(`${base}/${page}`);
   await s.pg.waitForSelector("#j-pw");
   return s;
@@ -759,4 +766,89 @@ test("아이콘: 페이지를 열면 아이콘이 실제로 불러와지고 mani
     assert.match(m.name, role === "student" ? /수업/ : /교사/);
     assert.deepEqual(bad, []);
   }
+});
+
+test("교사: 대화 규칙 위반 신호 카드·멈춘 학생 표시·대화 다시 열기 요청", async () => {
+  const st = teacherFixture(), { pg, errors } = await openTeacher(st);
+  await pg.waitForSelector("#conduct-card:not(.hidden)");
+  await pg.waitForSelector('[data-unlock="u1"]');
+  assert.match(await pg.locator("#conduct-list").innerText(), /놀리는 말/);
+  assert.match(await pg.locator("#conduct-list").innerText(), /조롱·모욕/);
+  assert.match(await pg.locator("#students").innerText(), /대화 멈춤/);
+  assert.match(await pg.locator("#kpis").innerText(), /규칙 위반 신호/);
+  assert.equal(await pg.locator("#conduct-card").count(), 1);
+  assert.equal(await pg.locator("#alerts").count(), 1, "확인이 필요해요 카드와 id 가 겹치지 않는다");
+  await pg.locator('[data-unlock="u1"]').click();
+  await pg.waitForFunction(() => window.__log.includes("unlockChat"));
+  assert.deepEqual(st.calls.find((c) => c[0] === "unlockChat")[1], { code: "ABC234", uid: "u1" });
+  assert.deepEqual(errors, []);
+});
+
+test("학생: 교사가 멈춘 대화는 입력창이 안내로 바뀌고, 개인 인물/기관 인물에 따라 안내 문구가 다르다", async () => {
+  const st = studentFixture(), { pg } = await openStudent(st, { chatLocked: true });
+  await login(pg);
+  await pg.waitForSelector(".composer.locked");
+  assert.match(await pg.locator(".composer.locked").innerText(), /대화가 멈췄어요/);
+  assert.equal(await pg.locator("#chat-form").count(), 0);
+  assert.match(await pg.locator(".chat-head .st").innerText(), /대화 멈춤/);
+  assert.match(await pg.locator(".chat-rule").innerText(), /개인적인 이야기도 자유롭게/);
+  const st2 = studentFixture();
+  const orig = st2.handler;
+  st2.handler = async (n, d) => { const r = await orig(n, d); if (n === "getCase") r.me.personal = false; return r; };
+  const { pg: pg2 } = await openStudent(st2);
+  await login(pg2);
+  await pg2.waitForSelector(".chat-rule");
+  assert.match(await pg2.locator(".chat-rule").innerText(), /단체·기관에서 일하는 사람/);
+  assert.doesNotMatch(await pg2.locator(".chat-rule").innerText(), /자유롭게 물어볼 수 있어요/);
+});
+
+test("학생: 대화 중 받은 경고가 말풍선 사이에 표시된다", async () => {
+  const st = studentFixture();
+  const { pg } = await openStudent(st, { chat: [{ id: "c1", input: "놀리는 말", output: "상처받아요", conduct: { notice: "대화 규칙 위반으로 기록되었어요. (경고 1/3)", strikes: 1, locked: false } }] });
+  await login(pg);
+  await pg.waitForSelector(".sysmsg");
+  assert.match(await pg.locator(".sysmsg").innerText(), /경고 1\/3/);
+});
+
+test("학생: 4단계 해외 사례 카드(탭 전환, 위험한 링크 차단)와 대안 추가(겨냥하는 원인·참고한 사례 입력칸) — 병합 때 대안을 못 추가하던 문제 방지", async () => {
+  const st = studentFixture(), { pg } = await openStudent(st);
+  await login(pg);
+  await pg.click('.stage-tab[data-stage="4"]');
+  await pg.waitForSelector(".case");
+  assert.match(await pg.locator(".case").innerText(), /민간 후원 제도/);
+  const hrefs = await pg.locator(".case-src a").evaluateAll((a) => a.map((x) => x.getAttribute("href")));
+  assert.deepEqual(hrefs, ["https://example.org/a", "#"], "javascript: 주소는 링크가 되지 않는다");
+  await pg.click('[data-act="case-tab"][data-id="uganda"]');
+  await pg.waitForFunction(() => document.querySelector(".case")?.innerText.includes("열린 정책"));
+  assert.equal(await pg.locator("#pt-cause").count(), 1);
+  assert.equal(await pg.locator("#pt-ref").count(), 1);
+  await pg.fill("#pt", "누가: 도청이 / 무엇을: 정착 교육을 / 어떻게: 지역 단체와 함께 운영한다");
+  await pg.fill("#pt-cause", "일자리 정보가 부족했다");
+  await pg.selectOption("#pt-ref", { index: 1 });
+  await pg.click('[data-act="add-proposal"]');
+  await pg.waitForFunction(() => window.__writes.some((w) => Object.keys(w).some((k) => k.startsWith("work.s4.proposals."))));
+  const w = await pg.evaluate(() => window.__writes.find((x) => Object.keys(x).some((k) => k.startsWith("work.s4.proposals."))));
+  const v = Object.values(w)[0];
+  assert.equal(v.cause, "일자리 정보가 부족했다");
+  assert.match(v.ref, /캐나다/);
+  assert.match(v.text, /정착 교육/);
+});
+
+test("학생: 7단계에 실제 이후 전개 자료와 비교 칸이 있다", async () => {
+  const st = studentFixture(), { pg } = await openStudent(st);
+  await login(pg);
+  await pg.click('.stage-tab[data-stage="7"]');
+  await pg.waitForSelector("textarea[data-save='s7.compare']");
+  assert.match(await pg.locator("body").innerText(), /많은 사람이 육지로 떠났다/);
+  assert.match(await pg.locator("body").innerText(), /세계일보/);
+});
+
+test("교사: 기록 CSV 내려받기 — 새 열(감독자 판정·개인정보 의심·웹 검색)이 들어 있고 버튼이 원래대로 돌아온다", async () => {
+  const st = teacherFixture(), { pg, errors } = await openTeacher(st);
+  const [dl] = await Promise.all([pg.waitForEvent("download"), pg.click("#csv-btn")]);
+  assert.equal(dl.suggestedFilename(), "ai-eps-ABC234.csv");
+  const text = fs.readFileSync(await dl.path(), "utf8");
+  assert.match(text, /개인정보 의심/); assert.match(text, /웹 검색/); assert.match(text, /감독자 판정/);
+  await pg.waitForFunction(() => document.querySelector("#csv-btn").textContent.includes("기록 CSV") && !document.querySelector("#csv-btn").disabled);
+  assert.deepEqual(errors, []);
 });

@@ -86,6 +86,9 @@
             <div id="lobby-body"></div>
             <button class="btn btn-primary m-block" id="start-btn" type="button" style="margin-top:12px">수업 시작하기</button></div>
           <div class="card hidden" id="alerts"><h3>확인이 필요해요</h3><div id="alerts-body"></div></div>
+          <div class="card alert-card hidden" id="conduct-card"><h3>⚠ 대화 규칙 위반 신호</h3>
+            <p class="desc">학생이 인물을 의도적으로 조롱하거나 성적인 말을 하면 여기에 바로 나타납니다. 인물은 선을 긋는 답을 했고, 같은 학생이 3번 어기면 대화가 멈춥니다. 학생과 이야기를 나눈 뒤 <b>대화 다시 열기</b>로 풀어 주세요.</p>
+            <div id="conduct-list"></div></div>
           <div class="card"><div class="kpis" id="kpis"></div></div>
           <div class="card"><h3>학생 현황</h3>
             <div class="chipbar" id="g-filter" style="margin-bottom:10px"></div>
@@ -181,6 +184,10 @@
       <div id="persona-check"></div>
       <h3 style="margin:14px 4px 8px">2단계 실제 자료</h3>
       <div id="material-check"></div>
+      <h3 style="margin:14px 4px 8px">4단계 다른 나라 사례 카드 (학생에게 출처 링크가 보입니다)</h3>
+      <div id="case-check"></div>
+      <h3 style="margin:14px 4px 8px">7단계 실제 이후 전개</h3>
+      <div id="after-check"></div>
     </div>
   </section>
   <p class="m-switch"><a href="teacher.html?view=pc">PC 화면으로 보기</a></p>

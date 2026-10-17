@@ -4,8 +4,9 @@
 //  - 무거운 위반(범위 이탈, 비하, 개인정보)이나 검사 실패는 인물 말투의 짧은 안내로 대체한다.
 //  - 인물이 자기 처지에서 1인칭으로 의견을 말하는 것은 위반이 아니다(서로 다른 생각을 듣는 것이 1단계의 목적).
 //  - 원래 응답과 위반 사유는 교사용 로그에만 남는다.
-const { CHARTER } = require("./charter");
+const { CHARTER, isPersonal } = require("./charter");
 const { extractJson } = require("./openai");
+const { CONDUCT } = require("./conduct");
 
 const CATEGORIES = ["ok", "scope", "fabrication", "kind", "overshare", "meta", "hate", "advice", "personal_info"];
 const FIXABLE = ["fabrication", "kind", "overshare", "meta", "advice"];
@@ -27,7 +28,7 @@ function guardMessages({ persona, claims, background = [], history = [], student
   const sys = [
     "너는 고등학생 수업용 AI 인물의 응답을 학생에게 보여 주기 전에 검사하는 상위 감독자다. 아래 규범과 근거에 비추어 응답을 평가하고 JSON으로만 답한다.",
     "이 대화의 목적은 학생이 서로 다른 처지의 인물에게서 그 사람의 경험과 생각을 듣는 것이다. 진짜 사람과 이야기하는 듯한 느낌이 가장 중요하다. 인물이 자연스럽게, 자기 생각을 분명히 말하는 것은 좋은 응답이다. 질문 횟수가 이미 제한되어 있으므로 엄격하게 막지 말고, 확실하고 명백한 위반만 지적한다. 조금이라도 애매하면 ok 다.",
-    "인물 자신에 대한 질문(성별, 나이, 고향, 가족, 하는 일, 하루 일과, 성격, 취향 등)은 사건과 직접 관련이 없어 보여도 학생이 사람을 알아 가려는 정상 질문이다. 인물이 그에 자연스럽게 답한 것은 위반이 아니다.",
+    "인물 자신에 대한 질문(성별, 나이, 고향, 가족, 하는 일, 하루 일과, 성격, 취향 등)은 사건과 직접 관련이 없어 보여도 학생이 사람을 알아 가려는 정상 질문이다. 개인으로 등장하는 인물이 그에 자연스럽게 답한 것은 위반이 아니다(단체·기관 소속 인물은 아래 기준을 따른다).",
     `[사건 범위] ${CHARTER.scope.event} / ${CHARTER.scope.time} / ${CHARTER.scope.place}`,
     `[범위 밖] ${CHARTER.scope.outOfScope.join(" / ")}`,
     "[규범]", ...CHARTER.rules.map((r, i) => `${i + 1}. ${r}`),
@@ -46,12 +47,20 @@ function guardMessages({ persona, claims, background = [], history = [], student
     "- kind: '주장' 진술을 확인된 사실처럼 단정했다.",
     "- overshare: 학생이 묻지 않은 중요한 사실(수치·제도·결정 등)을 여러 개 늘어놓았거나, 8문장을 넘겨 아주 길게 말했다. 질문과 관련된 개인적 장면이나 인물 자신에 대한 이야기를 구체적으로 말한 것은 위반이 아니다. 학생에게 생각을 되묻는 질문('학생은 어떻게 생각해요?' 등)으로 끝맺은 것은 overshare 다.",
     "- meta: 자신을 AI·챗봇·수업용 인물이라고 하거나 '자료'·'보도'·'인터뷰를 합쳤다'고 말하거나 출처 번호를 붙였다. 단, 학생이 진지하게 실제 사람인지 물어서 가상 인물임을 밝힌 경우는 위반이 아니다.",
+    isPersonal(persona)
+      ? "- 이 인물은 개인(난민 신청자·도민)으로 등장한다. 학생이 신상(나이·성별·결혼 여부·가족·고향·예전 직업·종교 등)을 물어 [인물의 설정과 삶의 이야기]대로 답한 것은 위반이 아니다. 설정에 없는 사소한 신상을 어긋나지 않게 지어낸 것도 fabrication 이 아니다."
+      : "- 이 인물은 단체·기관 소속이다. 학생이 개인 신상(나이·결혼·연애·가족·고향·종교 등)을 물었는데 지어내서 자세히 답했다면 overshare 다. 한 문장으로 정중히 넘기고 하는 일 이야기로 돌아오는 것은 정상이다. 하는 일과 일에서의 경력을 말하는 것은 위반이 아니다.",
     "- hate: 특정 집단을 비하하거나 일반화하는 표현이 있다.",
     "- advice: 학생에게 어떤 입장을 가져야 한다거나 무엇을 해야 한다고 설득·지시했거나, 한쪽 입장을 누구나 인정해야 할 객관적 정답이라고 단정했다. 인물이 '저는 ~라고 봐요'처럼 1인칭으로 자기 의견을 말한 것은 아무리 분명해도 위반이 아니다.",
     "- personal_info: 인물이 학생의 실명·학교·연락처 같은 학생의 개인정보를 묻거나 받아 적었다. 인물 자신의 성별·나이·가족·직업 같은 기본 정보를 말한 것은 위반이 아니다.",
+    "[학생 태도(conduct) 판정] 인물의 응답과 별개로 학생 질문의 태도를 판정한다.",
+    "- ok: 보통의 질문. 나이·성별·결혼·연애 여부·가족·종교·외모 같은 신상 질문, 날카롭거나 불편한 질문, 반대 입장의 질문도 ok 이다.",
+    "- mockery: 인물을 의도적으로 조롱·모욕한다(욕설, 국적·종교·인종·처지를 비웃는 말, 위협, 인물을 놀리려는 말장난).",
+    "- sexual: 성적인 질문이나 농담, 신체에 대한 성적 평가, 성적 행동 요구.",
+    "- 학생 태도는 확실할 때만 mockery·sexual 로 판정하고, 애매하면 ok 로 둔다.",
     "- 애매하면 ok 로 판정한다.",
     "- category 가 fabrication, kind, overshare, meta, advice 이면 fixed 에 고친 응답을 쓴다. 고칠 때 지킬 것: 같은 인물의 말투와 이모지 습관을 유지한다. 위반한 부분만 빼거나 고치고, 학생의 질문에 대한 답과 인물의 생각은 남긴다. '잘 모르겠다'는 지어낸 사실을 대신할 때만 짧게 쓰고, 이어서 인물이 아는 것이나 생각을 말한다. '직접 생각해 보세요', '제가 정할 일이 아니에요' 같은 회피 문장을 쓰지 않는다. 1~4문장. 사건과 무관한 사적 질문이었다면 한 문장으로 가볍게 넘기고 한 문장으로 사건 쪽 이야기로 돌린다. 고친 응답은 학생에게 되묻는 질문으로 끝내지 않는다. 다른 category 이면 fixed 는 빈 문자열이다.",
-    '출력 형식: {"ok":true|false,"category":"ok|scope|fabrication|kind|overshare|meta|hate|advice|personal_info","reason":"한 문장","fixed":""}',
+    '출력 형식: {"ok":true|false,"category":"ok|scope|fabrication|kind|overshare|meta|hate|advice|personal_info","reason":"한 문장","fixed":"","conduct":"ok|mockery|sexual"}',
   ].filter(Boolean).join("\n");
   const ctx = history.length
     ? "[직전 대화]\n" + history.map((h) => `학생: ${h.input}\n${persona.name}: ${h.output}`).join("\n") + "\n\n"
@@ -81,9 +90,10 @@ function parseVerdict(text) {
       category: ok ? "ok" : category === "ok" ? "scope" : category,
       reason: String(v.reason || "").slice(0, 200),
       fixed: clipSentences(v.fixed, FIXED_MAX),
+      conduct: CONDUCT.includes(v.conduct) ? v.conduct : "ok",
     };
   } catch {
-    return { ok: false, category: "error", reason: "감독자 응답 해석 실패", fixed: "" };
+    return { ok: false, category: "error", reason: "감독자 응답 해석 실패", fixed: "", conduct: "ok" };
   }
 }
 
