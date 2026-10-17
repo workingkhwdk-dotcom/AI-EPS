@@ -1,5 +1,6 @@
 import { auth, db, call, esc, toast, errMsg } from "./fb.js";
 import { waitHtml, startWaitTicker, STEPS } from "./wait.js";
+import { showModal, confirmModal } from "./modal.js";
 startWaitTicker();
 import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { collection, query, where, orderBy, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -75,7 +76,7 @@ function listSessions(uid) {
   listUnsub = onSnapshot(query(collection(db, "sessions"), where("teacherUid", "==", uid)), (s) => {
     sessionRows = s.docs.map((d) => ({ code: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
     $("#sessions").innerHTML = sessionRows.map((r) =>
-      `<div class="cell cls"><div class="grow"><b>${esc(r.title)}</b>${r.closed ? ` <span class="tag r">닫힘</span>` : ` <span class="tag">진행 중</span>`}<br><span class="meta-line"><span class="code">${r.code}</span> · ${r.groupCount}모둠 · ${fmt(r.createdAt)}</span></div><button class="btn btn-tinted btn-sm" data-code="${r.code}">열기</button></div>`
+      `<div class="cell cls"><div class="grow"><b>${esc(r.title)}</b>${r.closed ? ` <span class="tag r">닫힘</span>` : r.started === false ? ` <span class="tag y">대기 중</span>` : ` <span class="tag">진행 중</span>`}<br><span class="meta-line"><span class="code">${r.code}</span> · ${r.groupCount}모둠 · ${fmt(r.createdAt)}</span></div><button class="btn btn-tinted btn-sm" data-code="${r.code}">열기</button></div>`
     ).join("") || `<div class="cell meta-line">아직 만든 수업이 없습니다. 위의 '＋ 새 수업 만들기'로 시작하세요.</div>`;
     if (current) {
       const cur = sessionRows.find((r) => r.code === current);
@@ -148,6 +149,7 @@ const personaLabels = {}; // 인물 ID → 교사용 역할명 (getCase 로 채�
 
 function renderDash() {
   if (!current) return;
+  renderLobby();
   renderAlerts();
   const online = members.filter(isOnline).length;
   const ai = members.reduce((n, m) => n + (m.aiCount || 0), 0); // 인물 대화 + 3~5단계
@@ -265,13 +267,7 @@ $("#bulk-reset").onclick = async () => {
 };
 $("#students").onclick = async (e) => {
   const mv = e.target.closest("[data-move]");
-  if (mv) {
-    const to = prompt(`'${mv.dataset.nick}' 학생을 몇 모둠으로 옮길까요? (현재 ${mv.dataset.g.replace("g", "")}모둠)\n인물·대화·개인 정리·비밀번호가 함께 옮겨집니다. 옮긴 뒤에는 새 모둠 번호로 입장해야 합니다.`);
-    if (to === null || !to.trim()) return;
-    try { await call("moveStudent")({ code: current, uid: mv.dataset.move, groupNo: Number(to) }); toast(`'${mv.dataset.nick}' 학생을 ${Number(to)}모둠으로 옮겼습니다.`); }
-    catch (err) { toast(errMsg(err), true); }
-    return;
-  }
+  if (mv) return moveDialog(mv.dataset.move, mv.dataset.nick, mv.dataset.g);
   const r = e.target.closest("[data-reset]");
   if (r) {
     if (!confirm(`'${r.dataset.nick}' 학생의 비밀번호를 지울까요?\n학생이 같은 별명으로 다시 입장하면서 새 비밀번호를 정합니다. 하던 내용은 그대로 이어집니다.`)) return;
@@ -638,9 +634,53 @@ function renderOpen() {
   const b = $("#open-btn");
   b.textContent = closed ? "수업 열기" : "수업 닫기";
   b.className = "btn btn-sm " + (closed ? "btn-primary" : "btn-danger");
+  const waiting = !closed && r?.started === false;
   $("#open-note").innerHTML = closed
     ? `<span class="tag r">닫힘</span> <span class="meta-line">학생은 입장할 수 없고, 들어와 있던 학생도 더 쓸 수 없습니다.</span>`
-    : `<span class="tag">진행 중</span> <span class="meta-line">수업이 끝나면 '수업 닫기'를 눌러 추가 접속을 막으세요.</span>`;
+    : waiting
+      ? `<span class="tag y">대기 중</span> <span class="meta-line">학생이 모두 들어오면 아래 '수업 시작하기'를 누르세요.</span>`
+      : `<span class="tag">진행 중</span> <span class="meta-line">수업이 끝나면 '수업 닫기'를 눌러 추가 접속을 막으세요.</span>`;
+  renderLobby();
+}
+
+// ---------- 대기실: 모두 들어왔는지 확인하고 수업 시작 ----------
+function renderLobby() {
+  const box = $("#lobby"); if (!box) return;
+  const r = curRow();
+  const waiting = !!r && r.started === false && !r.closed;
+  box.classList.toggle("hidden", !waiting);
+  if (!waiting) return;
+  const online = members.filter(isOnline).length;
+  $("#lobby-body").innerHTML = `<div class="lobby-kpi"><b>${members.length}명</b> 입장 · 접속 중 <b>${online}명</b></div>` +
+    groups.map((g) => {
+      const ms = members.filter((m) => m.groupId === g.id).sort((a, b) => (a.nickname || "").localeCompare(b.nickname || ""));
+      return `<div class="lobby-g"><div class="lobby-gh"><b>${esc(g.name)}</b> <span class="meta-line">${ms.length}명</span></div><div class="lobby-ms">${ms.length
+        ? ms.map((m) => `<span class="lobby-m"><i class="dot ${isOnline(m) ? "on" : ""}"></i>${esc(m.nickname)}<button type="button" class="lobby-mv" data-move="${esc(m.uid)}" data-nick="${esc(m.nickname)}" data-g="${esc(m.groupId)}" aria-label="${esc(m.nickname)} 학생 모둠 이동">이동</button></span>`).join("")
+        : `<span class="meta-line">아직 없음</span>`}</div></div>`;
+    }).join("");
+  $("#start-btn").textContent = members.length ? `수업 시작하기 (${members.length}명)` : "수업 시작하기";
+}
+$("#lobby").onclick = (e) => { const mv = e.target.closest("[data-move]"); if (mv) moveDialog(mv.dataset.move, mv.dataset.nick, mv.dataset.g); };
+$("#start-btn").onclick = async () => {
+  const away = members.filter((m) => !isOnline(m)).length;
+  const empty = groups.filter((g) => !members.some((m) => m.groupId === g.id)).length;
+  const warn = [!members.length && "아직 입장한 학생이 없어요.", away && `접속이 끊긴 학생이 ${away}명 있어요.`, empty && members.length && `학생이 없는 모둠이 ${empty}개 있어요.`].filter(Boolean);
+  const ok = await confirmModal("수업을 시작할까요?", `<p>시작하면 학생 화면이 바로 활동 화면으로 바뀌고, 되돌릴 수 없어요.</p>${warn.map((w) => `<p class="notice yellow">${esc(w)}</p>`).join("")}`, "수업 시작", "아직이요");
+  if (!ok) return;
+  try { await call("updateSession")({ code: current, started: true }); toast("수업을 시작했어요. 학생 화면이 바뀝니다."); }
+  catch (err) { toast(errMsg(err), true); }
+};
+
+// 학생을 다른 모둠으로 옮긴다: 모둠 중에서 고른다. 인물·대화·개인 정리·비밀번호가 함께 옮겨지고, 학생 화면은 저절로 새 모둠으로 바뀐다.
+async function moveDialog(uid, nick, fromId) {
+  const to = await showModal({
+    title: `${esc(nick)} 학생을 옮길 모둠`, dismissible: true, grid: true,
+    body: `<p class="meta-line">지금은 ${esc(String(fromId).replace("g", ""))}모둠이에요. 인물·대화·개인 정리·비밀번호가 함께 옮겨지고, 학생 화면은 새 모둠으로 저절로 바뀝니다.</p>`,
+    actions: [...groups.map((g) => ({ label: `${esc(g.name)} <small>(${members.filter((m) => m.groupId === g.id).length}명)</small>`, value: g.id, kind: g.id === fromId ? "btn-tinted" : "btn-plain", disabled: g.id === fromId })), { label: "취소", value: null }],
+  });
+  if (!to) return;
+  try { await call("moveStudent")({ code: current, uid, groupNo: parseInt(String(to).slice(1), 10) }); toast(`'${nick}' 학생을 ${to.replace("g", "")}모둠으로 옮겼습니다.`); }
+  catch (err) { toast(errMsg(err), true); }
 }
 $("#open-btn").onclick = async () => {
   const closing = !sessionRows.find((x) => x.code === current)?.closed;
@@ -673,7 +713,7 @@ function renderAlerts() {
     out.push(["r", `${m?.nickname || "학생"}: 개인정보로 보이는 입력 ${n}건 — 대화 보기에서 확인하고 안내해 주세요`]);
   }
   // 수업이 진행 중일 때(누군가 접속 중) 오래 자리를 비운 학생
-  if (!r?.closed && members.some(isOnline)) {
+  if (!r?.closed && r?.started !== false && members.some(isOnline)) {
     for (const m of members) {
       const t = m.lastSeen?.toMillis?.();
       if (t && !isOnline(m) && Date.now() - t > ALERT_AWAY_MIN * 60000 && (m.stage || 1) < 7) out.push(["x", `${m.nickname}: ${ago(m)}부터 접속이 없습니다 (${m.stage || 1}단계)`]);

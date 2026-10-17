@@ -1,5 +1,7 @@
 import { auth, db, call, esc, toast, errMsg } from "./fb.js";
 import { waitHtml, startWaitTicker, STEPS } from "./wait.js";
+import { showModal, confirmModal } from "./modal.js";
+import { HELP, helpSimple, helpDetail } from "./help.js";
 import { signInAnonymously, onAuthStateChanged, setPersistence, browserSessionPersistence, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { doc, getDoc, onSnapshot, updateDoc, collection, query, orderBy, serverTimestamp, deleteField } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
@@ -56,7 +58,7 @@ const STARTERS = ["안녕하세요, 어떤 일을 하세요?", "요즘 가장 �
 
 const S = {
   code: null, groupId: null, nick: null, uid: null, info: null, me: null,
-  work: {}, logs: [], chat: [], stage: 1, sub1: "chat", aiCount: 0, memberCount: 0, chatCount: 0, chatLimit: 5,
+  work: {}, logs: [], chat: [], stage: 1, sub1: "chat", aiCount: 0, memberCount: 0, chatCount: 0, chatLimit: 5, started: true,
   opened: {}, busy: null, waitSince: 0, chatErr: null, sending: false, pending: null, draft: "", letterClosed: false, matTab: null, proposalId: null, round: 1, scrollChat: false,
 };
 const $ = (s) => document.querySelector(s);
@@ -200,7 +202,11 @@ async function logout(msg) {
   if (msg) { try { sessionStorage.setItem("eps_notice", msg); } catch {} }
   location.reload();
 }
-$("#logout").onclick = () => logout();
+// 실수로 누르지 않도록 한 번 물어본다
+$("#logout").onclick = async () => {
+  const ok = await confirmModal("로그아웃할까요?", "<p>쓴 내용은 모두 저장돼 있어요. 같은 별명과 비밀번호로 다시 들어오면 하던 곳부터 이어서 할 수 있어요.</p><p>함께 쓰는 기기라면 끝날 때 꼭 로그아웃하세요.</p>", "로그아웃", "계속하기");
+  if (ok) logout();
+};
 
 // 오래 아무것도 안 하면 자동 로그아웃(자리를 비운 채 공용 PC를 두고 간 경우)
 const IDLE_MS = 30 * 60 * 1000;
@@ -217,19 +223,40 @@ async function enter(code) {
   S.info = (await call("getCase")({ code })).data;
   S.me = S.info.me;
   S.matTab = S.info.materials?.[0]?.id || null;
+  // 선생님이 '수업 시작'을 누르기 전(started === false)에는 대기실을 보여 준다. 값이 없는 예전 수업은 시작된 것으로 본다.
+  const ss = (await getDoc(doc(db, `sessions/${code}`))).data() || {};
+  S.started = ss.started !== false; S.chatLimit = ss.chatLimit || 5;
   $("#join").classList.add("hidden");
-  $("#app").classList.remove("hidden");
+  showArea();
+  addHelpButton();
   $("#who").textContent = `${S.groupId.replace("g", "")}모둠 · ${S.nick}`;
   $("#logout").classList.remove("hidden");
   resetIdle(); startWaitTicker(); renderNet();
   // 같은 별명으로 다른 화면에서 로그인하면 이 화면은 접근 권한을 잃는다 → 로그아웃 처리
-  const lost = (e) => { if (e?.code === "permission-denied") logout("다른 화면에서 같은 별명으로 로그인해서 이 화면은 로그아웃되었습니다."); };
+  // 선생님이 다른 모둠으로 옮겨 주면, 새 모둠으로 화면을 다시 연다(로그아웃하지 않는다)
+  const moved = (g) => { try { sessionStorage.setItem("eps_notice", `선생님이 ${String(g).replace("g", "")}모둠으로 옮겨 주셨어요.`); } catch {} location.reload(); };
+  const lost = async (e) => {
+    if (e?.code !== "permission-denied") return;
+    try { const m = await getDoc(memberRef); if (m.exists() && m.data().groupId !== S.groupId) return moved(m.data().groupId); } catch {}
+    logout("다른 화면에서 같은 별명으로 로그인해서 이 화면은 로그아웃되었습니다.");
+  };
   // 교사가 수업을 닫으면 이 화면도 로그아웃한다
   onSnapshot(doc(db, `sessions/${code}`), (s) => {
-    if (s.data()?.closed) logout("수업이 끝나 닫혔습니다. 수고했어요!");
-    S.chatLimit = s.data()?.chatLimit || 5; renderChatLeft();
+    const d = s.data() || {};
+    if (d.closed) logout("수업이 끝나 닫혔습니다. 수고했어요!");
+    S.chatLimit = d.chatLimit || 5; renderChatLeft();
+    const was = S.started; S.started = d.started !== false;
+    if (S.started !== was) {
+      showArea();
+      if (S.started) { toast("수업이 시작됐어요! 🎉"); render(true); setTimeout(() => maybeHelp(), 300); }
+      else renderWait();
+    } else if (!S.started) renderWait();
   }, lost);
-  onSnapshot(memberRef, (s) => { S.chatCount = s.data()?.chatCount || 0; renderChatLeft(); }, lost);
+  onSnapshot(memberRef, (s) => {
+    const d = s.data();
+    if (d?.groupId && d.groupId !== S.groupId) return moved(d.groupId);
+    S.chatCount = d?.chatCount || 0; renderChatLeft();
+  }, lost);
   onSnapshot(groupRef, (s) => {
     const d = s.data() || {};
     S.work = d.work || {};
@@ -246,6 +273,84 @@ async function enter(code) {
   renderTabs();
   render(true);
   startPresence();
+  maybeHelp();
+}
+
+// 대기실과 활동 화면 중 맞는 쪽만 보인다
+function showArea() {
+  $("#app").classList.toggle("hidden", !S.started);
+  $("#wait").classList.toggle("hidden", S.started);
+}
+
+// ---------- 대기실: 선생님이 시작하기 전에 보는 화면 ----------
+// 개발 용어 없이, 무엇을 하게 될지 호기심이 생길 정도로만 알려 준다(자세한 방법은 각 단계의 안내 팝업에서).
+const JOURNEY = [
+  ["한 사람을 만나요", "편지 한 통이 도착해 있어요. 누가 보냈을까요?"],
+  ["왜 이런 일이 생겼을까?", "이야기 뒤에 숨은 이유를 거꾸로 따라가 봐요."],
+  ["그 말, 정말일까?", "들은 말이 사실인지 직접 확인해 봐요."],
+  ["우리만의 해결 방법", "친구들과 머리를 맞대고 방법을 만들어요."],
+  ["몇 년 뒤에는?", "우리 아이디어가 가져올 미래를 미리 들여다봐요."],
+  ["그래서 우리는?", "실제로 할 수 있는 일을 계획해요."],
+  ["돌아보기", "무엇을 알게 됐는지 함께 나눠요."],
+];
+let waitKey = "";
+function renderWait() {
+  const box = $("#wait"); if (!box) return;
+  const gno = String(S.groupId || "").replace("g", "");
+  const n = Math.max(S.memberCount, 1);
+  const key = `${gno}|${S.nick}|${n}|${S.chatLimit}`;
+  if (key === waitKey && box.innerHTML) return;
+  waitKey = key;
+  box.innerHTML = `
+    <div class="wait-hero"><div class="wait-orb" aria-hidden="true"><i></i><i></i><i></i></div>
+      <h2>곧 시작해요</h2>
+      <p>선생님이 모두 들어왔는지 확인하고 있어요.<br>시작하면 이 화면이 저절로 바뀌어요.</p></div>
+    <div class="card wait-me"><div class="wm-top"><span class="tag">입장 완료 ✓</span> <b>${esc(gno)}모둠 · ${esc(S.nick)}</b></div>
+      <div class="meta-line">지금 우리 모둠에 <b>${n}명</b>이 들어와 있어요.</div></div>
+    <div class="card"><h3>오늘의 여정</h3>
+      <ol class="journey">${JOURNEY.map(([t, d], i) => `<li><span class="jn">${i + 1}</span><div><b>${esc(t)}</b><small>${esc(d)}</small></div></li>`).join("")}</ol></div>
+    <div class="card"><h3>시작하기 전에</h3>
+      <ul class="wait-tips">
+        <li>사람에게 물어볼 수 있는 횟수가 정해져 있어요. <b>질문은 ${S.chatLimit}번!</b> 정말 궁금한 것부터 골라서 물어보세요.</li>
+        <li>정답을 알려 주는 수업이 아니에요. 생각하고 판단하는 건 우리예요. AI는 도우미일 뿐이에요.</li>
+        <li>모둠 친구들과 이야기하며 함께 해요.</li>
+      </ul></div>
+    <p class="meta-line wait-note">다른 모둠에 잘못 들어왔다면 손을 들어 선생님께 알려 주세요.</p>`;
+}
+
+// ---------- 단계 안내 팝업 ----------
+// 단계(1단계는 작은 단계)에 처음 들어갈 때 '무엇을·어떻게'를 알려 주고, '이해했어요'를 누르면 바로 활동을 시작한다.
+// '이해 못했어요'를 누르면 더 자세한 설명을 보여 준다. 본 안내는 이 기기에 기억해 다시 띄우지 않고, 위쪽 '?' 버튼으로 언제든 다시 볼 수 있다.
+const helpKeyNow = () => (S.stage === 1 ? `1-${S.sub1}` : String(S.stage));
+const seenStore = () => `eps_help_${S.code}_${S.groupId}_${S.nick}`;
+const seenList = () => { try { return JSON.parse(localStorage.getItem(seenStore()) || "[]"); } catch { return []; } };
+const markSeen = (k) => { try { const l = seenList(); if (!l.includes(k)) localStorage.setItem(seenStore(), JSON.stringify([...l, k])); } catch {} };
+let helpBusy = false;
+async function maybeHelp(force = false) {
+  if (!S.started || !S.info || !S.me || helpBusy) return;
+  const key = helpKeyNow();
+  if (!HELP[key] || (!force && seenList().includes(key))) return;
+  helpBusy = true;
+  try {
+    for (;;) {
+      const v = await showModal({ title: esc(HELP[key].title), body: helpSimple(key, esc, S.chatLimit),
+        actions: [{ label: "이해했어요", value: "ok", kind: "btn-primary" }, { label: "이해 못했어요", value: "more" }] });
+      if (v === null) return; // 다른 창이 먼저 떠서 밀려난 경우: 본 것으로 치지 않는다
+      if (v === "ok") break;
+      const d = await showModal({ title: esc(HELP[key].title), body: helpDetail(key, esc, S.chatLimit), wide: true,
+        actions: [{ label: "이해했어요", value: "ok", kind: "btn-primary" }, { label: "← 간단히 보기", value: "back" }] });
+      if (d === null) return;
+      if (d === "ok") break;
+    }
+    markSeen(key);
+  } finally { helpBusy = false; }
+}
+function addHelpButton() {
+  if ($("#help-btn")) return;
+  const b = document.createElement("button");
+  b.id = "help-btn"; b.type = "button"; b.className = "btn-out help-btn"; b.textContent = "?"; b.setAttribute("aria-label", "이 단계 안내 다시 보기");
+  b.onclick = () => maybeHelp(true);
+  $("#logout").before(b);
 }
 
 // 새 탭·새로 연 브라우저는 항상 로그아웃 상태에서 시작한다(앞 사람의 로그인이 남아 있어도 이어받지 않는다)
@@ -276,6 +381,7 @@ function goTo(stage, sub) {
   window.scrollTo(0, 0);
   S.scrollChat = stage === 1 && S.sub1 === "chat" && S.chat.length > 0; // 대화로 돌아오면 마지막 말풍선을 보여 준다
   renderTabs(); render(true); ping();
+  maybeHelp();
 }
 $("#tabs").onclick = (e) => { const b = e.target.closest("[data-stage]"); if (b) goTo(Number(b.dataset.stage)); };
 
@@ -342,6 +448,7 @@ const isEditing = () => {
 };
 function render(force = false) {
   if (!S.info) return;
+  if (!S.started) { renderWait(); return; }
   if (!force && (isEditing() || ptrDown)) { deferred = true; syncLive(); return; }
   deferred = false;
   const html = renderStage[S.stage]() + footer();
@@ -418,9 +525,10 @@ function renderMsgs() {
 // 남은 질문 수를 보여 주고, 다 쓰면 입력을 막고 ② 정리로 안내한다
 function renderChatLeft() {
   const el = $("#chat-left"); if (!el) return;
+  $(".starters")?.classList.toggle("m-hide", S.chat.length > 0); // 모바일: 대화가 시작되면 예시 질문 줄을 접어 대화 공간을 넓힌다
   const left = chatLeft(), out = left === 0;
   el.innerHTML = out
-    ? `질문을 모두 썼어요. 들은 이야기로 정리해 보세요. <button class="link" data-go="1" data-sub="note">② 정리·제출로 가기</button>`
+    ? `질문을 모두 썼어요. 들은 이야기로 정리해 보세요. <button class="link" type="button" data-go="1" data-sub="note">② 정리·제출로 가기</button>`
     : `남은 질문 <b>${left}</b> / ${S.chatLimit}번<span class="m-hide"> · 보내기 전에 무엇을 알아낼지 먼저 생각해 보세요.</span>`;
   el.classList.toggle("out", out);
   const m = $("#msg"); if (m) { m.disabled = out; m.placeholder = out ? "질문을 모두 썼어요" : `${S.me?.name || ""}에게 메시지 보내기`; }
@@ -519,7 +627,7 @@ const renderStage = {
         : `${cur.stats ? `<div class="stats">${cur.stats.map((s, i) => `<div class="stat ${i === 2 ? "g" : i === 0 ? "" : "b"}"><b>${esc(s.value)}</b><span>${esc(s.label)}</span></div>`).join("")}</div>` : ""}
            <div class="mat">${cur.items.map(itemHtml).join("")}</div>`;
     return `${roleBox(2)}${problemBar()}
-    <details class="fold" data-keep="mat" ${IS_M ? "" : "open"}><summary>실제 사건 자료</summary><div class="inner">
+    <details class="fold" data-keep="mat" open><summary>실제 사건 자료</summary><div class="inner">
       <div class="overview"><b>${esc(S.info.title)}</b><p>${esc(S.info.summary)}</p></div>
       <p class="desc">인물에게 들은 말과 비교할 자료입니다. <span class="kind">사실</span> <span class="kind k-증언">증언</span>은 일어난 일, <span class="kind k-주장">주장</span> <span class="kind k-의견">의견</span>은 누군가의 생각입니다.</p>
       <div class="chipbar scroll">${cats.map((c) => `<button class="chip ${cur && c.id === cur.id ? "on" : ""}" data-act="mat-tab" data-id="${c.id}">${esc(c.title)}</button>`).join("")}</div>
@@ -711,13 +819,14 @@ const sub1 = {
       <summary>${esc(me.name)}에게서 편지가 왔어요</summary>
       <div class="body">${me.letter.map((p) => `<p>${esc(p)}</p>`).join("")}<div class="sign">2018년 12월, 제주에서<br>${esc(me.name)} 드림</div></div>
     </details>
-    <div class="notice muted tip"><b>할 일</b> ${esc(me.name)}에게 질문해 세 가지를 알아내세요: <b>① 누구인지 ② 무엇이 힘든지 ③ 무엇을 바라는지</b>. 질문은 <b>${S.chatLimit}번</b>만 할 수 있으니, 한 번에 무엇을 알아낼지 골라서 물어보세요. 다 알아냈으면 아래 '다음'을 누르세요.</div>
+    <div class="goal-chips m-only" aria-label="알아낼 것"><span>알아낼 것</span><b>① 누구인지</b><b>② 힘든 것</b><b>③ 바라는 것</b></div>
+    <div class="notice muted tip pc-only"><b>할 일</b> ${esc(me.name)}에게 질문해 세 가지를 알아내세요: <b>① 누구인지 ② 무엇이 힘든지 ③ 무엇을 바라는지</b>. 질문은 <b>${S.chatLimit}번</b>만 할 수 있으니, 한 번에 무엇을 알아낼지 골라서 물어보세요. 다 알아냈으면 아래 '다음'을 누르세요.</div>
     <div class="card chat-card">
       <div class="chat-head"><div class="avatar">${esc(me.name.slice(0, 1))}</div><div><div class="nm">${esc(me.name)}</div><div class="st">대화 중</div></div><button class="btn btn-plain btn-sm" style="margin-left:auto" data-act="dl-chat" aria-label="내 대화를 글 파일로 저장">대화 저장</button></div>
       <div class="msgs" id="msgs" role="log" aria-live="polite" aria-label="인물과의 대화"></div>
       <div class="starters">${STARTERS.map((q) => `<button class="chip sm" data-act="starter" data-t="${esc(q)}">${esc(q)}</button>`).join("")}</div>
-      <div class="chat-left" id="chat-left" role="status" aria-live="polite"></div>
       <form class="composer" id="chat-form" autocomplete="off">
+        <div class="chat-left" id="chat-left" role="status" aria-live="polite"></div>
         <input type="text" id="msg" maxlength="500" placeholder="${esc(me.name)}에게 메시지 보내기" />
         <button class="send" id="send-btn" type="submit" aria-label="보내기">${SEND_ICON}</button>
       </form>

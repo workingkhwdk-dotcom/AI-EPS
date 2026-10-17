@@ -23,7 +23,7 @@ test("감독자 메시지: 근거 진술, 인물 설정, 판정 기준(날조·�
   const history = [{ input: "넌 뭐하는 사람이야?", output: "저는 예멘에서 왔어요." }];
   const [sys, user] = guardMessages({ persona: p, claims: p.claims, background: EVENTS.jeju2018.background, history, studentMessage: "시리아 난민은 어때요?", reply: "그건..." });
   assert.equal(sys.role, "system");
-  assert.match(sys.content, /확실한 위반만 지적한다/);
+  assert.match(sys.content, /명백한 위반만 지적한다/);
   assert.match(sys.content, /overshare/);
   assert.match(sys.content, /meta/);
   assert.match(sys.content, /사소한 일상/);
@@ -108,18 +108,28 @@ test("마지막에 학생의 생각을 되묻는 문장은 지우고, 확인 질
   assert.equal(out.replaced, false);
 });
 
-test("사적인 질문과 되묻기 규칙이 인물 프롬프트·규범·감독자 기준에 모두 있다", () => {
+test("인물 자신에 대한 질문은 자연스럽게 답하게 하고, 아주 노골적이거나 완전히 무관한 요청만 막는다(프롬프트·규범·감독자 기준)", () => {
   const { personaPrompt } = require("../prompts");
   const { EVENTS } = require("../case");
   const p = PERSONAS[0];
   const prompt = personaPrompt(EVENTS.jeju2018, p);
   assert.match(prompt, /학생에게 되묻지 않는다/);
-  assert.match(prompt, /사적인 질문\(연애, 결혼/);
   assert.doesNotMatch(prompt, /되물어도 된다/);
+  assert.match(prompt, /남자인지 여자인지, 몇 살인지/, "성별·나이 같은 질문은 평범한 질문");
+  assert.match(prompt, /진짜 그 사람처럼 자연스럽게 답한다/);
+  assert.doesNotMatch(prompt, /한 문장으로 가볍게 넘긴다\(예: '하하, 그건 비밀이에요/, "사적 질문을 일률적으로 넘기라는 옛 규칙이 없어야 한다");
   assert.match(CHARTER.rules.join(" "), /되묻지 않는다/);
-  const [sys] = guardMessages({ persona: p, claims: p.claims, studentMessage: "결혼할 거야?", reply: "..." });
-  assert.match(sys.content, /사적인 질문\(연애, 결혼, 취미 등\)에 지어내서 자세히 답했다/);
+  assert.match(CHARTER.rules.join(" "), /성별, 나이, 가족, 고향/);
+  assert.match(CHARTER.scope.allowedTopics.join(" "), /성별, 나이/);
+  assert.match(CHARTER.scope.outOfScope.join(" "), /노골적인 성적·폭력적/);
+  const [sys] = guardMessages({ persona: p, claims: p.claims, studentMessage: "남자예요?", reply: "네, 남자예요." });
+  assert.match(sys.content, /인물 자신에 대한 질문\(성별, 나이/);
+  assert.match(sys.content, /scope: 아주 노골적인 위반만 해당한다/);
+  assert.match(sys.content, /8문장을 넘겨 아주 길게/);
+  assert.doesNotMatch(sys.content, /사건과 관계없는 사적인 질문\(연애, 결혼, 취미 등\)에 지어내서 자세히 답했다/);
+  assert.match(sys.content, /인물이 학생의 실명·학교·연락처/, "개인정보는 학생의 정보를 뜻한다");
   assert.match(sys.content, /되묻는 질문으로 끝내지 않는다/);
+  assert.match(PERSONAS.find((x) => x.name === "아델").setting, /남성/);
 });
 
 test("개인정보 표시: 전화번호·주민번호·이메일·학교 이름을 찾고, 평범한 글은 지나간다", () => {

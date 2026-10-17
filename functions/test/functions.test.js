@@ -129,6 +129,8 @@ const setWork = (work) => store.set(`sessions/${code}/groups/g1`, { ...store.get
 test("교사: 수업 만들기 → 코드와 모둠 문서 생성", async () => {
   const { code: c } = await api.createSession({ ...teacher, data: { groupCount: 2, eventId: "bogus" } });
   code = c;
+  assert.equal(store.get(`sessions/${code}`).started, false, "만들면 대기실 상태");
+  await api.updateSession({ ...teacher, data: { code, started: true } });
   assert.match(code, /^[A-Z2-9]{6}$/);
   assert.equal(store.get(`sessions/${code}`).eventId, "jeju2018");
   assert.deepEqual(Object.keys(store.get(`sessions/${code}/groups/g2`)).sort(), ["aiCount", "guardCount", "memberCount", "name", "work"]);
@@ -383,7 +385,12 @@ test("무작위 배정: 같은 축이 다 차기 전에는 겹치지 않고, 모
 });
 
 // ---------- 학생 비밀번호 ----------
-const mk = async (groupCount = 2) => (await api.createSession({ ...teacher, data: { groupCount } })).code;
+// 대부분의 테스트는 수업이 이미 시작된 상태에서 본다(만들면 대기실 상태이므로 시작 버튼을 눌러 둔다)
+const mk = async (groupCount = 2) => {
+  const c = (await api.createSession({ ...teacher, data: { groupCount } })).code;
+  await api.updateSession({ ...teacher, data: { code: c, started: true } });
+  return c;
+};
 const join = (uid, c, nickname, password, groupNo = 1) => api.joinSession({ ...student(uid), data: { code: c, groupNo, nickname, password } });
 
 test("입장: 비밀번호가 없거나 너무 짧으면 거부한다", async () => {
@@ -834,4 +841,33 @@ test("수업 전 점검: Firestore·각 모델·웹 검색 결과를 시간과 �
   assert.match(bad.models[0].error, /401/);
   assert.equal(bad.search.found, false);
   await assert.rejects(api.healthCheck({ ...student("A1"), data: {} }), /교사/);
+});
+
+test("대기실: 수업을 만들면 시작 전 상태이고, 입장은 되지만 AI는 시작 전까지 막히며, 교사만 시작할 수 있다", async () => {
+  const c = (await api.createSession({ ...teacher, data: { groupCount: 1 } })).code;
+  assert.equal(store.get(`sessions/${c}`).started, false);
+  await join("W1", c, "가람", "sesame1");
+  assert.ok(store.get(`sessions/${c}/members/W1`), "대기실에서도 입장은 된다");
+  await assert.rejects(chatOnce(c, "W1", "안녕하세요"), /수업이 시작되지 않았어요/);
+  assert.equal(store.get(`sessions/${c}/members/W1`).chatCount || 0, 0, "막힌 요청은 질문 횟수를 쓰지 않는다");
+  await assert.rejects(api.updateSession({ ...student("W1"), data: { code: c, started: true } }), /교사/);
+  await api.updateSession({ ...teacher, data: { code: c, started: true } });
+  const s = store.get(`sessions/${c}`);
+  assert.equal(s.started, true);
+  assert.ok(s.startedAt && s.openedAt, "시작한 때를 기록하고 자동 닫힘 시간을 새로 센다");
+  personaToolCalls = 0; personaReply = "네.";
+  await chatOnce(c, "W1", "안녕하세요");
+  assert.equal(store.get(`sessions/${c}/members/W1`).chatCount, 1);
+});
+
+test("대기실: 예전 수업(started 값이 없음)은 시작된 것으로 보고, 복제한 수업은 다시 대기실에서 시작한다", async () => {
+  const c = await mk();
+  await join("W2", c, "나래", "sesame2");
+  const old = { ...store.get(`sessions/${c}`) }; delete old.started;
+  store.set(`sessions/${c}`, old);
+  personaToolCalls = 0; personaReply = "네.";
+  await chatOnce(c, "W2", "안녕하세요");
+  assert.equal(store.get(`sessions/${c}/members/W2`).chatCount, 1);
+  const { code: copy } = await api.cloneSession({ ...teacher, data: { code: c } });
+  assert.equal(store.get(`sessions/${copy}`).started, false);
 });

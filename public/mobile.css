@@ -156,3 +156,66 @@ body.m.typing{ padding-bottom:16px; }
 .m details.fold{ padding:12px 14px; }
 /* 교사: 수업 상태 줄의 설명은 숨기고 '진행 중/닫힘' 표시만 */
 .m-teacher #open-note .meta-line{ display:none; }
+
+/* 대기실·안내 팝업 (모바일): 아래 막대 없이 한 화면에 다 보이도록 촘촘하게 */
+.m .wait-hero{ padding:12px 6px 6px; } .m .wait-hero h2{ font-size:23px; margin:6px 0 4px; }
+.m .journey{ gap:9px; } .m .journey li{ gap:10px; } .m .journey .jn{ width:24px; height:24px; font-size:12px; }
+.m .journey b{ font-size:14px; } .m .journey small{ font-size:12.5px; }
+.m .help-btn{ width:26px; height:26px; }
+/* 알림 창 안의 글은 줄이지 않는다 */
+.m .modal .desc, .m .modal .tip, .m .modal p.meta-line{ display:block; -webkit-line-clamp:unset; line-clamp:none; overflow:visible; cursor:auto; }
+
+/* ---------- 학습 활동 공간 극대화 ----------
+   머리글·아래 막대를 얇게 하고, 아래로 스크롤하면 둘 다 숨겨 활동 내용이 화면을 거의 다 쓰게 한다(위로 스크롤하면 다시 나온다, device.js).
+   1단계 대화는 대화창이 화면의 대부분을 쓰고, 알아낼 것은 한 줄 칩으로 항상 보인다. */
+body.m{ --navh:calc(54px + env(safe-area-inset-bottom)); --hdrh:calc(41px + env(safe-area-inset-top)); padding-bottom:calc(var(--navh) + 12px); }
+.m .m-only{ display:flex; }
+.m .pc-only{ display:none; }
+.m .hdr{ padding:calc(5px + env(safe-area-inset-top)) 12px 6px; transition:transform .22s var(--ease); }
+.m .hdr::after{ height:2px; }
+.m .mark{ width:28px; height:28px; }
+.m .brand{ gap:7px; }
+.m .brand small{ display:none; }
+.m .logo{ font-size:16px; }
+.m .who{ font-size:11.5px; max-width:30vw; }
+.m .btn-out{ padding:4px 10px; }
+.m .help-btn{ width:24px; height:24px; }
+.m .net-banner{ top:var(--hdrh); }
+.m .m-nav{ min-height:var(--navh); padding-top:3px; transition:transform .22s var(--ease); }
+.m .m-nav .stage-tab b{ width:24px; height:24px; font-size:12.5px; }
+.m .m-nav .stage-tab span{ font-size:9.5px; }
+.m .toast{ bottom:calc(var(--navh) + 10px); }
+.m .wrap{ padding:8px 10px 4px; }
+.m .card{ padding:14px 13px; margin-bottom:10px; }
+.m.chrome-hidden .hdr{ transform:translateY(-100%); }
+.m.chrome-hidden .m-nav{ transform:translateY(100%); }
+.m.chrome-hidden .subnav{ top:0; }
+.m.chrome-hidden .composer{ bottom:0; padding-bottom:calc(8px + env(safe-area-inset-bottom)); }
+.m.chrome-hidden .toast{ bottom:16px; }
+
+/* 1단계: 작은 단계 막대는 한 줄로 */
+.m .subnav{ top:var(--hdrh); gap:5px; padding:4px 0; margin:-4px 0 6px; transition:top .22s var(--ease); }
+.m .subnav button{ padding:8px 4px; font-size:12.5px; border-radius:10px; }
+.m .subnav button small{ display:inline; margin-left:3px; font-size:10.5px; }
+.m .role{ margin-bottom:8px; }
+.m .letter{ padding:11px 14px; margin-bottom:8px; border-radius:6px 16px 16px 6px; }
+.m .letter summary{ font-size:14.5px; }
+
+/* 1단계 대화: 대화창이 남는 화면을 채운다 */
+.m .chat-card{ display:flex; flex-direction:column; min-height:calc(100vh - var(--hdrh) - var(--navh) - 150px); min-height:calc(100svh - var(--hdrh) - var(--navh) - 150px); }
+.m .chat-head{ padding:8px 12px; gap:10px; }
+.m .chat-head .avatar{ width:32px; height:32px; font-size:14px; }
+.m .chat-head > div:nth-child(2){ display:flex; align-items:baseline; gap:7px; min-width:0; }
+.m .chat-head .nm{ font-size:15px; }
+.m .chat-head .st{ font-size:11px; }
+.m .chat-head .btn{ padding:5px 10px; font-size:12px; min-height:0; }
+.m .msgs{ flex:1; padding:12px 10px 6px; }
+.m .starters{ padding:2px 12px 6px; }
+
+.m .composer{ gap:5px 8px; }
+.m .composer .chat-left{ padding:0 6px; font-size:12px; }
+/* 우리 모둠의 문제 띠: 질문은 그대로 읽히되 높이는 줄인다 */
+.m .problem-bar{ padding:8px 12px; margin-bottom:8px; border-radius:14px; }
+.m .problem-bar .pb-k{ font-size:11px; }
+.m .problem-bar .pb-q{ font-size:14px; line-height:1.4; margin-top:1px; }
+.m .role.m-role{ margin-bottom:8px; }
