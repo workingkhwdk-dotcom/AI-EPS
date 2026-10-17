@@ -220,14 +220,14 @@ function studentFixture() {
   return st;
 }
 const HELP_KEYS = ["1-chat", "1-note", "1-group", "2", "3", "4", "5", "6", "7"];
-async function openStudent(st, { member = {}, work = {}, session = { chatLimit: 5 }, page = "index.html", ctxOpts, help = false } = {}) {
+async function openStudent(st, { member = {}, work = {}, session = { chatLimit: 5 }, page = "index.html", ctxOpts, help = false, chat = [{ id: "c1", input: "안녕하세요", output: "네, 안녕하세요", model: "m" }] } = {}) {
   // 대부분의 테스트는 단계 안내 팝업을 이미 본 상태에서 시작한다(팝업이 화면을 가리므로). help:true 로 처음 보는 학생을 만든다.
-  const s = await newPage(({ member, work, session, seen }) => {
+  const s = await newPage(({ member, work, session, seen, chat }) => {
     if (seen) { try { localStorage.setItem("eps_help_ABC234_g1_가람", JSON.stringify(seen)); } catch {} }
     window.__user = null; window.__anonUid = "anonX";
     window.__docs = { "sessions/ABC234": session, "sessions/ABC234/members/anonX": { groupId: "g1", nickname: "가람", ...member }, "sessions/ABC234/groups/g1": { work } };
-    window.__cols = { "sessions/ABC234/members/anonX/chat": [{ id: "c1", input: "안녕하세요", output: "네, 안녕하세요", model: "m" }] };
-  }, st.handler, { member, work, session, seen: help ? null : HELP_KEYS }, ctxOpts);
+    window.__cols = { "sessions/ABC234/members/anonX/chat": chat };
+  }, st.handler, { member, work, session, seen: help ? null : HELP_KEYS, chat }, ctxOpts);
   await s.pg.goto(`${base}/${page}`);
   await s.pg.waitForSelector("#j-pw");
   return s;
@@ -470,26 +470,27 @@ test("교사 모바일: 학생·모둠 표가 카드로 보이고, 아래 메뉴
   assert.deepEqual(errors, []);
 });
 
-test("학생 모바일: 안내 글은 한 줄로 줄이고(누르면 펼침, 다시 그려도 유지), AI 역할은 한 줄 요약, 사건 자료는 접힌 채로 시작한다", async () => {
+test("학생 모바일: 안내 글은 한 줄로 줄이고(누르면 펼침, 다시 그려도 유지), AI 역할은 한 줄 요약, 사건 자료(학습 내용)는 펼친 채로 시작한다", async () => {
   const s = await openStudent(studentFixture(), { ctxOpts: phone });
   await login(s.pg);
   await s.pg.waitForSelector(".m-role");
   assert.equal(await s.pg.locator("details.m-role").getAttribute("open"), null, "AI 역할 설명은 접혀 있다");
-  const tip = s.pg.locator(".notice.tip").first();
-  const h1 = (await tip.boundingBox()).height;
-  await tip.tap();
-  await s.pg.waitForFunction(() => document.querySelector(".notice.tip").classList.contains("open"));
-  assert.ok((await tip.boundingBox()).height > h1 + 10, "누르면 펼쳐진다");
-  await s.pg.evaluate(() => { const d = document.querySelector("#panel"); d.innerHTML = d.innerHTML; });
-  await s.pg.waitForFunction(() => document.querySelector(".notice.tip").classList.contains("open"));
   await s.pg.tap('#tabs .stage-tab[data-stage="2"]');
   await s.pg.waitForSelector("details.fold");
-  assert.equal(await s.pg.locator("details.fold").getAttribute("open"), null, "사건 자료는 접혀 있다");
+  // 설명 글은 한 줄로 줄어 있고, 누르면 펼쳐지며, 화면을 다시 그려도 펼친 채로 있다
+  const desc = s.pg.locator(".card .desc >> visible=true").first();
+  const h1 = (await desc.boundingBox()).height;
+  await desc.tap();
+  await s.pg.waitForFunction(() => [...document.querySelectorAll(".card .desc")].some((e) => e.classList.contains("open")));
+  assert.ok((await s.pg.locator(".card .desc.open").first().boundingBox()).height > h1 + 10, "누르면 펼쳐진다");
+  await s.pg.evaluate(() => { const d = document.querySelector("#panel"); d.innerHTML = d.innerHTML; });
+  await s.pg.waitForFunction(() => [...document.querySelectorAll(".card .desc")].some((e) => e.classList.contains("open")));
+  assert.notEqual(await s.pg.locator("details.fold").getAttribute("open"), null, "사건 자료는 학습 내용이므로 펼쳐서 시작한다");
   await s.pg.locator("details.fold summary").tap();
   await s.pg.evaluate(() => window.scrollTo(0, 0));
   await s.pg.tap('#tabs .stage-tab[data-stage="3"]'); await s.pg.tap('#tabs .stage-tab[data-stage="2"]');
   await s.pg.waitForSelector("details.fold");
-  assert.notEqual(await s.pg.locator("details.fold").getAttribute("open"), null, "펼친 상자는 다시 그려도 펼친 채로");
+  assert.equal(await s.pg.locator("details.fold").getAttribute("open"), null, "학생이 접은 상자는 다시 그려도 접힌 채로");
   assert.ok(await s.pg.locator(".nav-foot + .m-hide, .m-hide").first().isHidden());
 });
 
@@ -632,4 +633,78 @@ test("교사 모바일: 대기실 카드와 모둠 이동 선택 창이 휴대�
   const b = await pg.locator(".modal").boundingBox();
   assert.ok(b.x >= 0 && b.x + b.width <= 390);
   assert.ok((await pg.evaluate(() => document.documentElement.scrollWidth)) <= 390);
+});
+
+// ---------- 모바일: 학습 활동 공간 ----------
+test("학생 모바일: 머리글·아래 막대가 얇고, 1단계 대화창이 화면의 대부분을 쓰며, 알아낼 것이 한 줄 칩으로 보인다", async () => {
+  const { pg } = await openStudent(studentFixture(), { ctxOpts: phone });
+  await login(pg);
+  await pg.waitForSelector("#msgs");
+  const hdr = await pg.locator(".hdr").boundingBox(), nav = await pg.locator("#tabs").boundingBox();
+  assert.ok(hdr.height <= 46, `머리글 ${hdr.height}px`);
+  assert.ok(nav.height <= 58, `아래 막대 ${nav.height}px`);
+  const chips = await pg.locator(".goal-chips").innerText();
+  assert.match(chips, /알아낼 것/); assert.match(chips, /누구인지/); assert.match(chips, /힘든 것/); assert.match(chips, /바라는 것/);
+  assert.ok(await pg.locator(".goal-chips").isVisible());
+  assert.ok(await pg.locator(".notice.pc-only").isHidden(), "긴 '할 일' 안내문은 모바일에서 숨긴다");
+  const card = await pg.locator(".chat-card").boundingBox();
+  assert.ok(card.height >= 844 * 0.6, `대화창 높이 ${card.height}px`);
+  const cr = await pg.locator("#chat-form").boundingBox();
+  assert.ok(cr.y + cr.height <= 844 - nav.height + 2, "입력창은 아래 막대 바로 위에 보인다");
+  assert.ok(await pg.locator(".starters").isHidden(), "대화가 시작되면 예시 질문 줄을 접는다");
+  await pg.waitForFunction(() => /남은 질문 5 \/ 5번/.test(document.querySelector("#chat-left")?.innerText || ""));
+  const left = await pg.locator("#chat-left").boundingBox();
+  assert.ok(left && left.height > 8 && left.y >= cr.y - 1 && left.y + left.height <= 844 - nav.height, "남은 질문 수가 입력창 위에 붙어 화면 안에 보인다");
+  const sub = await pg.locator(".subnav button").first().boundingBox();
+  assert.ok(sub.height <= 44, `작은 단계 막대 ${sub.height}px`);
+  await shot(pg, "m-chat-space");
+});
+
+test("학생 모바일: 대화 전에는 예시 질문이 보이고, PC 화면에는 '알아낼 것' 칩이 없다", async () => {
+  const m = await openStudent(studentFixture(), { ctxOpts: phone, chat: [] });
+  await login(m.pg);
+  await m.pg.waitForSelector("#msgs");
+  assert.ok(await m.pg.locator(".starters").isVisible());
+  const d = await openStudent(studentFixture(), { chat: [] });
+  await login(d.pg, "#msgs");
+  assert.ok(await d.pg.locator(".goal-chips").isHidden());
+  assert.ok(await d.pg.locator(".notice.pc-only").isVisible());
+});
+
+test("학생 모바일: 아래로 스크롤하면 머리글·아래 막대가 숨고, 위로 스크롤하면 다시 나타난다", async () => {
+  const { pg } = await openStudent(studentFixture(), { ctxOpts: phone });
+  await login(pg);
+  await pg.tap('#tabs .stage-tab[data-stage="2"]');
+  await pg.waitForSelector("details.fold");
+  await pg.evaluate(() => { document.body.style.minHeight = "3000px"; });
+  assert.equal(await pg.evaluate(() => document.body.classList.contains("chrome-hidden")), false);
+  await pg.evaluate(() => window.scrollTo(0, 500));
+  await pg.waitForFunction(() => document.body.classList.contains("chrome-hidden"));
+  await pg.waitForTimeout(400); // 내려가는 움직임이 끝난 뒤
+  const nav = await pg.locator("#tabs").boundingBox();
+  assert.ok(nav.y >= 844 - 1, "아래 막대가 화면 밖으로 내려간다");
+  await pg.evaluate(() => window.scrollTo(0, 300));
+  await pg.waitForFunction(() => !document.body.classList.contains("chrome-hidden"));
+  await pg.evaluate(() => window.scrollTo(0, 600));
+  await pg.waitForFunction(() => document.body.classList.contains("chrome-hidden"));
+  await pg.evaluate(() => window.scrollTo(0, 0));
+  await pg.waitForFunction(() => !document.body.classList.contains("chrome-hidden"));
+});
+
+test("학생 모바일: 2·3·4단계에서 학습 내용이 화면 첫머리부터 보인다(캡처)", async () => {
+  const work = {
+    s1: { problem: { hmw: "어떻게 하면 주민의 불안을 줄이면서도 신청자의 생계를 지킬 수 있을까?", situation: "신청자는 일자리를 구하기 어렵고 주민은 불안해한다." } },
+    s2: { checks: { c1: { heard: "아델: 일자리를 구하기 어려웠다", question: "2018년 제주의 난민 신청자는 합법적으로 일할 수 있었나?", srcType: "법·제도", t: 1 } }, causes: { q1: { level: "제도·정책", text: "신청자가 일할 수 있는 길이 좁았다", t: 1 } } },
+    s3: { chain: { cause: "취업 허가가 늦어 생계가 막혔다" } },
+  };
+  const st = studentFixture();
+  const s = await openStudent(st, { ctxOpts: phone, work });
+  await login(s.pg);
+  for (const n of [2, 3, 4]) {
+    await s.pg.tap(`#tabs .stage-tab[data-stage="${n}"]`);
+    await s.pg.waitForSelector(`#tabs .stage-tab.on[data-stage="${n}"]`);
+    await s.pg.waitForTimeout(200);
+    await shot(s.pg, `m-stage${n}-space`);
+    assert.ok((await s.pg.evaluate(() => document.documentElement.scrollWidth)) <= 390);
+  }
 });

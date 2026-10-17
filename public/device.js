@@ -3,6 +3,7 @@
 //  - 휴대폰에서도 PC 화면을 쓰고 싶으면 ?view=pc 로 열면 되고, 이 기기에서는 그 선택을 기억한다(?view=m 으로 되돌림).
 //  - 태블릿은 PC 화면이 이미 맞춰지므로 옮기지 않는다.
 //  - 모바일 화면에서는 글을 입력하는 동안 아래쪽 이동 막대를 숨긴다(키보드 위 공간 확보).
+//  - 모바일 화면에서는 아래로 스크롤하면 머리글·아래 막대를 숨기고 위로 스크롤하면 보인다(활동 공간 극대화).
 //  - 모바일 화면에서 한 줄로 줄인 설명(.desc, .tip, p.meta-line)은 누르면 펼친다.
 (function () {
   var me = document.currentScript;
@@ -33,6 +34,20 @@
     document.addEventListener("focusout", function () {
       setTimeout(function () { if (!isText(document.activeElement)) document.body.classList.remove("typing"); }, 50);
     });
+    // 아래로 스크롤하면 머리글·아래 막대를 숨겨 활동 공간을 넓히고, 위로 스크롤하면 다시 보여 준다(맨 위 근처에서는 항상 보임).
+    // (교사 화면은 아래 메뉴를 자주 쓰므로 숨기지 않는다)
+    var lastY = window.scrollY, tick = false, teacher = document.body.classList.contains("m-teacher");
+    window.addEventListener("scroll", function () {
+      if (tick || teacher) return; tick = true;
+      requestAnimationFrame(function () {
+        tick = false;
+        var b = document.body, y = window.scrollY, d = y - lastY;
+        if (b.classList.contains("typing") || b.classList.contains("modal-open")) { lastY = y; return; }
+        if (y < 80) { b.classList.remove("chrome-hidden"); lastY = y; }
+        else if (d > 12) { b.classList.add("chrome-hidden"); lastY = y; }
+        else if (d < -12) { b.classList.remove("chrome-hidden"); lastY = y; }
+      });
+    }, { passive: true });
     // 한 줄로 줄여 둔 설명·안내는 누르면 펼치고 다시 누르면 접는다. 화면을 다시 그려도 펼친 것은 펼친 채로 둔다.
     var FOLD = ".desc, .tip, p.meta-line", opened = {};
     document.addEventListener("click", function (e) {
