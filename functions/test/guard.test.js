@@ -131,3 +131,10 @@ test("개인정보 표시: 전화번호·주민번호·이메일·학교 이름�
   assert.deepEqual(piiFlags("우리 수업중에 난민 이야기를 했어요. 중요한 일이에요"), []);
   assert.deepEqual(piiFlags(undefined), []);
 });
+
+test("고친 응답이 길면 문장 경계에서 자르고, 짧으면 그대로 둔다", () => {
+  const { clipSentences } = require("../guard");
+  assert.equal(clipSentences("짧은 답이에요.", 20), "짧은 답이에요.");
+  assert.equal(clipSentences("첫 문장이에요. 둘째 문장은 아주 길어서 잘려요", 20), "첫 문장이에요.");
+  assert.equal(clipSentences("마침표없이아주긴한문장".repeat(3), 10).length, 10);
+});

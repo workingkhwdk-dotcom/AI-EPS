@@ -1,0 +1,158 @@
+/* 모바일 전용 화면(m.html, m-teacher.html). style.css 위에 덧입힌다. 모든 규칙은 body.m 안에서만 쓴다.
+   - 위: 짧은 머리글(학교 마크·AI-EPS·학교 이름) / 아래: 엄지로 누르는 이동 막대(학생은 1~7단계, 교사는 수업 메뉴)
+   - 글을 입력하는 동안(body.typing)은 아래 막대를 숨겨 키보드 위 공간을 넓힌다(device.js) */
+body.m{ --navh:calc(62px + env(safe-area-inset-bottom)); font-size:15.5px; padding-bottom:calc(var(--navh) + 16px); overscroll-behavior-y:none; }
+body.m.typing{ padding-bottom:16px; }
+
+/* 머리글 */
+.m .hdr{ padding:calc(8px + env(safe-area-inset-top)) 14px 9px; }
+.m .mark{ width:32px; height:32px; }
+.m .brand{ gap:8px; }
+.m .logo{ font-size:17px; }
+.m .brand small{ font-size:10.5px; }
+.m .hdr-right{ gap:6px; }
+.m .who{ max-width:34vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+.m .net{ padding:3px 7px; font-size:11px; }
+/* 정상 연결이면 초록 점만 보이고, 저장 중·끊김일 때만 글자가 나온다 */
+.m .net:not(.off):not(.saving){ font-size:0; gap:0; padding:6px; }
+.m .btn-out{ padding:5px 10px; font-size:12px; }
+.m .net-banner{ top:52px; }
+
+/* 본문 */
+.m .wrap{ padding:12px 12px 4px; }
+.m .card{ padding:16px 15px; border-radius:18px; margin-bottom:12px; }
+.m h2{ font-size:19px; }
+.m .btn{ min-height:48px; }
+.m .btn-sm{ min-height:36px; padding:8px 12px; }
+.m .m-block{ width:100%; }
+.m .m-two{ display:grid; grid-template-columns:1fr 1.5fr; gap:10px; }
+.m .toast{ bottom:calc(var(--navh) + 14px); }
+.m.typing .toast{ bottom:16px; }
+
+/* 입장 화면 첫머리 */
+.m-hero{ text-align:center; padding:18px 8px 16px; }
+.m-hero img{ width:72px; height:72px; border-radius:50%; background:#fff; box-shadow:var(--shadow); }
+.m-hero-t{ font-size:28px; font-weight:800; letter-spacing:-0.02em; margin-top:10px; color:var(--ink); }
+.m-hero-s{ font-family:var(--serif); font-size:16.5px; font-weight:700; color:var(--accent); margin-top:2px; }
+.m-hero-u{ font-size:12px; color:var(--ink-3); margin-top:4px; letter-spacing:.03em; }
+
+/* 아래 이동 막대(공통) */
+.m .m-nav{ position:fixed; left:0; right:0; bottom:0; z-index:20; margin:0; max-width:none; width:auto; border-radius:0;
+  display:grid; gap:0; padding:5px 4px env(safe-area-inset-bottom); min-height:var(--navh); overflow:visible;
+  background:color-mix(in srgb, var(--surface) 97%, transparent); -webkit-backdrop-filter:saturate(1.6) blur(14px); backdrop-filter:saturate(1.6) blur(14px);
+  box-shadow:0 -0.5px 0 var(--sep), 0 -8px 24px -18px rgba(6,34,107,0.5); }
+.m.typing .m-nav{ display:none; }
+
+/* 학생: 1~7단계 막대 */
+.m .stages.m-nav{ grid-template-columns:repeat(7,minmax(0,1fr)); }
+.m .m-nav .stage-tab{ background:transparent; box-shadow:none; border-radius:10px; min-width:0; padding:3px 1px 4px; color:var(--ink-3);
+  display:flex; flex-direction:column; align-items:center; gap:2px; }
+.m .m-nav .stage-tab b{ width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:13.5px;
+  background:var(--fill); color:var(--ink-2); }
+.m .m-nav .stage-tab span{ font-size:10px; font-weight:700; line-height:1.2; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.m .m-nav .stage-tab.on{ background:transparent; color:var(--accent); }
+.m .m-nav .stage-tab.on b{ background:var(--grad); color:#fff; box-shadow:0 4px 10px -4px rgba(6,34,107,0.7); }
+@media (prefers-color-scheme: dark){ .m .m-nav .stage-tab.on, .m .m-nav .stage-tab.on b{ color:#fff; } .m .m-nav .stage-tab.on span{ color:var(--accent); } }
+
+/* 학생: 1단계 대화 — 입력창은 아래 막대 바로 위에 붙는다 */
+.m .letter{ padding:14px 16px; }
+.m .letter .body{ font-size:16px; line-height:1.85; }
+.m .chat-card{ border-radius:18px; }
+.m .chat-head{ padding:12px 14px; }
+.m .msgs{ padding:14px 10px 6px; }
+.m .msg .col{ max-width:84%; }
+.m .bubble{ font-size:15.5px; }
+.m .starters{ flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; padding:4px 12px 8px; }
+.m .starters::-webkit-scrollbar{ display:none; }
+.m .composer{ bottom:var(--navh); padding:8px 10px; border-radius:0 0 18px 18px; }
+.m.typing .composer{ bottom:0; padding-bottom:calc(8px + env(safe-area-inset-bottom)); }
+.m .subnav{ position:sticky; top:52px; z-index:6; padding:6px 0; margin:-6px 0 8px; background:var(--bg); }
+.m .role{ padding:10px 12px; font-size:13px; }
+.m .role-g{ gap:2px; margin-top:6px; }
+.m .role-g > div{ background:transparent; padding:2px 0; }
+.m .role-g .me{ box-shadow:none; font-weight:700; }
+.m .problem-bar{ padding:11px 14px; }
+.m .nav-foot{ flex-direction:column-reverse; align-items:stretch; }
+.m .nav-foot .btn-primary{ margin-left:0; }
+.m .board{ grid-template-columns:1fr; }
+.m .fl{ grid-template-columns:1fr; gap:4px; }
+.m .stats{ grid-template-columns:repeat(2,1fr); }
+
+/* ---------- 교사 ---------- */
+.m-teacher #tabs{ width:100%; }
+/* 수업 안에서는 아래 수업 메뉴를 쓰므로 위쪽 '내 수업/점검' 탭을 숨긴다 */
+.m-teacher #main:has(#class-view:not(.hidden)) > #tabs{ display:none; }
+.m-teacher #tabs button{ flex:1; }
+.m-teacher .m-class-head{ flex-direction:column; align-items:stretch !important; }
+.m-teacher .code-big{ font-size:28px; }
+.m-teacher .m-actions{ display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+.m-teacher .m-actions .btn{ min-height:40px; padding:8px 6px; }
+.m-teacher .kpis{ grid-template-columns:repeat(2,1fr); gap:8px; margin:4px 0; }
+.m-teacher .kpi b{ font-size:22px; }
+
+/* 수업 안의 메뉴: 아이콘 + 이름 4칸 */
+.m .seg.m-nav4{ grid-template-columns:repeat(4,1fr); }
+.m .seg.m-nav4 button{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; padding:5px 2px 4px; border-radius:10px;
+  font-size:11px; font-weight:700; color:var(--ink-3); background:transparent; box-shadow:none; }
+.m .seg.m-nav4 button svg{ width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; }
+.m .seg.m-nav4 button.on{ color:var(--accent); background:var(--accent-tint); box-shadow:none; }
+
+/* 표 → 카드: 학생 현황 */
+.m-teacher .tbl-wrap{ overflow:visible; }
+.m-teacher .tbl{ min-width:0; display:block; font-size:14px; }
+.m-teacher .tbl tbody{ display:flex; flex-direction:column; gap:8px; }
+.m-teacher .tbl td{ box-shadow:none; padding:0; }
+.m-teacher .tbl tbody tr{ display:grid; background:var(--fill); border-radius:14px; padding:11px 12px; column-gap:10px; row-gap:6px; align-items:center; }
+.m-teacher .tbl.stu thead tr{ display:flex; }
+.m-teacher .tbl.stu thead th{ display:none; }
+.m-teacher .tbl.stu thead th:first-child{ display:flex; align-items:center; gap:8px; padding:0 4px 8px; box-shadow:none; }
+.m-teacher .tbl.stu thead th:first-child::after{ content:"전체 선택"; font-size:12.5px; }
+.m-teacher .tbl.stu tbody tr{ grid-template-columns:auto minmax(0,1fr) auto;
+  grid-template-areas:"chk nick grp" "chk per per" "chk stage stage" ". stat cnt" "act act act"; }
+.m-teacher .tbl.stu td:nth-child(1){ grid-area:chk; align-self:start; padding-top:2px; }
+.m-teacher .tbl.stu td:nth-child(2){ grid-area:nick; font-size:15.5px; }
+.m-teacher .tbl.stu td:nth-child(3){ grid-area:grp; font-size:12.5px; color:var(--ink-2); }
+.m-teacher .tbl.stu td:nth-child(4){ grid-area:per; font-size:12.5px; color:var(--ink-2); }
+.m-teacher .tbl.stu td:nth-child(4):not(:empty)::before{ content:"인물 "; font-weight:800; color:var(--ink-3); }
+.m-teacher .tbl.stu td:nth-child(5){ grid-area:stage; }
+.m-teacher .tbl.stu td:nth-child(6){ grid-area:stat; font-size:12.5px; }
+.m-teacher .tbl.stu td:nth-child(7){ grid-area:cnt; font-size:12.5px; justify-self:end; white-space:nowrap; }
+.m-teacher .tbl.stu td:nth-child(7)::before{ content:"질문 "; font-weight:800; color:var(--ink-3); }
+.m-teacher .tbl.stu td:nth-child(8){ grid-area:act; display:grid !important; grid-template-columns:repeat(3,1fr); gap:6px; }
+.m-teacher .tbl.stu td:nth-child(8) .btn{ padding:8px 4px; font-size:12.5px; }
+
+/* 표 → 카드: 모둠 진행 */
+.m-teacher .tbl.grp thead{ display:none; }
+.m-teacher .tbl.grp tbody tr{ grid-template-columns:1fr auto; grid-template-areas:"name cnt" "dots dots" "ai guard" "act act"; }
+.m-teacher .tbl.grp td:nth-child(1){ grid-area:name; font-size:15.5px; }
+.m-teacher .tbl.grp td:nth-child(2){ grid-area:cnt; font-size:12.5px; }
+.m-teacher .tbl.grp td:nth-child(3){ grid-area:dots; }
+.m-teacher .tbl.grp td:nth-child(4){ grid-area:ai; font-size:12.5px; }
+.m-teacher .tbl.grp td:nth-child(4)::before{ content:"AI 호출 "; font-weight:800; color:var(--ink-3); }
+.m-teacher .tbl.grp td:nth-child(5){ grid-area:guard; font-size:12.5px; justify-self:end; }
+.m-teacher .tbl.grp td:nth-child(5)::before{ content:"감독 개입 "; font-weight:800; color:var(--ink-3); }
+.m-teacher .tbl.grp td:nth-child(6){ grid-area:act; display:grid !important; grid-template-columns:1fr 1fr; gap:6px; }
+.m-teacher .dots i{ width:14px; height:14px; }
+
+/* ---------- 좁은 화면: 활동과 직접 관련 없는 글은 줄여서 활동 칸을 먼저 보여 준다 ----------
+   - 설명(.desc), 안내(.tip), 도움말(p.meta-line)은 한 줄로 줄이고 끝에 '…'. 누르면 펼쳐진다(device.js)
+   - AI 역할 상자는 한 줄 요약, 실제 사건 자료는 접어 둔 채로 시작, 활동과 무관한 줄(.m-hide)은 숨긴다 */
+.m .desc, .m .tip, .m p.meta-line{ display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:1; line-clamp:1; overflow:hidden; cursor:pointer; }
+.m .desc{ margin-bottom:8px; }
+.m .desc.open, .m .tip.open, .m p.meta-line.open{ display:block; -webkit-line-clamp:unset; line-clamp:none; overflow:visible; }
+/* 줄인 상자는 위아래 여백을 투명 테두리로 줘서 둘째 줄이 여백 사이로 비치지 않게 한다 */
+.m .notice.tip, .m .example.tip{ padding:0 12px; border-block:8px solid transparent; }
+.m .m-hide{ display:none !important; }
+.m .m-role{ padding:8px 12px; margin-bottom:10px; }
+.m .m-role summary{ list-style:none; cursor:pointer; display:flex; align-items:center; gap:6px; white-space:nowrap; overflow:hidden; }
+.m .m-role summary::-webkit-details-marker{ display:none; }
+.m .m-role summary b{ overflow:hidden; text-overflow:ellipsis; font-size:13.5px; }
+.m .m-role summary::after{ content:"자세히"; margin-left:auto; font-size:11.5px; font-weight:700; color:var(--ink-3); }
+.m .m-role[open] summary::after{ content:"접기"; }
+.m .problem-bar{ padding:9px 13px; margin-bottom:10px; }
+.m .problem-bar .pb-s{ display:none; }
+.m .problem-bar .pb-q{ font-size:14.5px; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
+.m .card h3{ font-size:15.5px; }
+.m details.fold{ padding:12px 14px; }
+/* 교사: 수업 상태 줄의 설명은 숨기고 '진행 중/닫힘' 표시만 */
+.m-teacher #open-note .meta-line{ display:none; }

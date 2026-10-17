@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+<meta name="theme-color" content="#06226B" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="AI-EPS" />
+<title>AI-EPS: 확장된 경험 기반 문제해결학습 모형</title>
+<link rel="icon" type="image/webp" href="knue-mark.webp" />
+<link rel="apple-touch-icon" href="knue-mark@2x.webp" />
+<script src="device.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gowun+Batang&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="mobile.css" />
+</head>
+<!-- 학생용 모바일 전용 화면. 동작은 PC 화면과 같은 app.js 가 맡고(같은 id), 배치만 휴대폰에 맞춘다. -->
+<body class="m">
+<a class="skip" href="#main">본문으로 건너뛰기</a>
+<header class="hdr"><div class="hdr-in">
+  <div class="brand"><img class="mark" src="knue-mark.webp" srcset="knue-mark.webp 1x, knue-mark@2x.webp 2x" width="32" height="32" alt="한국교원대학교 마크" fetchpriority="high" decoding="async" /><div class="brand-t"><span class="logo">AI-EPS</span><small>한국교원대학교</small></div></div>
+  <div class="hdr-right"><span class="net hidden" id="net" role="status" aria-live="polite"></span><span class="who" id="who"></span><button class="btn-out hidden" id="logout" type="button">로그아웃</button></div>
+</div></header>
+
+<main class="wrap" id="main">
+  <section id="join">
+    <div class="m-hero">
+      <img src="knue-mark@2x.webp" width="72" height="72" alt="" decoding="async" />
+      <div class="m-hero-t">AI-EPS</div>
+      <div class="m-hero-s">확장된 경험 기반 문제해결학습 모형</div>
+      <div class="m-hero-u">한국교원대학교 · Teacher of Teachers</div>
+    </div>
+    <div class="card">
+      <h2>수업 입장</h2>
+      <p class="desc">선생님이 알려 준 수업 코드와 모둠 번호를 입력하세요. 이름 대신 별명을 쓰고, 개인정보는 쓰지 않습니다.</p>
+      <label class="lbl" for="j-code">수업 코드</label>
+      <input type="text" id="j-code" maxlength="6" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="next" placeholder="예) ABC234" />
+      <div class="m-two">
+        <div><label class="lbl" for="j-group">모둠 번호</label>
+        <input type="number" id="j-group" min="1" max="12" inputmode="numeric" pattern="[0-9]*" enterkeyhint="next" /></div>
+        <div><label class="lbl" for="j-nick">별명</label>
+        <input type="text" id="j-nick" maxlength="12" autocomplete="off" autocorrect="off" enterkeyhint="next" /></div>
+      </div>
+      <label class="lbl" for="j-pw">비밀번호</label>
+      <input type="password" id="j-pw" maxlength="40" autocomplete="off" enterkeyhint="go" placeholder="4자 이상" />
+      <p class="meta-line" style="margin:6px 0 0">처음이라면 지금 정한 비밀번호가 내 비밀번호가 됩니다. 다시 들어올 때 같은 별명과 비밀번호를 쓰면 하던 것이 이어집니다.</p>
+      <button class="btn btn-primary m-block" id="j-btn" style="margin-top:16px">입장하기</button>
+      <p class="meta-line" style="margin:12px 0 0">친구 휴대폰이나 함께 쓰는 기기라면 끝낼 때 꼭 <b>로그아웃</b>을 누르세요.</p>
+    </div>
+    <p class="m-switch"><a href="index.html?view=pc">PC 화면으로 보기</a></p>
+  </section>
+
+  <section id="app" class="hidden">
+    <div id="panel"></div>
+    <p class="m-switch"><a href="index.html?view=pc">PC 화면으로 보기</a></p>
+    <!-- 단계 이동은 화면 아래 막대 -->
+    <nav class="stages m-nav" id="tabs" aria-label="단계"></nav>
+  </section>
+</main>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
