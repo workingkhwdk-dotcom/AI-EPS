@@ -315,7 +315,7 @@ async function studentCase(code, sess, uid, member) {
     title: ev.title,
     summary: ev.summary,
     stakeholders: ev.stakeholders,
-    letters: personas.map((p) => ({ id: p.id, name: p.name, brief: BRIEFS[p.id] || p.label || "", letter: p.letter, refugee: isRefugee(p) })),
+    letters: personas.map((p) => ({ id: p.id, name: p.name, brief: BRIEFS[p.id] || p.label || "", letter: p.letter, refugee: isRefugee(p), personal: isPersonal(p) })),
     me: mine ? { id: mine.id, name: mine.name, letter: mine.letter, personal: isPersonal(mine) } : null,
     materials,
     cases: casesFor(allowUnverified()),

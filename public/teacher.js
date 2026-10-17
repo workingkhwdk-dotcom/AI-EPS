@@ -189,7 +189,7 @@ function renderDash() {
     <td><span class="dot ${isOnline(m) ? "on" : ""}"></span>${isOnline(m) ? "접속 중" : `자리 비움 · ${ago(m)}`}
       ${m.chatLocked ? ` <span class="tag r">대화 멈춤</span>` : m.conduct?.total ? ` <span class="tag y" title="누적 위반">⚠ ${m.conduct.total}</span>` : ""}</td>
     <td>${m.chatCount || 0} / ${curRow()?.chatLimit || 5}번</td>
-    <td class="row" style="flex-wrap:nowrap"><button class="btn btn-tinted btn-sm" data-chat="${m.uid}">대화 보기</button><button class="btn btn-plain btn-sm" data-reset="${m.uid}" data-nick="${esc(m.nickname)}">비번 초기화</button><button class="btn btn-plain btn-sm" data-move="${m.uid}" data-nick="${esc(m.nickname)}" data-g="${esc(m.groupId)}">모둠 이동</button></td></tr>`).join("");
+    <td class="row" style="flex-wrap:nowrap"><button class="btn btn-tinted btn-sm" data-chat="${m.uid}">대화 보기</button><button class="btn btn-plain btn-sm" data-reset="${m.uid}" data-nick="${esc(m.nickname)}">비번 초기화</button><button class="btn btn-plain btn-sm" data-move="${m.uid}" data-nick="${esc(m.nickname)}" data-g="${esc(m.groupId)}">모둠 이동</button>${assigns[m.uid] || m.personaId ? `<button class="btn btn-plain btn-sm" data-unpick="${m.uid}" data-nick="${esc(m.nickname)}">인물 풀기</button>` : ""}</td></tr>`).join("");
   renderBulk();
   $("#no-students").textContent = rows.length ? "" : "아직 입장한 학생이 없습니다. 위의 수업 코드와 모둠 번호를 학생에게 알려 주세요.";
 
@@ -291,6 +291,13 @@ $("#bulk-reset").onclick = async () => {
   catch (err) { toast(errMsg(err), true); }
 };
 $("#students").onclick = async (e) => {
+  const up = e.target.closest("[data-unpick]");
+  if (up) {
+    if (!(await confirmModal("고른 인물을 풀까요?", `<p><b>${esc(up.dataset.nick)}</b> 학생이 고른 인물을 풀어 다시 고르게 합니다. 이 학생의 <b>대화 기록은 지워지고</b> 질문 횟수도 처음으로 돌아갑니다.</p>`, "풀기", "취소", true))) return;
+    try { await call("resetPersonaChoice")({ code: current, uid: up.dataset.unpick }); toast(`'${up.dataset.nick}' 학생의 인물 선택을 풀었습니다.`); }
+    catch (err) { toast(errMsg(err), true); }
+    return;
+  }
   const mv = e.target.closest("[data-move]");
   if (mv) return moveDialog(mv.dataset.move, mv.dataset.nick, mv.dataset.g);
   const r = e.target.closest("[data-reset]");
@@ -359,7 +366,7 @@ async function loadCheck(eventId) {
     $("#check-note").innerHTML = `<div class="notice muted">교사 메모: ${esc(data.event.teacherNote)}</div>
       <div class="notice muted"><b>모든 인물이 아는 사건 공통 배경</b> (인물은 자기 진술과 이 배경에 있는 핵심 사실만 말합니다)${(data.event.background || []).map((c) =>
         `<div style="margin-top:4px"><span class="tag ${c.kind === "주장" || c.kind === "의견" ? "y" : ""}">${esc(c.kind)}</span> ${esc(c.text)} <span class="tag ${c.verified ? "" : "x"}">${esc(c.src)}</span></div>`).join("")}</div>
-      <div class="notice muted">인물 ${data.personas.length}명은 네 축(당사자·도민·시민사회·제도)으로 나뉩니다. 학생이 입장하면 모둠 안에서 축이 겹치지 않게 무작위로 배정됩니다. 배정은 수업 현황의 '인물(교사용)' 열에서 봅니다.</div>`;
+      <div class="notice muted">인물 ${data.personas.length}명은 네 축(당사자·도민·시민사회·제도)으로 나뉩니다. 학생은 1단계에서 모든 인물의 편지를 읽고 모둠이 상의해 한 명씩 직접 고릅니다(모둠 안에서 겹치지 않고, 당사자 인물은 모둠에 꼭 한 명). 누가 누구를 골랐는지는 수업 현황의 '인물(교사용)' 열에서 봅니다. 잘못 골랐으면 그 줄의 '인물 풀기'로 다시 고르게 할 수 있습니다.</div>`;
     $("#persona-check").innerHTML = data.personas.map((p) => {
       const ok = p.sources.every((s) => s.verified);
       return `<details class="fold"><summary><span><span class="tag b">${esc(p.axis || "")}</span> ${esc(p.name)} <span class="meta-line">· ${esc(p.label)}</span></span> <span class="tag ${ok ? "" : "y"}">${ok ? "원문 대조 완료" : "대조 필요"}</span></summary><div class="inner">

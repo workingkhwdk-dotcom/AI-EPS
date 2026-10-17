@@ -118,7 +118,7 @@ body.m.typing{ padding-bottom:16px; }
 .m-teacher .tbl.stu td:nth-child(6){ grid-area:stat; font-size:12.5px; }
 .m-teacher .tbl.stu td:nth-child(7){ grid-area:cnt; font-size:12.5px; justify-self:end; white-space:nowrap; }
 .m-teacher .tbl.stu td:nth-child(7)::before{ content:"질문 "; font-weight:800; color:var(--ink-3); }
-.m-teacher .tbl.stu td:nth-child(8){ grid-area:act; display:grid !important; grid-template-columns:repeat(3,1fr); gap:6px; }
+.m-teacher .tbl.stu td:nth-child(8){ grid-area:act; display:grid !important; grid-template-columns:repeat(2,1fr); gap:6px; }
 .m-teacher .tbl.stu td:nth-child(8) .btn{ padding:8px 4px; font-size:12.5px; }
 
 /* 표 → 카드: 모둠 진행 */
@@ -219,3 +219,32 @@ body.m{ --navh:calc(54px + env(safe-area-inset-bottom)); --hdrh:calc(41px + env(
 .m .problem-bar .pb-k{ font-size:11px; }
 .m .problem-bar .pb-q{ font-size:14px; line-height:1.4; margin-top:1px; }
 .m .role.m-role{ margin-bottom:8px; }
+
+/* ---------- 휴대폰 인물 대화(body.chat-mode): 화면 전체는 고정하고 대화창 안에서만 스크롤 ----------
+   --vvh / --vvt 는 device.js 가 '키보드를 뺀 보이는 화면' 크기로 계속 맞춘다. 입력창이 항상 키보드 바로 위에 있다.
+   입력 중(.typing)에는 머리글·단계 막대·안내를 접어 대화 공간을 넓힌다. */
+body.m.chat-mode{ position:fixed; left:0; right:0; top:var(--vvt,0px); height:var(--vvh,100dvh); min-height:0; padding:0; overflow:hidden; display:flex; flex-direction:column; }
+.m.chat-mode .hdr{ position:relative; flex:none; }
+.m.chat-mode #main{ flex:1; min-height:0; display:flex; flex-direction:column; padding:6px 10px 0; max-width:none; }
+.m.chat-mode #app{ flex:1; min-height:0; display:flex; flex-direction:column; }
+.m.chat-mode #panel{ flex:1; min-height:0; display:flex; flex-direction:column; }
+.m.chat-mode .subnav{ position:static; flex:none; }
+.m.chat-mode .chat-card{ flex:1; min-height:0 !important; margin-bottom:0; overflow:hidden; border-bottom-left-radius:0; border-bottom-right-radius:0; }
+.m.chat-mode .msgs{ flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; scroll-behavior:auto; }
+.m.chat-mode .composer{ position:static; flex:none; padding-bottom:8px; border-radius:0; }
+.m.chat-mode .composer input{ font-size:16px; } /* 16px 미만이면 iOS 가 입력할 때 화면을 확대한다 */
+.m.chat-mode .m-nav{ position:static; flex:none; }
+.m.chat-mode .chat-head .chat-tools{ margin-left:auto; display:flex; gap:6px; }
+.m.chat-mode .chat-head [data-act="dl-chat"]{ display:none; }
+/* 대화에 방해되는 것은 숨긴다: 편지는 머리의 '편지' 버튼, 이동은 아래 막대와 위 작은 단계 막대 */
+.m.chat-mode .role, .m.chat-mode .m-role, .m.chat-mode .letter, .m.chat-mode .nav-foot,
+.m.chat-mode .m-switch, .m.chat-mode #panel > .meta-line, .m.chat-mode .chat-rule { display:none !important; }
+.m.chat-mode.typing .hdr, .m.chat-mode.typing .subnav, .m.chat-mode.typing .starters, .m.chat-mode.typing .goal-chips { display:none; }
+.m.chat-mode.typing #main{ padding-top:0; }
+.m.chat-mode.typing .chat-card{ border-radius:0; }
+.m.chat-mode.typing .composer{ padding-bottom:calc(8px + env(safe-area-inset-bottom)); }
+.m .chat-tools{ display:flex; gap:6px; margin-left:auto; }
+.m .composer input, .m .composer input#msg{ font-size:16px; }
+.m .msgs{ scroll-behavior:auto; }
+.m .subnav button{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.m .subnav button small{ display:none; }
