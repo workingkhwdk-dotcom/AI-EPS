@@ -1,10 +1,10 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
-const { defineSecret, defineString } = require("firebase-functions/params");
+const { defineSecret, defineString, defineInt } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 
 const {
   EVENTS, PERSONAS, availablePersonas, personaSourceIds, toPublicSource, materialsFor, materialsAdmin,
-  casesFor, casesAdmin, aftermathFor, aftermathAdmin,
+  casesFor, casesAdmin, aftermathFor, aftermathAdmin, BRIEFS, isRefugee,
 } = require("./case");
 const { checkGate, toList, proposalText } = require("./policy");
 const conduct = require("./conduct");
@@ -50,6 +50,10 @@ const CHAT_LIMIT_RANGE = [1, 50];
 const MAX_GROUPS = 12;
 
 const opts = { region: REGION, cors: true };
+// 입장·시작처럼 학생이 기다리는 호출은 첫 호출이 느리지 않도록(콜드 스타트) CPU 를 넉넉히 주고,
+// MIN_INSTANCES 가 1 이상이면 항상 켜 둔다(수업 시간에만 1로 올리면 비용이 거의 들지 않는다).
+const MIN_INSTANCES = defineInt("MIN_INSTANCES", { default: 0 });
+const fastOpts = { ...opts, cpu: 1, memory: "512MiB", minInstances: MIN_INSTANCES };
 // 추론 모델(특히 5단계 시뮬레이션)은 응답에 1분 넘게 걸릴 수 있어 넉넉히 둔다.
 const aiOpts = { ...opts, secrets: [OPENAI_API_KEY], timeoutSeconds: 300 };
 
@@ -156,23 +160,6 @@ exports.createSession = onCall(opts, async (req) => {
   return { code };
 });
 
-// 모둠에 아직 없는 축을 먼저, 그 축 안에서는 아직 안 쓴 인물을 무작위로 고른다. 모두 쓰였으면 가장 적게 쓰인 인물 중에서 고른다.
-function pickPersona(personas, used, rand = Math.random) {
-  const count = (pred) => used.filter((id) => pred(personas.find((p) => p.id === id))).length;
-  const pickOne = (xs) => xs[Math.floor(rand() * xs.length)];
-  const fresh = personas.filter((p) => !used.includes(p.id));
-  // 아직 안 쓴 인물이 남은 축만 후보로 한다(모두 썼으면 전체가 후보)
-  const axes = [...new Set((fresh.length ? fresh : personas).map((p) => p.axis))];
-  const axisUse = (a) => count((p) => p && p.axis === a);
-  const minAxis = Math.min(...axes.map(axisUse));
-  const axis = pickOne(axes.filter((a) => axisUse(a) === minAxis));
-  const inAxis = personas.filter((p) => p.axis === axis);
-  const personUse = (p) => used.filter((id) => id === p.id).length;
-  const minUse = Math.min(...inAxis.map(personUse));
-  return pickOne(inAxis.filter((p) => personUse(p) === minUse));
-}
-exports._pickPersona = pickPersona; // 테스트용
-
 // 같은 학생이 다른 화면(로그아웃 후 다시 입장 등)에서 들어오면 새 익명 계정으로 바뀌므로,
 // 대화 기록·개인 정리 같은 학생의 데이터를 옛 uid 에서 새 uid 로 옮긴다. 옮길 것이 없으면 false.
 async function moveMember(code, groupId, fromUid, toUid) {
@@ -191,13 +178,15 @@ async function moveMember(code, groupId, fromUid, toUid) {
   if (asg.exists) await db.doc(`sessions/${code}/assign/${toUid}`).set(asg.data());
   // 모둠 산출물에서 이 학생의 개인 칸(1단계 개인 정리)은 새 uid 로 옮기고, '입력 중' 표시는 지운다
   const groupRef = db.doc(`sessions/${code}/groups/${groupId}`);
-  const work = (await groupRef.get()).data()?.work || {};
+  const grp = (await groupRef.get()).data() || {};
+  const work = grp.work || {};
   const upd = {};
   if (work.s1?.findings?.[fromUid] !== undefined) {
     upd[`work.s1.findings.${toUid}`] = work.s1.findings[fromUid];
     upd[`work.s1.findings.${fromUid}`] = FieldValue().delete();
   }
   if (work.live?.[fromUid] !== undefined) upd[`work.live.${fromUid}`] = FieldValue().delete();
+  for (const [pid, pk] of Object.entries(grp.picks || {})) if (pk?.uid === fromUid) upd[`picks.${pid}.uid`] = toUid;
   if (Object.keys(upd).length) await groupRef.update(upd);
   for (let i = 0; i < chats.length; i += 200) {
     const batch = db.batch();
@@ -211,8 +200,11 @@ async function moveMember(code, groupId, fromUid, toUid) {
 
 // 학생: 수업 코드 + 모둠 번호 + 별명 + 비밀번호로 입장
 //  - 처음이면 그 비밀번호가 이 별명의 비밀번호가 된다. 다시 들어올 때는 같은 비밀번호가 필요하다.
-//  - 비밀번호가 맞으면 이전에 하던 데이터(인물 배정, 대화, 개인 정리)가 지금 화면으로 이어진다.
-exports.joinSession = onCall(opts, async (req) => {
+//  - 비밀번호가 맞으면 이전에 하던 데이터(고른 인물, 대화, 개인 정리)가 지금 화면으로 이어진다.
+//  - 인물은 입장할 때 정하지 않는다. 모둠원이 모든 인물의 편지를 보고 상의해서 각자 고른다(choosePersona).
+//  - 입장 속도: 읽기는 가능한 한 동시에 하고, 비밀번호 해시는 다른 요청을 막지 않는 비동기로 하며,
+//    화면에 필요한 수업 내용(studentCase)을 함께 돌려줘 getCase 를 따로 부르지 않아도 되게 한다.
+exports.joinSession = onCall(fastOpts, async (req) => {
   const auth = requireAuth(req);
   const code = String(req.data?.code || "").trim().toUpperCase();
   const groupNo = parseInt(req.data?.groupNo, 10);
@@ -221,36 +213,36 @@ exports.joinSession = onCall(opts, async (req) => {
   if (!nickname) throw new HttpsError("invalid-argument", "별명을 입력하세요. (이름 대신 별명을 쓰세요)");
   const pwErr = validatePassword(password);
   if (pwErr) throw new HttpsError("invalid-argument", pwErr);
-  const session = await db.doc(`sessions/${code}`).get();
-  if (!session.exists) throw new HttpsError("not-found", "수업 코드를 찾을 수 없습니다.");
-  if (await closeIfDue(code, session.data())) throw new HttpsError("failed-precondition", CLOSED_MSG);
-  if (!(groupNo >= 1 && groupNo <= session.data().groupCount))
-    throw new HttpsError("invalid-argument", "모둠 번호가 올바르지 않습니다.");
-  const groupId = `g${groupNo}`;
-  const personas = availablePersonas(session.data().eventId, allowUnverified());
-  if (!personas.length) throw new HttpsError("failed-precondition", "아직 사용할 수 있는 인물이 없습니다. 선생님께 문의하세요.");
   const memberRef = db.doc(`sessions/${code}/members/${auth.uid}`);
-  const groupRef = db.doc(`sessions/${code}/groups/${groupId}`);
   const key = credKey(groupNo, nickname);
   const credRef = db.doc(`sessions/${code}/creds/${key}`);
+  const attRef = db.doc(`sessions/${code}/attempts/${auth.uid}`);
+  const [session, credSnap, mine, attSnap] = await Promise.all([db.doc(`sessions/${code}`).get(), credRef.get(), memberRef.get(), attRef.get()]);
+  if (!session.exists) throw new HttpsError("not-found", "수업 코드를 찾을 수 없습니다.");
+  const sess = session.data();
+  if (await closeIfDue(code, sess)) throw new HttpsError("failed-precondition", CLOSED_MSG);
+  if (!(groupNo >= 1 && groupNo <= sess.groupCount))
+    throw new HttpsError("invalid-argument", "모둠 번호가 올바르지 않습니다.");
+  const groupId = `g${groupNo}`;
+  if (!availablePersonas(sess.eventId, allowUnverified()).length) throw new HttpsError("failed-precondition", "아직 사용할 수 있는 인물이 없습니다. 선생님께 문의하세요.");
+  const groupRef = db.doc(`sessions/${code}/groups/${groupId}`);
 
   // 1) 비밀번호 확인. 잠금은 틀린 사람(접속 계정)별로 먼저 걸리고, 별명 전체에는 더 느슨하게 걸린다(친구가 일부러 틀려서 막는 일 방지).
-  const credSnap = await credRef.get();
   const cred = credSnap.exists ? credSnap.data() : null;
-  const attRef = db.doc(`sessions/${code}/attempts/${auth.uid}`);
   if (cred) {
-    const att = (await attRef.get()).data() || {};
+    const att = attSnap.data() || {};
     const wait = Math.max(lockedSeconds(att), lockedSeconds(cred));
     if (wait) throw new HttpsError("resource-exhausted", `비밀번호를 여러 번 틀려서 ${wait}초 동안 입장할 수 없습니다.`);
-    if (!verifyPassword(password, cred)) {
+    if (!(await verifyPassword(password, cred))) {
       await Promise.all([attRef.set(afterFail(att)), credRef.update(afterTotalFail(cred))]);
       throw new HttpsError("permission-denied", "비밀번호가 맞지 않습니다. 같은 모둠의 다른 친구가 이 별명을 이미 쓰고 있다면 다른 별명으로 입장하세요.");
     }
-    await attRef.delete();
+    if (attSnap.exists) await attRef.delete();
   }
+  // 처음 쓰는 별명이면 새 비밀번호의 해시를 지금부터 계산해 둔다(아래 작업과 겹쳐서 진행)
+  const hashP = cred ? null : hashPassword(password);
 
   // 2) 이 기기에 이미 다른 학생이 로그인되어 있으면 막는다(공용 PC에서 남의 자리를 이어받지 않도록)
-  const mine = await memberRef.get();
   if (mine.exists) {
     const d = mine.data();
     const same = d.credKey ? d.credKey === key : d.groupId === groupId && normNick(d.nickname) === normNick(nickname);
@@ -269,35 +261,35 @@ exports.joinSession = onCall(opts, async (req) => {
   }
   if (fromUid) await moveMember(code, groupId, fromUid, auth.uid);
 
-  // 4) 입장 처리. 모둠원마다 서로 다른 인물을 무작위로 배정한다(직소). 모둠 안에서 축(당사자·도민·시민사회·제도)이 겹치지 않게 고른다.
-  // 배정은 교사에게만 보이며 학생은 모른다. 재입장 시에는 유지한다.
-  // 인물 배정은 학생이 읽을 수 없는 서버 전용 문서(assign, assignGroup)에 둔다. 학생 문서에는 인물 정보가 없다.
+  // 4) 입장 처리. 인물은 배정하지 않는다(학생이 고른다). 이전에 고른 인물이 있으면 그대로 이어진다.
   const assignRef = db.doc(`sessions/${code}/assign/${auth.uid}`);
   const agRef = db.doc(`sessions/${code}/assignGroup/${groupId}`);
   await db.runTransaction(async (tx) => {
     const [m, g, a, ag] = await Promise.all([tx.get(memberRef), tx.get(groupRef), tx.get(assignRef), tx.get(agRef)]);
-    const curPid = a.exists ? a.data().personaId : m.data()?.personaId; // 옛 방식(학생 문서에 있던 인물 ID)도 읽는다
-    if (m.exists && m.data().groupId === groupId && personas.some((p) => p.id === curPid)) {
+    if (m.exists && m.data().groupId === groupId) {
+      const curPid = a.exists ? a.data().personaId : m.data()?.personaId; // 옛 방식(학생 문서에 있던 인물 ID)도 읽는다
       tx.update(memberRef, { nickname, credKey: key, personaId: FieldValue().delete() });
-      if (!a.exists) tx.set(assignRef, { groupId, personaId: curPid });
+      if (curPid) {
+        if (!a.exists) tx.set(assignRef, { groupId, personaId: curPid });
+        if (!g.data()?.picks?.[curPid]) tx.update(groupRef, { [`picks.${curPid}`]: { uid: auth.uid, nick: nickname } });
+      }
       if (!ag.exists && g.data()?.personaIds) { tx.set(agRef, { personaIds: g.data().personaIds }); tx.update(groupRef, { personaIds: FieldValue().delete() }); }
       return;
     }
-    const n = g.data()?.memberCount || 0;
-    const used = ag.exists ? ag.data().personaIds || [] : g.data()?.personaIds || [];
-    const persona = pickPersona(personas, used);
-    tx.update(groupRef, { memberCount: n + 1, personaIds: FieldValue().delete() });
-    tx.set(agRef, { personaIds: [...used, persona.id] });
-    tx.set(assignRef, { groupId, personaId: persona.id });
+    tx.update(groupRef, { memberCount: (g.data()?.memberCount || 0) + 1 });
     tx.set(memberRef, {
       groupId, nickname, credKey: key,
       stage: 1, aiCount: 0, chatCount: 0, joinedAt: FieldValue().serverTimestamp(), lastSeen: FieldValue().serverTimestamp(),
     });
   });
 
-  // 5) 비밀번호 저장(처음이면 새로 만들고, 있으면 현재 계정으로 연결만 바꾼다)
-  await credRef.set({ ...(cred ? { salt: cred.salt, hash: cred.hash } : hashPassword(password)), uid: auth.uid, groupId, fails: 0, lockUntil: 0 });
-  return { groupId };
+  // 5) 비밀번호 저장(처음이면 새로 만들고, 있으면 현재 계정으로 연결만 바꾼다)과 화면에 필요한 내용 준비를 함께 한다
+  const saved = hashP ? await hashP : { salt: cred.salt, hash: cred.hash };
+  const [, caseData] = await Promise.all([
+    credRef.set({ ...saved, uid: auth.uid, groupId, fails: 0, lockUntil: 0 }),
+    studentCase(code, sess, auth.uid),
+  ]);
+  return { groupId, nickname, started: sess.started !== false, chatLimit: sess.chatLimit || CHAT_LIMIT, case: caseData };
 });
 
 // 학생의 인물 ID: 서버 전용 배정 문서에서 읽는다(옛 방식으로 학생 문서에 있던 값도 받아 준다)
@@ -305,6 +297,100 @@ async function personaIdOf(code, uid, member) {
   const a = await db.doc(`sessions/${code}/assign/${uid}`).get();
   return a.exists ? a.data().personaId : member?.personaId;
 }
+
+// 학생 화면이 쓰는 수업 내용. 모든 인물의 편지(이름·한 줄 소개·편지)와 내가 고른 인물, 모둠원이 고른 인물을 함께 보낸다.
+// 인물의 역할·근거·출처·말투는 보내지 않는다.
+async function studentCase(code, sess, uid, member) {
+  const ev = EVENTS[sess.eventId];
+  const gid = member?.groupId;
+  const [personas, materials, a, groupSnap] = await Promise.all([
+    personasFor(code, ev.id),
+    studentMaterials(code),
+    db.doc(`sessions/${code}/assign/${uid}`).get(),
+    gid ? db.doc(`sessions/${code}/groups/${gid}`).get() : Promise.resolve(null),
+  ]);
+  const myId = a.exists ? a.data().personaId : member?.personaId;
+  const mine = personas.find((p) => p.id === myId);
+  return {
+    title: ev.title,
+    summary: ev.summary,
+    stakeholders: ev.stakeholders,
+    letters: personas.map((p) => ({ id: p.id, name: p.name, brief: BRIEFS[p.id] || p.label || "", letter: p.letter, refugee: isRefugee(p), personal: isPersonal(p) })),
+    me: mine ? { id: mine.id, name: mine.name, letter: mine.letter, personal: isPersonal(mine) } : null,
+    materials,
+    cases: casesFor(allowUnverified()),
+    aftermath: aftermathFor(allowUnverified()),
+  };
+}
+
+// 학생: 이 모둠에서 내가 대화할 인물을 고른다. 모둠원마다 서로 다른 인물이어야 하고, 대화를 시작한 뒤에는 바꿀 수 없다.
+//  - 당사자(난민) 인물은 모둠에 꼭 한 명 있어야 한다. 이미 당사자를 맡은 학생이 다른 인물로 바꿔 모둠에 당사자가 없어지는 것은 막는다.
+exports.choosePersona = onCall(fastOpts, async (req) => {
+  const auth = requireAuth(req);
+  const code = String(req.data?.code || "").toUpperCase();
+  const pid = String(req.data?.personaId || "");
+  const memberRef = db.doc(`sessions/${code}/members/${auth.uid}`);
+  const [sessSnap, memSnap] = await Promise.all([db.doc(`sessions/${code}`).get(), memberRef.get()]);
+  if (!sessSnap.exists || !memSnap.exists) throw new HttpsError("permission-denied", "이 수업의 참여자가 아닙니다.");
+  const sess = sessSnap.data();
+  if (await closeIfDue(code, sess)) throw new HttpsError("failed-precondition", CLOSED_MSG);
+  const personas = await personasFor(code, sess.eventId);
+  const persona = personas.find((p) => p.id === pid);
+  if (!persona) throw new HttpsError("not-found", "인물을 찾을 수 없습니다.");
+  const { groupId, nickname } = memSnap.data();
+  const groupRef = db.doc(`sessions/${code}/groups/${groupId}`);
+  const assignRef = db.doc(`sessions/${code}/assign/${auth.uid}`);
+  const agRef = db.doc(`sessions/${code}/assignGroup/${groupId}`);
+  await db.runTransaction(async (tx) => {
+    const [m, g, a, ag] = await Promise.all([tx.get(memberRef), tx.get(groupRef), tx.get(assignRef), tx.get(agRef)]);
+    const picks = g.data()?.picks || {};
+    const cur = a.exists ? a.data().personaId : m.data()?.personaId;
+    if (cur === pid) return;
+    if ((m.data()?.chatCount || 0) > 0) throw new HttpsError("failed-precondition", "인물과 대화를 시작한 뒤에는 인물을 바꿀 수 없어요. 바꾸고 싶으면 선생님께 말씀드리세요.");
+    if (picks[pid] && picks[pid].uid !== auth.uid) throw new HttpsError("already-exists", `${picks[pid].nick || "다른 친구"}가 이미 고른 인물이에요. 다른 인물을 골라 보세요.`);
+    if (cur && isRefugee(personas.find((p) => p.id === cur)) && !isRefugee(persona)) {
+      const another = Object.entries(picks).some(([id, pk]) => pk?.uid !== auth.uid && isRefugee(personas.find((p) => p.id === id)));
+      if (!another) throw new HttpsError("failed-precondition", "모둠에 당사자(난민) 인물을 맡은 친구가 한 명은 있어야 해요. 다른 친구가 당사자를 고른 뒤에 바꿀 수 있어요.");
+    }
+    const used = (ag.exists ? ag.data().personaIds || [] : []).slice();
+    if (cur) { const i = used.indexOf(cur); if (i >= 0) used.splice(i, 1); }
+    used.push(pid);
+    const upd = { [`picks.${pid}`]: { uid: auth.uid, nick: nickname } };
+    if (cur) upd[`picks.${cur}`] = FieldValue().delete();
+    tx.update(groupRef, upd);
+    tx.set(agRef, { personaIds: used });
+    tx.set(assignRef, { groupId, personaId: pid });
+    if (m.data()?.personaId) tx.update(memberRef, { personaId: FieldValue().delete() });
+  });
+  return { me: { id: persona.id, name: persona.name, letter: persona.letter, personal: isPersonal(persona) } };
+});
+
+// 교사: 학생이 고른 인물을 풀어 준다(잘못 골랐거나 대화를 시작해서 학생이 바꿀 수 없을 때). 대화 기록은 지우고 질문 횟수를 되돌린다.
+exports.resetPersonaChoice = onCall(opts, async (req) => {
+  const { code } = await ownSession(req);
+  const uid = String(req.data?.uid || "");
+  const memberRef = db.doc(`sessions/${code}/members/${uid}`);
+  const m = await memberRef.get();
+  if (!m.exists) throw new HttpsError("not-found", "학생을 찾을 수 없습니다.");
+  const { groupId } = m.data();
+  const [a, ag] = await Promise.all([db.doc(`sessions/${code}/assign/${uid}`).get(), db.doc(`sessions/${code}/assignGroup/${groupId}`).get()]);
+  const pid = a.exists ? a.data().personaId : m.data().personaId;
+  const chats = (await db.collection(`sessions/${code}/members/${uid}/chat`).get()).docs;
+  for (let i = 0; i < chats.length; i += 400) {
+    const batch = db.batch();
+    chats.slice(i, i + 400).forEach((d) => batch.delete(db.doc(`sessions/${code}/members/${uid}/chat/${d.id}`)));
+    await batch.commit();
+  }
+  const batch = db.batch();
+  batch.update(memberRef, { chatCount: 0, personaId: FieldValue().delete() });
+  if (a.exists) batch.delete(db.doc(`sessions/${code}/assign/${uid}`));
+  if (pid) {
+    batch.update(db.doc(`sessions/${code}/groups/${groupId}`), { [`picks.${pid}`]: FieldValue().delete() });
+    batch.set(db.doc(`sessions/${code}/assignGroup/${groupId}`), { personaIds: (ag.data()?.personaIds || []).filter((id) => id !== pid) });
+  }
+  await batch.commit();
+  return { ok: true };
+});
 
 // 교사: 학생의 비밀번호를 지운다(잊어버린 경우). 그 학생이 같은 별명으로 다시 입장하면서 새 비밀번호를 정한다.
 exports.resetStudentPassword = onCall(opts, async (req) => {
@@ -417,17 +503,23 @@ exports.moveStudent = onCall(opts, async (req) => {
   const asg = await db.doc(`sessions/${code}/assign/${uid}`).get();
   const pid = asg.exists ? asg.data().personaId : d.personaId;
   const [ogRef, ngRef] = [`sessions/${code}/assignGroup/${fromId}`, `sessions/${code}/assignGroup/${toId}`].map((p) => db.doc(p));
-  const [og, ng] = await Promise.all([ogRef.get(), ngRef.get()]);
+  const fromG = db.doc(`sessions/${code}/groups/${fromId}`), toG = db.doc(`sessions/${code}/groups/${toId}`);
+  const [og, ng, fromSnap, toSnap] = await Promise.all([ogRef.get(), ngRef.get(), fromG.get(), toG.get()]);
+  const toPicks = toSnap.data()?.picks || {};
+  if (pid && toPicks[pid]) throw new HttpsError("failed-precondition", `${to}모둠에는 같은 인물을 고른 친구(${toPicks[pid].nick})가 있습니다. 한쪽의 인물 선택을 먼저 풀어 주세요.`);
   const oldIds = [...(og.data()?.personaIds || [])];
   const i = oldIds.indexOf(pid); if (i >= 0) oldIds.splice(i, 1);
-  const fromG = db.doc(`sessions/${code}/groups/${fromId}`), toG = db.doc(`sessions/${code}/groups/${toId}`);
-  const work = (await fromG.get()).data()?.work || {};
+  const work = fromSnap.data()?.work || {};
   const oldCred = await db.doc(`sessions/${code}/creds/${oldKey}`).get();
   const batch = db.batch();
   batch.update(memberRef, { groupId: toId, credKey: newKey });
   if (pid) batch.set(db.doc(`sessions/${code}/assign/${uid}`), { groupId: toId, personaId: pid });
   batch.set(ogRef, { personaIds: oldIds });
   batch.set(ngRef, { personaIds: [...(ng.data()?.personaIds || []), ...(pid ? [pid] : [])] });
+  if (pid) {
+    batch.update(fromG, { [`picks.${pid}`]: FieldValue().delete() });
+    batch.update(toG, { [`picks.${pid}`]: { uid, nick: d.nickname } });
+  }
   batch.update(fromG, { memberCount: FieldValue().increment(-1) });
   batch.update(toG, { memberCount: FieldValue().increment(1) });
   if (work.s1?.findings?.[uid] !== undefined) {
@@ -522,7 +614,7 @@ exports.resetMaterials = onCall(opts, async (req) => {
 // 화면이 쓰는 수업 설정.
 //  - 학생: { code } → 내 인물의 이름과 편지, 3단계 실제 자료, 4단계 해외 사례 카드, 7단계 이후 전개(사건 개요는 화면에 보이지 않지만 함께 보낸다). 인물의 역할·근거·출처는 보내지 않는다.
 //  - 교사: { eventId } → 인물별 근거 진술·출처 검증 현황, 자료 전체
-exports.getCase = onCall(opts, async (req) => {
+exports.getCase = onCall(fastOpts, async (req) => {
   const auth = requireAuth(req);
 
   if (req.data?.eventId) {
@@ -553,18 +645,7 @@ exports.getCase = onCall(opts, async (req) => {
   const [sess, mem] = await Promise.all([db.doc(`sessions/${code}`).get(), db.doc(`sessions/${code}/members/${auth.uid}`).get()]);
   if (!sess.exists || !mem.exists) throw new HttpsError("permission-denied", "이 수업의 참여자가 아닙니다.");
   if (await closeIfDue(code, sess.data())) throw new HttpsError("failed-precondition", CLOSED_MSG);
-  const ev = EVENTS[sess.data().eventId];
-  const myPersonaId = await personaIdOf(code, auth.uid, mem.data());
-  const mine = (await personasFor(code, ev.id)).find((p) => p.id === myPersonaId);
-  return {
-    title: ev.title,
-    summary: ev.summary,
-    stakeholders: ev.stakeholders,
-    me: mine ? { name: mine.name, letter: mine.letter, personal: isPersonal(mine) } : null,
-    materials: await studentMaterials(code),
-    cases: casesFor(allowUnverified()),
-    aftermath: aftermathFor(allowUnverified()),
-  };
+  return studentCase(code, sess.data(), auth.uid, mem.data());
 });
 
 // ---------- AI 호출 ----------
@@ -642,7 +723,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
     // ---- 1단계: 학생별 메신저 대화 ----
     if (s === 1) {
       const persona = personas.find((p) => p.id === personaId);
-      if (!persona) throw new HttpsError("failed-precondition", "배정된 인물이 없습니다. 선생님께 알려 주세요.");
+      if (!persona) throw new HttpsError("failed-precondition", "대화할 인물을 먼저 골라 주세요.");
       if (member.chatLocked) throw new HttpsError("failed-precondition", conduct.strikeNotice(conduct.STRIKE_LIMIT));
       const chatCol = db.collection(`sessions/${code}/members/${auth.uid}/chat`);
       // 최근 대화만 시간순으로 가져온다(전체를 읽지 않는다)

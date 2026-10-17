@@ -858,7 +858,23 @@ function availablePersonas(eventId, allowUnverified = false) {
   return PERSONAS.filter((p) => p.events.includes(eventId) && (allowUnverified || personaVerified(p)));
 }
 
-module.exports = {
+// 학생이 인물을 고를 때 보는 한 줄 소개(편지와 함께). 하는 일만 적고 입장·평가는 담지 않는다.
+const BRIEFS = {
+  j_applicant: "예멘에서 온 20대 청년",
+  j_applicant2: "예멘에서 온 30대 가장",
+  j_resident: "제주시에서 식당을 하는 40대",
+  j_employer: "서쪽 바닷가 마을의 어선 선주",
+  j_host: "원도심 게스트하우스 주인",
+  j_supporter: "인권 단체 활동가",
+  j_shelter: "이주민 쉼터 센터장",
+  j_officer: "출입국·외국인청 공무원",
+  j_province: "제주도청 공무원",
+};
+// 모둠에는 이 축(난민 신청자)의 인물이 꼭 한 명 있어야 한다. 직접 고르게 하면 아무도 안 고를 수 있어서 서버가 지킨다.
+const REQUIRED_AXIS = "당사자";
+const isRefugee = (p) => p?.axis === REQUIRED_AXIS;
+
+module.exports = { BRIEFS, REQUIRED_AXIS, isRefugee,
   SOURCES, EVENTS, PERSONAS, AXES, MATERIALS, CASES, AFTERMATH, availablePersonas, personaSourceIds, personaVerified, toPublicSource,
   materialsFor, materialsAdmin, casesFor, casesAdmin, aftermathFor, aftermathAdmin,
 };

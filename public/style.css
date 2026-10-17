@@ -272,7 +272,7 @@ details.fold .inner{ margin-top:12px; }
 @media (max-width:620px){ .role-g{ grid-template-columns:1fr; gap:4px; } .role-g > div{ padding:6px 10px; } .role-g span{ display:inline; margin-right:6px; } }
 
 /* 1단계 작은 단계 */
-.subnav{ display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-bottom:12px; }
+.subnav{ display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:12px; }
 .subnav button{ font:inherit; font-size:13px; font-weight:800; border:none; background:var(--surface); color:var(--ink-2); box-shadow:var(--shadow); border-radius:12px; padding:9px 6px; cursor:pointer; line-height:1.3; }
 .subnav button small{ display:block; font-size:11px; font-weight:600; color:var(--ink-3); }
 .subnav button.on{ background:var(--navy); color:#fff; }
@@ -501,3 +501,21 @@ body.modal-open{ overflow:hidden; }
 .alert-msg{ margin-top:4px; font-size:14px; background:var(--danger-tint); border-radius:10px; padding:6px 10px; word-break:break-word; }
 .kpi.warn{ background:var(--danger-tint); }
 .kpi.warn b{ color:var(--danger); }
+
+/* 1단계 인물 고르기: 모든 인물의 편지 카드. 눌러서 펼치면 편지와 '고르기' 버튼이 나온다 */
+.tag.g{ background:var(--green-tint); color:var(--green-ink); }
+.notice.ok{ color:var(--green-ink); background:var(--green-tint); }
+.chat-tools{ display:flex; gap:6px; margin-left:auto; }
+.pcards{ display:grid; gap:8px; margin:10px 0; }
+.pcard{ background:var(--surface); border-radius:14px; box-shadow:var(--shadow); padding:0; overflow:hidden; border:2px solid transparent; }
+.pcard.mine{ border-color:var(--green); }
+.pcard.taken{ opacity:.78; }
+.pcard summary{ list-style:none; cursor:pointer; display:flex; align-items:center; gap:10px; padding:11px 12px; }
+.pcard summary::-webkit-details-marker{ display:none; }
+.pcard .pc-t{ display:flex; flex-direction:column; min-width:0; flex:1; line-height:1.3; }
+.pcard .pc-t small{ color:var(--ink-3); font-size:12.5px; }
+.pcard .pc-body{ padding:0 14px 14px; font-family:var(--serif); line-height:1.8; border-top:1px solid var(--sep); }
+.pcard .pc-body p{ margin:10px 0 0; }
+.pcard .pc-act{ margin-top:12px; font-family:inherit; }
+.subnav button:disabled{ opacity:.45; cursor:not-allowed; }
+#join-wait{ margin-top:12px; }

@@ -24,13 +24,32 @@
     return;
   }
 
+  // 키보드가 올라오면 '보이는 화면'(visualViewport)이 줄어든다. 그 크기를 CSS 변수로 알려서
+  // 대화 화면이 보이는 영역에 딱 맞게 하고(입력창이 키보드 바로 위에 붙는다), 화면이 위아래로 밀리지 않게 한다.
+  var vv = window.visualViewport;
+  if (vv) {
+    var setVV = function () {
+      var r = document.documentElement.style;
+      r.setProperty("--vvh", vv.height + "px");
+      r.setProperty("--vvt", vv.offsetTop + "px");
+    };
+    vv.addEventListener("resize", setVV);
+    vv.addEventListener("scroll", setVV);
+    setVV();
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     // PC 화면을 고른 휴대폰에는 모바일 화면으로 돌아가는 링크를 보여 준다
     var back = document.getElementById("to-mobile");
     if (back && phone) back.classList.remove("hidden");
     if (!document.body.classList.contains("m")) return;
     var isText = function (el) { return el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && !/checkbox|radio|button|submit/.test(el.type))); };
-    document.addEventListener("focusin", function (e) { if (isText(e.target)) document.body.classList.add("typing"); });
+    document.addEventListener("focusin", function (e) {
+      if (!isText(e.target)) return;
+      document.body.classList.add("typing");
+      // 대화 화면에서는 키보드가 올라올 때 브라우저가 화면을 밀어 올리지 않도록 맨 위로 되돌린다
+      if (document.body.classList.contains("chat-mode")) setTimeout(function () { window.scrollTo(0, 0); }, 50);
+    });
     document.addEventListener("focusout", function () {
       setTimeout(function () { if (!isText(document.activeElement)) document.body.classList.remove("typing"); }, 50);
     });
