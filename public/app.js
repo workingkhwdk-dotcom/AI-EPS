@@ -57,10 +57,12 @@ const STARTERS = ["안녕하세요, 어떤 일을 하세요?", "요즘 가장 �
 const S = {
   code: null, groupId: null, nick: null, uid: null, info: null, me: null,
   work: {}, logs: [], chat: [], stage: 1, sub1: "chat", aiCount: 0, memberCount: 0, chatCount: 0, chatLimit: 5,
-  busy: null, waitSince: 0, chatErr: null, sending: false, pending: null, draft: "", letterClosed: false, matTab: null, proposalId: null, round: 1, scrollChat: false,
+  opened: {}, busy: null, waitSince: 0, chatErr: null, sending: false, pending: null, draft: "", letterClosed: false, matTab: null, proposalId: null, round: 1, scrollChat: false,
 };
 const $ = (s) => document.querySelector(s);
 const panel = $("#panel");
+// 모바일 전용 화면(m.html)인지. 화면이 좁아 안내 글은 접어 두고 활동 칸을 먼저 보여 준다.
+const IS_M = document.body.classList.contains("m");
 let groupRef = null, memberRef = null;
 
 // ---------- 데이터 도우미 ----------
@@ -280,6 +282,12 @@ $("#tabs").onclick = (e) => { const b = e.target.closest("[data-stage]"); if (b)
 // ---------- 공통 조각 ----------
 function roleBox(n) {
   const r = ROLES[n];
+  if (IS_M) {
+    // 모바일: 한 줄로 접어 두고, 누르면 펼친다
+    if (!r) return `<div class="role x m-role"><span class="tag x">AI 사용 안 함</span> <b>우리 모둠이 직접 생각해요</b></div>`;
+    return `<details class="role m-role" data-keep="role${n}"><summary><span class="tag y">AI 역할</span> <b>${esc(r.ai)}</b></summary>
+      <div class="role-g"><div><span>AI가 하는 일</span>${esc(r.does)}</div><div><span>AI가 하지 않는 일</span>${esc(r.not)}</div><div class="me"><span>우리가 하는 일</span>${esc(r.me)}</div></div></details>`;
+  }
   if (!r) return `<div class="role x"><div class="role-h"><span class="tag x">AI 사용 안 함</span><b>이 단계는 우리 모둠이 직접 생각합니다.</b></div></div>`;
   return `<div class="role"><div class="role-h"><span class="tag y">AI 역할</span><b>${esc(r.ai)}</b></div>
     <div class="role-g"><div><span>AI가 하는 일</span>${esc(r.does)}</div><div><span>AI가 하지 않는 일</span>${esc(r.not)}</div><div class="me"><span>우리가 하는 일</span>${esc(r.me)}</div></div></div>`;
@@ -322,7 +330,7 @@ function footer() {
   const btn = (x, cls, text) => `<button class="btn ${cls}" data-go="${x.s}" data-sub="${x.sub || ""}">${text}</button>`;
   return `<div class="nav-foot">${prev ? btn(prev, "btn-plain", `← ${esc(prev.label)}`) : "<span></span>"}
     ${next ? btn(next, "btn-primary", `다음: ${esc(next.label)} →`) : `<span class="meta-line">마지막 단계입니다. 수고했어요!</span>`}</div>
-    <div class="meta-line" style="text-align:right;margin-top:8px">우리 모둠 AI 사용(3~5단계) ${S.aiCount}회</div>`;
+    <div class="meta-line m-hide" style="text-align:right;margin-top:8px">우리 모둠 AI 사용(3~5단계) ${S.aiCount}회</div>`;
 }
 
 // ---------- 그리기 ----------
@@ -341,7 +349,10 @@ function render(force = false) {
   if (!force && key === lastKey) { syncLive(); return; }
   lastKey = key;
   const sc = window.scrollY;
+  // 학생이 펼치거나 접은 상자(data-keep)는 다시 그려도 그대로 둔다
+  panel.querySelectorAll("details[data-keep]").forEach((d) => { S.opened[d.dataset.keep] = d.open; });
   panel.innerHTML = html;
+  panel.querySelectorAll("details[data-keep]").forEach((d) => { if (d.dataset.keep in S.opened) d.open = S.opened[d.dataset.keep]; });
   window.scrollTo(0, sc); // 다시 그려도 보던 자리를 지킨다
   if ($("#msgs")) { const m = $("#msg"); if (m && S.draft) m.value = S.draft; renderMsgs(); }
   syncLive();
@@ -410,7 +421,7 @@ function renderChatLeft() {
   const left = chatLeft(), out = left === 0;
   el.innerHTML = out
     ? `질문을 모두 썼어요. 들은 이야기로 정리해 보세요. <button class="link" data-go="1" data-sub="note">② 정리·제출로 가기</button>`
-    : `남은 질문 <b>${left}</b> / ${S.chatLimit}번 · 보내기 전에 무엇을 알아낼지 먼저 생각해 보세요.`;
+    : `남은 질문 <b>${left}</b> / ${S.chatLimit}번<span class="m-hide"> · 보내기 전에 무엇을 알아낼지 먼저 생각해 보세요.</span>`;
   el.classList.toggle("out", out);
   const m = $("#msg"); if (m) { m.disabled = out; m.placeholder = out ? "질문을 모두 썼어요" : `${S.me?.name || ""}에게 메시지 보내기`; }
   const btn = $("#send-btn"); if (btn) btn.disabled = S.sending || out;
@@ -508,7 +519,7 @@ const renderStage = {
         : `${cur.stats ? `<div class="stats">${cur.stats.map((s, i) => `<div class="stat ${i === 2 ? "g" : i === 0 ? "" : "b"}"><b>${esc(s.value)}</b><span>${esc(s.label)}</span></div>`).join("")}</div>` : ""}
            <div class="mat">${cur.items.map(itemHtml).join("")}</div>`;
     return `${roleBox(2)}${problemBar()}
-    <details class="fold" open><summary>실제 사건 자료</summary><div class="inner">
+    <details class="fold" data-keep="mat" ${IS_M ? "" : "open"}><summary>실제 사건 자료</summary><div class="inner">
       <div class="overview"><b>${esc(S.info.title)}</b><p>${esc(S.info.summary)}</p></div>
       <p class="desc">인물에게 들은 말과 비교할 자료입니다. <span class="kind">사실</span> <span class="kind k-증언">증언</span>은 일어난 일, <span class="kind k-주장">주장</span> <span class="kind k-의견">의견</span>은 누군가의 생각입니다.</p>
       <div class="chipbar scroll">${cats.map((c) => `<button class="chip ${cur && c.id === cur.id ? "on" : ""}" data-act="mat-tab" data-id="${c.id}">${esc(c.title)}</button>`).join("")}</div>
@@ -532,7 +543,7 @@ const renderStage = {
 
     <div class="card"><h3>③ 확인할 것을 검증 질문으로 바꾸기 ${shared}</h3>
       <p class="desc">확인할 것은 두 가지입니다. <b>인물에게 들은 말이 사실인지</b>, 그리고 <b>②의 원인 가설이 맞는지</b>. 각각을 질문으로 바꾸고, 위 자료와 먼저 비교해 보세요.</p>
-      <div class="example"><b>좋은 검증 질문</b>은 ① 예/아니오나 숫자로 답할 수 있고 ② 언제·어디서·누가가 분명하고 ③ 확인할 자료가 있습니다.
+      <div class="example tip"><b>좋은 검증 질문</b>은 ① 예/아니오나 숫자로 답할 수 있고 ② 언제·어디서·누가가 분명하고 ③ 확인할 자료가 있습니다.
         <div class="ex-row bad">✗ 난민은 위험한가? <span>생각(의견)을 묻는 질문이라 자료로 확인할 수 없어요</span></div>
         <div class="ex-row good">✓ 2018년에 제주에 온 예멘 난민 신청자는 몇 명인가? <span>숫자로 답할 수 있고 자료가 있어요</span></div></div>
       ${list("s2.checks").map((c) => `<div class="card flat" style="margin-bottom:10px">
@@ -696,11 +707,11 @@ const renderStage = {
 const sub1 = {
   chat() {
     const me = S.me;
-    return `<details class="letter" ${S.chat.length ? "" : "open"}>
+    return `<details class="letter" data-keep="letter" ${S.chat.length ? "" : "open"}>
       <summary>${esc(me.name)}에게서 편지가 왔어요</summary>
       <div class="body">${me.letter.map((p) => `<p>${esc(p)}</p>`).join("")}<div class="sign">2018년 12월, 제주에서<br>${esc(me.name)} 드림</div></div>
     </details>
-    <div class="notice muted"><b>할 일</b> ${esc(me.name)}에게 질문해 세 가지를 알아내세요: <b>① 누구인지 ② 무엇이 힘든지 ③ 무엇을 바라는지</b>. 질문은 <b>${S.chatLimit}번</b>만 할 수 있으니, 한 번에 무엇을 알아낼지 골라서 물어보세요. 다 알아냈으면 아래 '다음'을 누르세요.</div>
+    <div class="notice muted tip"><b>할 일</b> ${esc(me.name)}에게 질문해 세 가지를 알아내세요: <b>① 누구인지 ② 무엇이 힘든지 ③ 무엇을 바라는지</b>. 질문은 <b>${S.chatLimit}번</b>만 할 수 있으니, 한 번에 무엇을 알아낼지 골라서 물어보세요. 다 알아냈으면 아래 '다음'을 누르세요.</div>
     <div class="card chat-card">
       <div class="chat-head"><div class="avatar">${esc(me.name.slice(0, 1))}</div><div><div class="nm">${esc(me.name)}</div><div class="st">대화 중</div></div><button class="btn btn-plain btn-sm" style="margin-left:auto" data-act="dl-chat" aria-label="내 대화를 글 파일로 저장">대화 저장</button></div>
       <div class="msgs" id="msgs" role="log" aria-live="polite" aria-label="인물과의 대화"></div>
@@ -724,7 +735,7 @@ const sub1 = {
         <p class="desc">${esc(S.me.name)}와의 대화에서 알아낸 것을 <b>내 말로</b> 쓰세요. 1~3번은 꼭 써야 제출할 수 있어요. 제출하면 모둠원 화면에 보입니다.</p>
         ${NOTE_FIELDS.map(([k, l, ph]) => fld(`s1.findings.${S.uid}.${k}`, l, ph)).join("")}
         <div class="row" style="margin-top:14px;justify-content:space-between">${status}<button class="btn btn-primary" data-act="submit-note">제출하기</button></div></div>
-        <div class="notice muted">제출하면 모둠원이 제출한 내용도 볼 수 있어요. (지금 ${done}명 제출)</div>`;
+        <div class="notice muted tip">제출하면 모둠원이 제출한 내용도 볼 수 있어요. (지금 ${done}명 제출)</div>`;
     }
     return `<div class="card"><h3>② 내가 제출한 내용</h3>${findingCard({ ...mine, nick: S.nick }, true)}
       <div class="row" style="margin-top:10px;justify-content:space-between">${status}<button class="btn btn-plain btn-sm" data-act="edit-note">수정하기</button></div></div>
@@ -750,7 +761,7 @@ const sub1 = {
       ${fld("s1.problem.conflict", "누구의 바람과 누구의 걱정이 부딪히나요?", "예) ○○는 ~을 원하지만, △△는 ~을 걱정한다", true)}</div>
     <div class="card"><h3>4) 우리 모둠의 문제를 한 문장으로 ${shared}</h3>
       <p class="desc">2)와 3)을 합쳐 '어떻게 하면 ~하면서도 ~할 수 있을까?' 질문으로 쓰세요. 한쪽 편만 드는 질문이 아니라 <b>부딪히는 두 바람을 함께 담는</b> 질문이 좋습니다.</p>
-      <div class="example"><div class="ex-row bad">✗ 난민 문제 <span>너무 넓어요</span></div>
+      <div class="example tip"><div class="ex-row bad">✗ 난민 문제 <span>너무 넓어요</span></div>
         <div class="ex-row bad">✗ 난민을 받아들여야 한다 <span>이미 답을 정한 주장이에요</span></div>
         <div class="ex-row good">✓ (다른 주제 예시) 어떻게 하면 급식 줄 서는 시간을 줄이면서도 모두가 충분히 먹을 수 있을까?</div></div>
       ${fld("s1.problem.situation", "문제 상황: 누가 어떤 어려움을 겪고 있나요? (한두 문장)", "", true)}

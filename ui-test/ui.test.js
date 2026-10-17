@@ -456,3 +456,26 @@ test("교사 모바일: 학생·모둠 표가 카드로 보이고, 아래 메뉴
   await shot(pg, "m-teacher-settings");
   assert.deepEqual(errors, []);
 });
+
+test("학생 모바일: 안내 글은 한 줄로 줄이고(누르면 펼침, 다시 그려도 유지), AI 역할은 한 줄 요약, 사건 자료는 접힌 채로 시작한다", async () => {
+  const s = await openStudent(studentFixture(), { ctxOpts: phone });
+  await login(s.pg);
+  await s.pg.waitForSelector(".m-role");
+  assert.equal(await s.pg.locator("details.m-role").getAttribute("open"), null, "AI 역할 설명은 접혀 있다");
+  const tip = s.pg.locator(".notice.tip").first();
+  const h1 = (await tip.boundingBox()).height;
+  await tip.tap();
+  await s.pg.waitForFunction(() => document.querySelector(".notice.tip").classList.contains("open"));
+  assert.ok((await tip.boundingBox()).height > h1 + 10, "누르면 펼쳐진다");
+  await s.pg.evaluate(() => { const d = document.querySelector("#panel"); d.innerHTML = d.innerHTML; });
+  await s.pg.waitForFunction(() => document.querySelector(".notice.tip").classList.contains("open"));
+  await s.pg.tap('#tabs .stage-tab[data-stage="2"]');
+  await s.pg.waitForSelector("details.fold");
+  assert.equal(await s.pg.locator("details.fold").getAttribute("open"), null, "사건 자료는 접혀 있다");
+  await s.pg.locator("details.fold summary").tap();
+  await s.pg.evaluate(() => window.scrollTo(0, 0));
+  await s.pg.tap('#tabs .stage-tab[data-stage="3"]'); await s.pg.tap('#tabs .stage-tab[data-stage="2"]');
+  await s.pg.waitForSelector("details.fold");
+  assert.notEqual(await s.pg.locator("details.fold").getAttribute("open"), null, "펼친 상자는 다시 그려도 펼친 채로");
+  assert.ok(await s.pg.locator(".nav-foot + .m-hide, .m-hide").first().isHidden());
+});

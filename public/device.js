@@ -3,6 +3,7 @@
 //  - 휴대폰에서도 PC 화면을 쓰고 싶으면 ?view=pc 로 열면 되고, 이 기기에서는 그 선택을 기억한다(?view=m 으로 되돌림).
 //  - 태블릿은 PC 화면이 이미 맞춰지므로 옮기지 않는다.
 //  - 모바일 화면에서는 글을 입력하는 동안 아래쪽 이동 막대를 숨긴다(키보드 위 공간 확보).
+//  - 모바일 화면에서 한 줄로 줄인 설명(.desc, .tip, p.meta-line)은 누르면 펼친다.
 (function () {
   var me = document.currentScript;
   var target = me && me.getAttribute("data-mobile");
@@ -32,5 +33,16 @@
     document.addEventListener("focusout", function () {
       setTimeout(function () { if (!isText(document.activeElement)) document.body.classList.remove("typing"); }, 50);
     });
+    // 한 줄로 줄여 둔 설명·안내는 누르면 펼치고 다시 누르면 접는다. 화면을 다시 그려도 펼친 것은 펼친 채로 둔다.
+    var FOLD = ".desc, .tip, p.meta-line", opened = {};
+    document.addEventListener("click", function (e) {
+      if (e.target.closest("a, button, input, select, textarea, label")) return;
+      var el = e.target.closest(FOLD); if (!el) return;
+      var on = el.classList.toggle("open");
+      opened[el.textContent] = on;
+    });
+    new MutationObserver(function () {
+      document.querySelectorAll(FOLD).forEach(function (el) { if (opened[el.textContent] && !el.classList.contains("open")) el.classList.add("open"); });
+    }).observe(document.body, { childList: true, subtree: true });
   });
 })();

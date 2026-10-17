@@ -133,3 +133,26 @@ body.m.typing{ padding-bottom:16px; }
 .m-teacher .tbl.grp td:nth-child(5)::before{ content:"감독 개입 "; font-weight:800; color:var(--ink-3); }
 .m-teacher .tbl.grp td:nth-child(6){ grid-area:act; display:grid !important; grid-template-columns:1fr 1fr; gap:6px; }
 .m-teacher .dots i{ width:14px; height:14px; }
+
+/* ---------- 좁은 화면: 활동과 직접 관련 없는 글은 줄여서 활동 칸을 먼저 보여 준다 ----------
+   - 설명(.desc), 안내(.tip), 도움말(p.meta-line)은 한 줄로 줄이고 끝에 '…'. 누르면 펼쳐진다(device.js)
+   - AI 역할 상자는 한 줄 요약, 실제 사건 자료는 접어 둔 채로 시작, 활동과 무관한 줄(.m-hide)은 숨긴다 */
+.m .desc, .m .tip, .m p.meta-line{ display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:1; line-clamp:1; overflow:hidden; cursor:pointer; }
+.m .desc{ margin-bottom:8px; }
+.m .desc.open, .m .tip.open, .m p.meta-line.open{ display:block; -webkit-line-clamp:unset; line-clamp:none; overflow:visible; }
+/* 줄인 상자는 위아래 여백을 투명 테두리로 줘서 둘째 줄이 여백 사이로 비치지 않게 한다 */
+.m .notice.tip, .m .example.tip{ padding:0 12px; border-block:8px solid transparent; }
+.m .m-hide{ display:none !important; }
+.m .m-role{ padding:8px 12px; margin-bottom:10px; }
+.m .m-role summary{ list-style:none; cursor:pointer; display:flex; align-items:center; gap:6px; white-space:nowrap; overflow:hidden; }
+.m .m-role summary::-webkit-details-marker{ display:none; }
+.m .m-role summary b{ overflow:hidden; text-overflow:ellipsis; font-size:13.5px; }
+.m .m-role summary::after{ content:"자세히"; margin-left:auto; font-size:11.5px; font-weight:700; color:var(--ink-3); }
+.m .m-role[open] summary::after{ content:"접기"; }
+.m .problem-bar{ padding:9px 13px; margin-bottom:10px; }
+.m .problem-bar .pb-s{ display:none; }
+.m .problem-bar .pb-q{ font-size:14.5px; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
+.m .card h3{ font-size:15.5px; }
+.m details.fold{ padding:12px 14px; }
+/* 교사: 수업 상태 줄의 설명은 숨기고 '진행 중/닫힘' 표시만 */
+.m-teacher #open-note .meta-line{ display:none; }

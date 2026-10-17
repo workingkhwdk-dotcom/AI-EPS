@@ -61,7 +61,7 @@
           <div class="row m-class-head" style="justify-content:space-between;align-items:flex-start">
             <div><button class="btn btn-plain btn-sm" id="back-btn" type="button">← 수업 목록</button>
               <div class="meta-line" id="d-title" style="margin-top:10px"></div><div class="code-big" id="d-code"></div>
-              <div class="meta-line">학생에게 이 <b>수업 코드</b>와 <b>모둠 번호</b>를 알려 주세요</div><div id="open-note" style="margin-top:8px"></div></div>
+              <div class="meta-line m-hide">학생에게 이 <b>수업 코드</b>와 <b>모둠 번호</b>를 알려 주세요</div><div id="open-note" style="margin-top:8px"></div></div>
             <div class="row m-actions"><button class="btn btn-sm" id="open-btn" type="button"></button><button class="btn btn-tinted btn-sm" id="copy-btn" type="button">코드 복사</button><button class="btn btn-plain btn-sm" id="csv-btn" type="button">기록 CSV</button></div>
           </div>
         </div>
@@ -81,7 +81,7 @@
             <div class="row" id="bulk" style="margin-bottom:8px"><button class="btn btn-plain btn-sm" id="bulk-reset" type="button" disabled>선택한 학생 비번 초기화</button><span class="meta-line" id="bulk-n"></span></div>
             <div class="tbl-wrap"><table class="tbl stu"><thead><tr><th><input type="checkbox" id="stu-all" aria-label="학생 전체 선택" style="width:18px;height:18px"></th><th>별명</th><th>모둠</th><th>인물(교사용)</th><th>현재 단계</th><th>상태</th><th>인물 질문</th><th></th></tr></thead><tbody id="students"></tbody></table></div>
             <div class="meta-line" id="no-students"></div>
-            <div class="meta-line" style="margin-top:8px">학생이 비밀번호를 잊었다면 <b>비번 초기화</b>를 누르세요. 학생이 같은 별명으로 다시 입장하면서 새 비밀번호를 정하고, 하던 것은 그대로 이어집니다.</div>
+            <div class="meta-line tip" style="margin-top:8px">학생이 비밀번호를 잊었다면 <b>비번 초기화</b>를 누르세요. 학생이 같은 별명으로 다시 입장하면서 새 비밀번호를 정하고, 하던 것은 그대로 이어집니다.</div>
           </div>
           <div class="card"><h3>모둠 진행</h3>
             <div class="tbl-wrap"><table class="tbl grp"><thead><tr><th>모둠</th><th>인원</th><th>산출물 진행 (1~7단계)</th><th>AI 호출(3~5단계)</th><th>감독 개입</th><th>보기</th></tr></thead><tbody id="groups"></tbody></table></div>
@@ -100,7 +100,7 @@
             <h3>2단계 실제 사건 자료</h3>
             <p class="desc">학생이 2단계에서 인물의 말과 비교해 보는 자료입니다. 분류를 만들고, 자료를 <b>추가·수정·삭제·순서 바꾸기</b> 할 수 있습니다. 고친 내용은 <b>이 수업에만</b> 적용되고 바로 저장됩니다.</p>
             <div id="mat-status"></div>
-            <div class="notice yellow">직접 추가하거나 고친 자료는 원문 대조를 거치지 않습니다. 학생에게는 선생님이 확인한 내용으로 보이므로, <b>출처</b> 칸에 매체와 날짜를 꼭 적어 주세요.</div>
+            <div class="notice yellow tip">직접 추가하거나 고친 자료는 원문 대조를 거치지 않습니다. 학생에게는 선생님이 확인한 내용으로 보이므로, <b>출처</b> 칸에 매체와 날짜를 꼭 적어 주세요.</div>
           </div>
           <div id="mat-body"></div>
         </div>
@@ -110,7 +110,7 @@
           <div class="card">
             <h3>인물 편집</h3>
             <p class="desc">이 수업에서 쓰는 인물의 <b>편지, 말투, 말버릇, 마음속 고민, 삶의 이야기, 기억나는 장면, 생각(의견)</b>을 고칠 수 있습니다. 고친 내용은 <b>이 수업의 학생 화면, 인물 AI, 감독 AI</b>에 모두 적용되고, 다른 수업에는 영향이 없습니다.</p>
-            <div class="notice yellow">사건의 <b>사실(근거 진술, 출처, 인물 설정, 입장)</b>은 원문 대조를 거치는 부분이라 여기서 고칠 수 없습니다. 삶의 이야기는 지어낸 이야기이므로, 사건의 수치·날짜·제도 같은 사실을 넣지 마세요. 한 줄에 한 항목씩 씁니다.</div>
+            <div class="notice yellow tip">사건의 <b>사실(근거 진술, 출처, 인물 설정, 입장)</b>은 원문 대조를 거치는 부분이라 여기서 고칠 수 없습니다. 삶의 이야기는 지어낸 이야기이므로, 사건의 수치·날짜·제도 같은 사실을 넣지 마세요. 한 줄에 한 항목씩 씁니다.</div>
           </div>
           <div id="persona-edit"></div>
         </div>
@@ -127,7 +127,7 @@
             <label class="lbl" for="s-ailimit">모둠당 AI 사용 한도 · 3~5단계 (10~500회)</label><input type="number" id="s-ailimit" min="10" max="500" />
             <p class="meta-line" style="margin-top:6px">검색 도우미·검토자·시뮬레이션 요청을 모둠별로 셉니다. 한도에 닿으면 그 모둠은 3~5단계 AI를 더 쓸 수 없습니다.</p>
             <label class="lbl" for="s-web">웹 검색 (1단계 인물 · 3단계 검색 도우미)</label>
-            <select id="s-web"><option value="1">사용 (인물은 모르는 사실을 찾아 보고, 검색 도우미는 수업 자료와 검색 결과를 함께 근거로 씀)</option><option value="0">사용 안 함 (인물과 검색 도우미 모두 수업 자료 안에서만 답함)</option></select>
+            <select id="s-web"><option value="1">사용</option><option value="0">사용 안 함 (수업 자료 안에서만 답함)</option></select>
             <label class="lbl" for="s-auto">자동 닫힘</label>
             <select id="s-auto"><option value="0">사용 안 함 (직접 닫기)</option><option value="1">마지막 접속 1시간 후</option><option value="2">마지막 접속 2시간 후</option><option value="4">마지막 접속 4시간 후</option><option value="8">마지막 접속 8시간 후</option><option value="24">마지막 접속 24시간 후</option></select>
             <p class="meta-line" style="margin-top:6px">수업이 끝난 뒤 닫는 것을 잊어도, 정한 시간 동안 아무도 접속하지 않으면 자동으로 닫힙니다. 다시 열 수 있습니다.</p>
