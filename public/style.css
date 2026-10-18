@@ -466,6 +466,7 @@ body.modal-open{ overflow:hidden; }
 
   /* 항목 사이 여백: 카드끼리는 넉넉히 띄우고, 카드 안은 제목·설명·입력 칸이 덩어리로 보이게 */
   body:not(.m) .card{ padding:26px 28px; margin-bottom:var(--gap); border-radius:22px; box-shadow:0 0 0 1px var(--sep), var(--shadow); }
+  body:not(.m) .card.chat-card{ padding:0; }
   body:not(.m) .card.flat{ padding:16px 18px; margin-bottom:14px !important; box-shadow:none; }
   body:not(.m) .card > h3, body:not(.m) .card > h2{ margin-bottom:12px; }
   body:not(.m) .card > h3:first-child{ padding-bottom:12px; border-bottom:1px solid var(--sep); margin-bottom:16px; }
@@ -535,6 +536,63 @@ body.modal-open{ overflow:hidden; }
   body:not(.m) #persona-edit > :only-child, body:not(.m) #mat-body > :only-child, body:not(.m) #persona-check > :only-child{ grid-column:1 / -1; }
   body:not(.m) .newbox{ max-width:720px; }
   body:not(.m) #cmp-body{ display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); column-gap:24px; }
+}
+/* 단계 머리말(.hero)은 PC 넓은 화면에서만 보인다 */
+.hero{ display:none; }
+@media (min-width:1100px){
+  /* ---------- 학생 화면 꾸밈(PC): 부드러운 바탕, 단계 머리말, 카드 제목 표시, 지금 쓰는 카드 강조 ---------- */
+  body:not(.m):has(#app){ background:
+    radial-gradient(1200px 520px at 0% 0%, rgba(78,168,43,0.08), transparent 60%),
+    radial-gradient(1100px 560px at 100% 0%, rgba(10,126,208,0.10), transparent 60%), var(--bg); background-attachment:fixed; }
+
+  body:not(.m) #panel > .hero{ order:-3; display:grid; grid-template-columns:auto minmax(0,1.1fr) minmax(0,1.6fr) auto; gap:28px; align-items:center;
+    padding:24px 28px; margin-bottom:var(--gap); border-radius:24px;
+    background:linear-gradient(120deg, var(--surface) 0%, var(--surface) 35%, var(--accent-tint) 100%); box-shadow:0 0 0 1px var(--sep), var(--shadow); }
+  .hero-ic{ width:64px; height:64px; border-radius:20px; background:var(--grad-avatar); display:flex; align-items:center; justify-content:center; font-size:32px; box-shadow:0 10px 22px -12px rgba(10,126,208,0.8); }
+  .hero-k{ font-size:12.5px; font-weight:800; color:var(--accent); letter-spacing:.02em; }
+  .hero-t{ font-size:22px; font-weight:800; letter-spacing:-0.02em; line-height:1.35; margin-top:2px; }
+  .hero-w{ margin:6px 0 0; color:var(--ink-2); font-size:14.5px; line-height:1.6; }
+  .hero-how{ list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; counter-reset:none; }
+  .hero-how li{ position:relative; background:var(--surface); border-radius:16px; padding:12px 14px 12px 50px; font-size:13.5px; line-height:1.5; font-weight:600; box-shadow:0 0 0 1px var(--sep); min-height:58px; display:flex; align-items:center; }
+  .hero-how li span{ position:absolute; left:14px; top:50%; transform:translateY(-50%); width:26px; height:26px; border-radius:50%; background:var(--navy); color:#fff; font-size:13px; font-weight:800; display:flex; align-items:center; justify-content:center; }
+  .hero-r{ display:flex; flex-direction:column; align-items:flex-end; gap:6px; min-width:130px; }
+  .hero-r small{ font-size:12.5px; font-weight:800; color:var(--ink-2); }
+  .hero-prog{ width:130px; height:8px; border-radius:8px; background:var(--fill-strong); overflow:hidden; }
+  .hero-prog i{ display:block; height:100%; border-radius:8px; background:linear-gradient(90deg,var(--green),var(--blue)); }
+  @media (prefers-color-scheme: dark){ .hero-how li span{ background:var(--blue); color:#06142F; } }
+
+  /* 단계 탭: 지금 단계는 그라데이션, 올려놓으면 살짝 떠오른다 */
+  body:not(.m) .stage-tab{ transition:transform .15s var(--ease), box-shadow .15s ease; }
+  body:not(.m) .stage-tab:hover:not(.on){ transform:translateY(-2px); box-shadow:0 0 0 1px var(--accent-tint), var(--shadow); }
+  body:not(.m) .stage-tab.on{ background:var(--grad); box-shadow:0 10px 22px -12px rgba(6,34,107,0.9); }
+  body:not(.m) .subnav button{ transition:transform .15s var(--ease); }
+  body:not(.m) .subnav button:hover:not(.on){ transform:translateY(-2px); }
+  body:not(.m) .subnav button.on{ background:var(--grad); box-shadow:0 10px 22px -12px rgba(6,34,107,0.9); }
+
+  /* 카드 제목 앞의 색 막대, 지금 쓰고 있는 카드는 테두리로 알려 준다 */
+  body:not(.m) #panel .card > h3:first-child{ padding-left:14px; background:linear-gradient(var(--green),var(--blue)) 0 3px / 4px calc(100% - 15px) no-repeat; }
+  body:not(.m) #panel .card{ transition:box-shadow .2s ease; }
+  body:not(.m) #panel .card:focus-within{ box-shadow:0 0 0 2px var(--blue), 0 14px 30px -16px rgba(10,126,208,0.45); }
+  body:not(.m) #panel .card.flat:focus-within{ box-shadow:none; }
+
+  /* 입력 칸: 누르면 하얗게 밝아지고 파란 테두리 */
+  body:not(.m) #panel input[type=text], body:not(.m) #panel textarea, body:not(.m) #panel select{ border-radius:14px; transition:background .15s ease, box-shadow .15s ease; }
+  body:not(.m) #panel input[type=text]:hover, body:not(.m) #panel textarea:hover, body:not(.m) #panel select:hover{ box-shadow:inset 0 0 0 1.5px var(--fill-strong); }
+  body:not(.m) #panel input[type=text]:focus, body:not(.m) #panel textarea:focus, body:not(.m) #panel select:focus{ background:var(--surface); box-shadow:inset 0 0 0 1.5px var(--blue), 0 0 0 4px var(--accent-tint); }
+
+  /* '모둠 공용 · 실시간' 표시에 깜박이는 점 */
+  body:not(.m) #panel .tag.b{ display:inline-flex; align-items:center; gap:5px; vertical-align:middle; }
+  body:not(.m) #panel h3 .tag.b::before{ content:""; width:6px; height:6px; border-radius:50%; background:var(--green); animation:blink 1.6s infinite ease-in-out; }
+
+  /* 버튼: 둥글게, 다음 단계 버튼은 크게 */
+  body:not(.m) #panel .btn{ border-radius:14px; }
+  body:not(.m) #panel .btn-primary:hover:not(:disabled){ transform:translateY(-1px); }
+  body:not(.m) .nav-foot .btn{ padding:14px 22px; font-size:15.5px; }
+}
+@media (min-width:1100px) and (max-width:1499px){
+  /* 머리말의 '어떻게' 세 칸은 아래 줄로 내린다 */
+  body:not(.m) #panel > .hero{ grid-template-columns:auto minmax(0,1fr) auto; row-gap:18px; }
+  body:not(.m) .hero-how{ grid-column:1 / -1; grid-row:2; }
 }
 @media (min-width:1100px) and (max-width:1279px){
   /* 조금 좁은 PC: 단계 탭과 항목 사이 여백을 조금 줄인다 */

@@ -139,7 +139,7 @@ export const HELP = {
   },
 };
 
-const fill = (s, n) => String(s).replaceAll("{n}", n);
+export const fill = (s, n) => String(s).replaceAll("{n}", n);
 
 // 처음 보여 주는 간단한 안내(무엇을 · 어떻게)
 export function helpSimple(key, esc, n) {

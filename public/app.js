@@ -1,7 +1,7 @@
 import { auth, db, call, esc, toast, errMsg } from "./fb.js";
 import { waitHtml, startWaitTicker, STEPS } from "./wait.js";
 import { showModal, confirmModal } from "./modal.js";
-import { HELP, helpSimple, helpDetail } from "./help.js";
+import { HELP, helpSimple, helpDetail, fill } from "./help.js";
 import { signInAnonymously, onAuthStateChanged, setPersistence, browserSessionPersistence, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { doc, getDoc, onSnapshot, updateDoc, collection, query, orderBy, serverTimestamp, deleteField } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
@@ -386,6 +386,19 @@ function goTo(stage, sub) {
 $("#tabs").onclick = (e) => { const b = e.target.closest("[data-stage]"); if (b) goTo(Number(b.dataset.stage)); };
 
 // ---------- 공통 조각 ----------
+// 단계 머리말(PC 넓은 화면에서만 보임, style.css .hero): 지금 몇 단계인지, 무엇을·어떻게 하는지 한눈에 보여 준다
+const STAGE_ICON = ["💬", "🔍", "✅", "💡", "🔮", "📝", "🌱"];
+function stageHero() {
+  const h = HELP[helpKeyNow()];
+  if (IS_M || !h) return "";
+  const n = S.chatLimit, st = STAGES[S.stage - 1];
+  return `<div class="hero"><div class="hero-ic" aria-hidden="true">${STAGE_ICON[S.stage - 1]}</div>
+    <div class="hero-l"><div class="hero-k">${S.stage}단계 · ${esc(st.name)}</div>
+      <div class="hero-t">${esc(h.title.replace(/^\d단계\s*/, ""))}</div><p class="hero-w">${esc(fill(h.what, n))}</p></div>
+    <ol class="hero-how" aria-label="이렇게 해요">${h.how.map((x, i) => `<li><span>${i + 1}</span>${esc(fill(x, n))}</li>`).join("")}</ol>
+    <div class="hero-r"><div class="hero-prog" role="img" aria-label="전체 7단계 중 ${S.stage}단계"><i style="width:${Math.round((S.stage / 7) * 100)}%"></i></div>
+      <small>${S.stage} / 7단계</small><button class="link" type="button" data-act="help">자세한 안내 보기</button></div></div>`;
+}
 function roleBox(n) {
   const r = ROLES[n];
   if (IS_M) {
@@ -451,7 +464,7 @@ function render(force = false) {
   if (!S.started) { renderWait(); return; }
   if (!force && (isEditing() || ptrDown)) { deferred = true; syncLive(); return; }
   deferred = false;
-  const html = renderStage[S.stage]() + footer();
+  const html = stageHero() + renderStage[S.stage]() + footer();
   const key = `${S.stage}|${S.sub1}|${S.busy}|${html}`;
   if (!force && key === lastKey) { syncLive(); return; }
   lastKey = key;
@@ -913,6 +926,7 @@ panel.addEventListener("click", async (e) => {
     case "del": if (confirm("삭제할까요? 모둠원 화면에서도 사라집니다.")) await delItem(d.path, d.id); break;
     case "retry-chat": { const t = S.chatErr?.text; if (t && !S.sending) sendChat(t); break; }
     case "dl-chat": downloadChat(); break;
+    case "help": maybeHelp(true); break;
     case "mat-tab": S.matTab = d.id; render(true); break;
     case "starter": { const m = $("#msg"); if (m) { m.value = d.t; S.draft = d.t; m.focus(); } break; }
     case "submit-note": {
