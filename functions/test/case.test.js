@@ -4,6 +4,7 @@ const { SOURCES, EVENTS, PERSONAS, MATERIALS, DEFAULT_EVENT, CASES, AFTERMATH, a
 const { personaPrompt } = require("../prompts");
 
 const KINDS = ["증언", "사실", "주장", "의견"];
+const s0 = (id) => SOURCES[id];
 
 test("사건은 제주 예멘·쓰레기 수출·강서 특수학교 세 가지이고, 사건마다 인물 9명이 네 축에 나뉘며 축마다 2명 이상이다", () => {
   assert.deepEqual(Object.keys(EVENTS), ["jeju2018", "waste2019", "school2018"]);
@@ -102,16 +103,15 @@ test("검증되지 않은 주장은 '주장' 종류로 표시된다 (집회 발�
   assert.equal(locals.find((i) => i.text.includes("500여 명")).kind, "주장");
 });
 
-test("대조를 마친 출처만 검증됨으로 본다: 제주 출처는 미검증이라 노출되지 않고, 쓰레기 수출·강서 특수학교는 노출된다", () => {
-  const ids = (prefix) => Object.keys(SOURCES).filter((id) => id.startsWith(prefix));
-  assert.ok(ids("J").every((id) => SOURCES[id].verified === false));
-  assert.ok([...ids("W"), ...ids("S")].every((id) => SOURCES[id].verified === true));
-  assert.ok([...ids("W"), ...ids("S")].every((id) => /대조함/.test(SOURCES[id].check)), "대조 결과가 check 에 적혀 있다");
-  assert.equal(availablePersonas("jeju2018", false).length, 0);
-  assert.equal(availablePersonas("jeju2018", true).length, 9);
+test("세 사건 모두 출처 대조를 마쳐 검증됨이고, 대조 기록이 남아 있으며, 인물과 자료가 학생에게 노출된다", () => {
+  const ids = (re) => Object.keys(SOURCES).filter((id) => re.test(id));
+  assert.ok(Object.values(SOURCES).every((s) => s.verified === true));
+  assert.ok(ids(/^[JCAN]\d/).every((id) => s0(id).crossCheck), "제주 출처는 교차 확인 기록(CROSS_CHECK)");
+  assert.ok(ids(/^[WS]/).every((id) => /대조함/.test(SOURCES[id].check)), "쓰레기·특수학교 출처는 check 에 [대조함]");
+  assert.equal(availablePersonas("jeju2018", false).length, 9);
   assert.equal(availablePersonas("waste2019", false).length, 9);
   assert.equal(availablePersonas("school2018", false).length, 9);
-  assert.deepEqual(materialsFor("jeju2018", false), []);
+  assert.deepEqual(materialsFor("jeju2018", false).map((c) => c.id), MATERIALS.jeju2018.map((c) => c.id));
   assert.deepEqual(materialsFor("waste2019", false).map((c) => c.id), MATERIALS.waste2019.map((c) => c.id));
   assert.deepEqual(materialsFor("school2018", false).map((c) => c.id), MATERIALS.school2018.map((c) => c.id));
 });
@@ -133,9 +133,10 @@ test("학생용 자료에는 출처 ID·URL 없이 매체·날짜 캡션만 있�
   assert.ok(materialsAdmin("waste2019").every((c) => c.items.every((i) => i.src.every((id) => id.startsWith("W")))));
 });
 
-test("출처가 모두 검증되면 해당 인물·자료가 사용 가능해진다", () => {
+test("출처가 모두 검증되어야 해당 인물·자료가 사용 가능하다(하나라도 미검증이면 숨는다)", () => {
   const p = PERSONAS.find((x) => x.id === "j_officer");
   const ids = [...personaSourceIds(p), ...EVENTS.jeju2018.background.map((c) => c[1])];
+  const before = Object.fromEntries(ids.map((id) => [id, SOURCES[id].verified]));
   ids.forEach((id) => (SOURCES[id].verified = true));
   try {
     assert.equal(personaVerified(p), true);
@@ -146,7 +147,7 @@ test("출처가 모두 검증되면 해당 인물·자료가 사용 가능해진
     SOURCES[EVENTS.jeju2018.background[0][1]].verified = true;
     assert.ok(materialsFor("jeju2018", false).some((c) => c.id === "timeline"));
   } finally {
-    ids.forEach((id) => (SOURCES[id].verified = false));
+    ids.forEach((id) => (SOURCES[id].verified = before[id]));
   }
 });
 
@@ -252,7 +253,7 @@ test("강서 특수학교 사건: 그 사건의 시점·범위만 담고, 실존
   assert.match(life("s_parent_group"), /장학사에게 전화/); assert.match(life("s_officer"), /부모 단체 활동가가 전화/); // 임현주 ↔ 백승민
 });
 
-test("4단계 해외 사례 카드: 여는 정책과 막는 정책이 섞여 있고, 출처 링크가 있으며 검증 전에는 숨는다", () => {
+test("4단계 해외 사례 카드: 여는 정책과 막는 정책이 섞여 있고, 출처 링크가 있으며 검증된 것만 학생에게 나간다", () => {
   const all = Object.values(CASES).flat();
   for (const [ev, list] of Object.entries(CASES)) assert.ok(list.length >= 3, ev);
   assert.ok(CASES.jeju2018.some((c) => c.id === "australia") && CASES.jeju2018.some((c) => c.id === "canada"));
@@ -260,7 +261,7 @@ test("4단계 해외 사례 카드: 여는 정책과 막는 정책이 섞여 있
     assert.ok(c.country && c.title && c.what.length > 30 && c.result.length > 30 && c.think.length > 20, c.id);
     for (const id of c.src) assert.match(SOURCES[id].url, /^https:\/\//, `${c.id}: ${id}`);
   }
-  assert.equal(casesFor("jeju2018", false).length, 0);
+  assert.equal(casesFor("jeju2018", false).length, CASES.jeju2018.length);
   // 출처 대조를 마친 사건의 카드는 학생에게 나간다
   assert.equal(casesFor("waste2019", false).length, CASES.waste2019.length);
   assert.equal(casesFor("school2018", false).length, CASES.school2018.length);
@@ -268,18 +269,18 @@ test("4단계 해외 사례 카드: 여는 정책과 막는 정책이 섞여 있
   assert.ok(shown.every((c) => c.links.length && !("src" in c) && c.links.every((l) => l.url && !("verified" in l))));
 });
 
-test("7단계 이후 전개 자료: 종류와 출처가 있고 검증 전에는 숨는다", () => {
+test("7단계 이후 전개 자료: 종류와 출처가 있고 검증된 것만 학생에게 나간다", () => {
   for (const [ev, list] of Object.entries(AFTERMATH)) assert.ok(list.length >= 4, ev);
   for (const a of Object.values(AFTERMATH).flat()) { assert.ok(KINDS.includes(a.kind)); assert.ok(a.src.every((id) => SOURCES[id])); }
-  assert.equal(aftermathFor("jeju2018", false).length, 0);
+  assert.equal(aftermathFor("jeju2018", false).length, AFTERMATH.jeju2018.length);
   assert.equal(aftermathFor("school2018", false).length, AFTERMATH.school2018.length);
   assert.ok(aftermathFor("jeju2018", true).every((a) => a.caption && a.links.length));
 });
 
-test("제주 출처에는 모두 검색 교차 확인 기록이 있고, 교차 확인만으로는 학생에게 공개되지 않는다", () => {
+test("제주 출처에는 모두 검색 교차 확인 기록이 있고, 확인 못 한 진술을 정리한 뒤 검증됨으로 표시했다", () => {
   for (const [id, x] of Object.entries(SOURCES).filter(([id]) => /^[JCAN]\d/.test(id))) {
     assert.ok(["ok", "partial", "fixed", "todo"].includes(x.crossCheck?.status), id);
     assert.ok(x.crossCheck.note.length > 5, id);
-    assert.equal(x.verified, false, id);
+    assert.equal(x.verified, true, id);
   }
 });
