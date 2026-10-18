@@ -384,9 +384,9 @@ test("학생: 단계 순서 — 핵심 원인 전에는 4단계 AI 검토, 최�
   await s1.pg.click('.stage-tab[data-stage="4"]');
   await s1.pg.waitForSelector('[data-act="ask-feedback"]');
   assert.ok(await s1.pg.locator('[data-act="ask-feedback"]').isDisabled());
-  assert.match(await s1.pg.locator("#panel").innerText(), /핵심 원인을 먼저 정해야/);
+  assert.match(await s1.pg.locator("#panel").innerText(), /가장 큰 원인을 먼저 정해야/);
   await s1.pg.click('.stage-tab[data-stage="5"]');
-  await s1.pg.waitForFunction(() => /최종 대안을 30자 이상 먼저 써야/.test(document.querySelector("#panel").innerText));
+  await s1.pg.waitForFunction(() => /최종 해결책을 30자 이상 먼저 써야/.test(document.querySelector("#panel").innerText));
   assert.equal(await s1.pg.locator('[data-act="ask-scenario"]').count(), 0);
   const s2 = await openStudent(studentFixture(), { work: { s3: { chain: { cause: "취업 허가가 늦어 생계가 막혔다" } }, s4: { proposals, final: "나".repeat(40) } } });
   await login(s2.pg);
@@ -471,7 +471,7 @@ test("학생 모바일: 입장 → 아래 단계 막대로 이동, 글을 쓰는
   await s.pg.waitForFunction(() => !document.body.classList.contains("typing"));
   await s.pg.tap('#tabs .stage-tab[data-stage="3"]');
   await s.pg.waitForSelector('#tabs .stage-tab.on[data-stage="3"]');
-  assert.match(await s.pg.locator("#panel").innerText(), /검증 질문 확인하기/);
+  assert.match(await s.pg.locator("#panel").innerText(), /확인 질문 확인하기/);
   await shot(s.pg, "m-stage3");
   const w = await s.pg.evaluate(() => document.documentElement.scrollWidth);
   assert.ok(w <= 390, `가로로 밀리지 않아야 한다 (${w}px)`);

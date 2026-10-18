@@ -6,7 +6,7 @@ import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, onAuthStateCha
 import { collection, query, where, orderBy, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const $ = (s) => document.querySelector(s);
-const STAGE_NAMES = ["", "사건 경험", "원인 탐색", "검증", "대안 구상", "미래 시나리오", "행동계획", "공유·성찰"];
+const STAGE_NAMES = ["", "이야기 듣기", "원인 찾기", "사실 확인", "해결책 만들기", "미래 그려 보기", "실천 계획", "돌아보기"]; // 학생 화면과 같은 이름
 const ONLINE_MS = 75 * 1000; // 학생 화면은 30초마다 접속 신호를 보낸다
 const fmt = (ts) => (ts?.toDate ? ts.toDate().toLocaleString("ko-KR") : "");
 // 외부(검색 결과 등)에서 온 주소는 http(s) 만 링크로 쓴다(javascript: 같은 주소 차단)
@@ -499,7 +499,7 @@ function stageSections(n, g) {
       const p = w.s6?.plan || {};
       return [{ title: p.type === "patch" ? "대안 보완안" : "행동 계획", rows: [["대상", p.target], ["내용", p.content], ["방법", p.method], ["기대 효과", p.effect], ["어려움과 대응", p.difficulty]].filter(([, v]) => tx(v)) }];
     }
-    case 7: return [{ title: "공유·성찰", rows: [["발표 정리", w.s7?.share], ["실제 전개와 비교", w.s7?.compare], ["AI 활용 점검", hasKeys(w.s7?.checks) ? `${countTrue(w.s7.checks)} / ${REFLECT_N}` : ""], ["성찰", w.s7?.reflection]].filter(([, v]) => tx(v)) }];
+    case 7: return [{ title: "돌아보기", rows: [["발표 정리", w.s7?.share], ["실제 전개와 비교", w.s7?.compare], ["AI 활용 점검", hasKeys(w.s7?.checks) ? `${countTrue(w.s7.checks)} / ${REFLECT_N}` : ""], ["성찰", w.s7?.reflection]].filter(([, v]) => tx(v)) }];
   }
   return [];
 }

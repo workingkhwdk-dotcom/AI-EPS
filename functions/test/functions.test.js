@@ -399,7 +399,7 @@ const s3Work = { chain: { cause: "취업 허가가 늦어 신청자의 생계가
 test("3단계: 2단계에서 만든 검증 질문(들은 이야기+질문)만 AI에게 물을 수 있다", async () => {
   setWork({ s1: s1Work, s2: { checks: { c1: { heard: "일자리를 구하기 어렵대요", question: "예멘 신청자의 취업은 어떻게 제한되었나?", real: "자료: 5일 이내 단기 노무", t: 1 } } } });
   await assert.rejects(
-    api.aiRequest({ ...student("S3"), data: { code, stage: 3, type: "verify_query", payload: { checkId: "없음" } } }), /검증 질문/);
+    api.aiRequest({ ...student("S3"), data: { code, stage: 3, type: "verify_query", payload: { checkId: "없음" } } }), /확인 질문/);
   calls.length = 0;
   searchReply = "2018년 6월 법무부가 취업 허가를 내줬다."; searchSources = ["https://news.example/a"];
   const r = await api.aiRequest({ ...student("S3"), data: { code, stage: 3, type: "verify_query", payload: { checkId: "c1" } } });
@@ -424,9 +424,9 @@ test("단계 순서: 모둠 문제 없이는 3단계, 핵심 원인 없이는 4�
   setWork({ s2: { checks: { c1: { heard: "x", question: "예멘 신청자의 취업은 어떻게 제한되었나?", t: 1 } } } });
   await assert.rejects(req(3, "verify_query", { checkId: "c1" }), /모둠이 풀 문제/);
   setWork({ s1: s1Work, s4: { proposals: { a1: { text: "가".repeat(40), t: 1 } } } });
-  await assert.rejects(req(4, "proposal_feedback", { proposalId: "a1" }), /핵심 원인/);
+  await assert.rejects(req(4, "proposal_feedback", { proposalId: "a1" }), /가장 큰 원인/);
   setWork({ ...sixWork(), s4: { proposals: { a1: { text: "가".repeat(40), t: 1 } } } });
-  await assert.rejects(req(5, "scenario", { proposalId: "a1", round: 1 }), /최종 대안/);
+  await assert.rejects(req(5, "scenario", { proposalId: "a1", round: 1 }), /최종 해결책/);
 });
 
 test("4단계: 서로 다른 관점의 독립 검토 3개를 만든다", async () => {
@@ -478,9 +478,9 @@ test("5단계 시뮬레이션: 두 번 다 실패하면 오류를 돌려주고 �
 
 test("선행 사고가 없으면 4·5단계 AI는 열리지 않고, 6·7단계는 항상 닫혀 있으며, 2단계는 생각 도우미만 열린다", async () => {
   setWork({ s3: s3Work });
-  await assert.rejects(api.aiRequest({ ...student("S3"), data: { code, stage: 4, type: "proposal_feedback", payload: { proposalId: "a1" } } }), /대안/);
-  await assert.rejects(api.aiRequest({ ...student("S3"), data: { code, stage: 6, type: "persona_chat", payload: { message: "x" } } }), /스스로/);
-  await assert.rejects(api.aiRequest({ ...student("S3"), data: { code, stage: 2, type: "persona_chat", payload: { message: "x" } } }), /허용되지 않는/);
+  await assert.rejects(api.aiRequest({ ...student("S3"), data: { code, stage: 4, type: "proposal_feedback", payload: { proposalId: "a1" } } }), /해결책/);
+  await assert.rejects(api.aiRequest({ ...student("S3"), data: { code, stage: 6, type: "persona_chat", payload: { message: "x" } } }), /직접 생각/);
+  await assert.rejects(api.aiRequest({ ...student("S3"), data: { code, stage: 2, type: "persona_chat", payload: { message: "x" } } }), /쓸 수 없는 AI 기능/);
 });
 
 test("2단계 생각 도우미: 내가 먼저 쓴 연결을 보고 유형에 맞는 질문 하나만 돌려주고, 남의 글·빈 글·꺼진 수업에서는 막힌다", async () => {
