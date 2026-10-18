@@ -1,6 +1,7 @@
 /* 한국교원대학교(KNUE) 스타일: 짙은 남색(로고 배경), 청색, 녹색(로고의 두 사람)을 기준 색으로 쓴다.
    글자에 쓰는 색(--accent, --green-ink)은 흰 배경 대비 4.5:1 이상으로 맞췄다. 장식용 색(--blue, --green)은 글자에 쓰지 않는다. */
 :root{
+  color-scheme:light; /* 다크모드는 쓰지 않는다(기기가 어두운 화면이어도 항상 밝은 화면) */
   --navy:#06226B; --blue:#0A7ED0; --green:#4EA82B;
   --bg:#F3F6FB; --surface:#FFFFFF; --surface-2:#EAF0F9;
   --ink:#0E1B3A; --ink-2:#4A5878; --ink-3:#62708F;
@@ -18,22 +19,6 @@
   --ui:'Pretendard Variable','Pretendard','Apple SD Gothic Neo','Noto Sans KR','Malgun Gothic',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
   --serif:'Gowun Batang','Apple SD Gothic Neo',serif;
   --ease:cubic-bezier(0.32,0.72,0,1);
-}
-@media (prefers-color-scheme: dark){
-  :root{
-    --bg:#0B1630; --surface:#121F3F; --surface-2:#1A2A52;
-    --ink:#E8EEFA; --ink-2:#AEBBD6; --ink-3:#8190B0;
-    --sep:rgba(255,255,255,0.12); --fill:rgba(255,255,255,0.07); --fill-strong:rgba(255,255,255,0.14);
-    --accent:#6FB1F5; --accent-tint:rgba(111,177,245,0.18);
-    --green-ink:#7FD05A; --green-tint:rgba(127,208,90,0.16);
-    --warn:#F5B84A; --warn-tint:rgba(245,184,74,0.16);
-    --danger:#FF7C98; --danger-tint:rgba(255,124,152,0.15);
-    --header-bg:#050F2E;
-    --bubble-me:#1B63C9; --bubble-ai:#1A2A52;
-    --paper:#16244A; --paper-line:rgba(255,255,255,0.07);
-    --shadow:0 1px 2px rgba(0,0,0,0.5);
-    color-scheme:dark;
-  }
 }
 *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
 html,body{ margin:0; }
@@ -99,7 +84,6 @@ a{ color:var(--accent); }
 .chip{ font:inherit; border:none; background:var(--fill); color:var(--ink-2); font-size:13px; font-weight:700; padding:9px 14px; border-radius:20px; cursor:pointer; white-space:nowrap; }
 .chip.on{ background:var(--navy); color:#fff; }
 .chip.sm{ padding:5px 10px; font-size:12px; }
-@media (prefers-color-scheme: dark){ .chip.on{ background:var(--blue); color:#06142F; } }
 
 .card{ background:var(--surface); border-radius:20px; box-shadow:var(--shadow); padding:18px; margin-bottom:14px; }
 .card.flat{ box-shadow:none; background:var(--fill); padding:12px 14px; border-radius:14px; }
@@ -233,7 +217,6 @@ th{ color:var(--ink-2); font-weight:700; }
 .seg button{ font:inherit; font-size:14px; font-weight:700; border:none; background:transparent; color:var(--ink-2); border-radius:9px; padding:9px 16px; cursor:pointer; white-space:nowrap; }
 .seg button.on{ background:var(--surface); color:var(--accent); box-shadow:0 1px 3px rgba(0,0,0,.14); }
 .code-big{ font-size:34px; font-weight:800; letter-spacing:.14em; font-variant-numeric:tabular-nums; color:var(--navy); }
-@media (prefers-color-scheme: dark){ .code-big{ color:var(--accent); } }
 .kpis{ display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; margin:12px 0; }
 .kpi{ background:var(--fill); border-radius:14px; padding:12px 14px; display:flex; align-items:center; gap:10px; }
 .kpi-ic{ flex:none; width:32px; height:32px; padding:7px; border-radius:10px; background:var(--surface); color:var(--accent); }
@@ -266,7 +249,6 @@ details.fold .inner{ margin-top:12px; }
 .subnav button small{ display:block; font-size:11px; font-weight:600; color:var(--ink-3); }
 .subnav button.on{ background:var(--navy); color:#fff; }
 .subnav button.on small{ color:rgba(255,255,255,.75); }
-@media (prefers-color-scheme: dark){ .subnav button.on{ background:var(--blue); color:#06142F; } .subnav button.on small{ color:#06142F; } }
 
 /* 우리 모둠의 문제 띠 */
 .problem-bar{ background:var(--navy); color:#fff; border-radius:16px; padding:12px 16px; margin-bottom:14px; }
@@ -276,7 +258,6 @@ details.fold .inner{ margin-top:12px; }
 .problem-bar .link{ color:#fff; }
 .problem-bar.empty{ background:var(--warn-tint); color:var(--warn); font-size:13.5px; font-weight:700; }
 .problem-bar.empty .link{ color:var(--warn); }
-@media (prefers-color-scheme: dark){ .problem-bar{ background:#1A2A52; } }
 .link{ font:inherit; font-size:12.5px; font-weight:800; background:none; border:none; padding:0 2px; color:var(--accent); text-decoration:underline; cursor:pointer; }
 
 /* 좋은 예·나쁜 예 */
@@ -343,7 +324,6 @@ details.fold .inner{ margin-top:12px; }
 .newbox{ margin-top:14px; padding:14px 16px; border-radius:14px; background:var(--surface-2); }
 .cls{ display:flex; align-items:center; gap:12px; }
 .cls .code{ font-weight:800; letter-spacing:.12em; color:var(--navy); font-variant-numeric:tabular-nums; }
-@media (prefers-color-scheme: dark){ .cls .code{ color:var(--accent); } }
 .mcat{ margin-bottom:14px; }
 .mcat-h{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
 .mcat-h h3{ margin:0; flex:1; min-width:120px; }
@@ -429,7 +409,6 @@ body.modal-open{ overflow:hidden; }
 .help-steps li b{ display:block; font-size:14.5px; }
 .help-steps li span{ display:block; font-size:13.5px; color:var(--ink-2); line-height:1.55; margin-top:1px; }
 .help-tip{ margin-top:14px; background:var(--warn-tint); color:var(--warn); border-radius:12px; padding:10px 13px; font-size:13.5px; line-height:1.6; font-weight:600; }
-@media (prefers-color-scheme: dark){ .help-how li::before, .help-steps li::before{ background:var(--blue); color:#06142F; } }
 .help-btn{ width:28px; height:28px; padding:0; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-weight:800; }
 
 /* 대기실 */
@@ -709,7 +688,6 @@ body.modal-open{ overflow:hidden; }
   body:not(.m):has(#app) .net{ background:var(--green-tint); color:var(--green-ink); }
   body:not(.m):has(#app) .net.off{ background:var(--danger); color:#fff; }
   body:not(.m):has(#app) .who{ color:var(--ink-2); opacity:1; }
-  @media (prefers-color-scheme: dark){ body:not(.m):has(#app) .logo{ color:var(--ink); } }
 
   /* 단계 탭: 7개의 동그라미가 한 줄 길 위에 놓인 여정 */
   body:not(.m):has(#app) .stages{ position:relative; gap:0; padding:10px 0 calc(var(--gap) + 6px); }
