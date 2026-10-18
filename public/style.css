@@ -445,7 +445,7 @@ body.modal-open{ overflow:hidden; }
 /* ---------- PC 넓은 화면(1100px 이상) ----------
    좁은 한 줄(780px)로 두면 좌우가 비므로, 화면 폭을 넓게 쓴다. 모바일 화면(body.m)에는 쓰지 않는다.
    - 학생: 위에 1~7단계 탭을 한 줄로 넓게, 그 아래 '우리 모둠의 문제'와 AI 역할을 나란히, 활동 카드는 두 줄로 나란히 놓는다.
-     1단계 대화는 대화창(왼쪽, 넓게)과 편지·할 일(오른쪽), 2단계는 활동(왼쪽, 넓게)과 실제 자료(오른쪽)로 나눈다(.split).
+     1단계 대화는 편지(왼쪽)와 대화창(오른쪽, 넓게), 2단계는 활동(왼쪽, 넓게)과 실제 자료(오른쪽)로 나눈다(.split).
    - 교사: 표가 넓게 펼쳐지고, 수업 설정·인물 편집 등은 두 줄로 놓는다.
    - 입장·로그인처럼 칸이 몇 개 없는 화면은 가운데에 알맞은 폭으로 둔다. */
 .split-side, .split-main{ min-width:0; }
@@ -506,6 +506,10 @@ body.modal-open{ overflow:hidden; }
   body:not(.m) .split-side{ position:sticky; top:var(--stick); max-height:calc(100vh - var(--stick) - 16px); overflow-y:auto; overscroll-behavior:contain; border-radius:16px; scrollbar-width:thin; }
   body:not(.m) .split-side > :last-child{ margin-bottom:0; }
   body:not(.m) .chat-split .split-side > .tip{ display:none; }
+  /* 1단계 대화는 편지를 먼저 읽고 대화하므로 편지(왼쪽) → 대화창(오른쪽) */
+  body:not(.m) .chat-split{ grid-template-columns:minmax(0,2fr) minmax(0,3fr); }
+  body:not(.m) .chat-split .split-side{ grid-column:1; }
+  body:not(.m) .chat-split .split-main{ grid-column:2; }
   body:not(.m) .chat-split .msgs{ min-height:calc(100vh - 380px); }
 
   /* 대기실 */
