@@ -6,7 +6,7 @@ import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, onAuthStateCha
 import { collection, query, where, orderBy, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const $ = (s) => document.querySelector(s);
-const STAGE_NAMES = ["", "사건 경험", "원인 탐색", "검증", "대안 구상", "미래 시나리오", "행동계획", "공유·성찰"];
+const STAGE_NAMES = ["", "이야기 듣기", "원인 찾기", "사실 확인", "해결책 만들기", "미래 그려 보기", "실천 계획", "돌아보기"]; // 학생 화면과 같은 이름
 const ONLINE_MS = 75 * 1000; // 학생 화면은 30초마다 접속 신호를 보낸다
 const fmt = (ts) => (ts?.toDate ? ts.toDate().toLocaleString("ko-KR") : "");
 // 외부(검색 결과 등)에서 온 주소는 http(s) 만 링크로 쓴다(javascript: 같은 주소 차단)
@@ -165,6 +165,16 @@ const isOnline = (m) => m.lastSeen?.toMillis && Date.now() - m.lastSeen.toMillis
 const ago = (m) => { const t = m.lastSeen?.toMillis?.(); if (!t) return "기록 없음"; const s = Math.max(0, Math.round((Date.now() - t) / 1000)); return s < 60 ? `${s}초 전` : s < 3600 ? `${Math.round(s / 60)}분 전` : `${Math.round(s / 3600)}시간 전`; };
 const personaLabels = {}; // 인물 ID → 교사용 역할명 (getCase 로 채움)
 
+// 현황 숫자 칸의 선 아이콘(24칸 기준)
+const kpiSvg = (d) => `<svg class="kpi-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const KPI_ICON = {
+  online: kpiSvg('<circle cx="12" cy="12" r="3"/><path d="M6.3 6.3a8 8 0 0 0 0 11.4M17.7 6.3a8 8 0 0 1 0 11.4"/>'),
+  people: kpiSvg('<circle cx="9" cy="8.5" r="3"/><path d="M3.5 20c0-3 2.5-5.5 5.5-5.5s5.5 2.5 5.5 5.5"/><circle cx="16.5" cy="9.5" r="2.3"/><path d="M16 14.6c2.6.3 4.5 2.5 4.5 5.1"/>'),
+  ai: kpiSvg('<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H10l-4.5 3.5V16A1.5 1.5 0 0 1 4 14.5z"/><path d="M8.5 9h7M8.5 12h4.5"/>'),
+  guard: kpiSvg('<path d="M12 3l7 3v5.5c0 4.3-2.9 7.8-7 9.5-4.1-1.7-7-5.2-7-9.5V6z"/><path d="M12 8.5v4M12 15.5v.01"/>'),
+  flag: kpiSvg('<path d="M5 21V4"/><path d="M5 4.5h11l-2 4 2 4H5"/>'),
+  pause: kpiSvg('<circle cx="12" cy="12" r="8.5"/><path d="M10 9v6M14 9v6"/>'),
+};
 function renderDash() {
   if (!current) return;
   renderLobby();
@@ -173,9 +183,9 @@ function renderDash() {
   const ai = members.reduce((n, m) => n + (m.aiCount || 0), 0); // 인물 대화 + 3~5단계
   const guard = groups.reduce((n, g) => n + (g.guardCount || 0), 0);
   const lockedN = members.filter((m) => m.chatLocked).length;
-  $("#kpis").innerHTML = [["접속 중", `${online}명`], ["참여 학생", `${members.length}명`], ["AI 호출", `${ai}회`], ["감독자 개입", `${guard}회`],
-    ["규칙 위반 신호", `${conduct.length}건`, conduct.length ? "warn" : ""], ["대화 멈춤", `${lockedN}명`, lockedN ? "warn" : ""]]
-    .map(([k, v, c]) => `<div class="kpi ${c || ""}"><b>${v}</b><span>${k}</span></div>`).join("");
+  $("#kpis").innerHTML = [["접속 중", `${online}명`, "", "online"], ["참여 학생", `${members.length}명`, "", "people"], ["AI 호출", `${ai}회`, "", "ai"], ["감독자 개입", `${guard}회`, "", "guard"],
+    ["규칙 위반 신호", `${conduct.length}건`, conduct.length ? "warn" : "", "flag"], ["대화 멈춤", `${lockedN}명`, lockedN ? "warn" : "", "pause"]]
+    .map(([k, v, c, ic]) => `<div class="kpi ${c || ""}">${KPI_ICON[ic]}<div><b>${v}</b><span>${k}</span></div></div>`).join("");
 
   // 규칙 위반 신호: 최근 것부터. 대화가 멈춘 학생은 다시 열 수 있다
   $("#conduct-card").classList.toggle("hidden", !conduct.length);
@@ -489,7 +499,7 @@ function stageSections(n, g) {
       const p = w.s6?.plan || {};
       return [{ title: p.type === "patch" ? "대안 보완안" : "행동 계획", rows: [["대상", p.target], ["내용", p.content], ["방법", p.method], ["기대 효과", p.effect], ["어려움과 대응", p.difficulty]].filter(([, v]) => tx(v)) }];
     }
-    case 7: return [{ title: "공유·성찰", rows: [["발표 정리", w.s7?.share], ["실제 전개와 비교", w.s7?.compare], ["AI 활용 점검", hasKeys(w.s7?.checks) ? `${countTrue(w.s7.checks)} / ${REFLECT_N}` : ""], ["성찰", w.s7?.reflection]].filter(([, v]) => tx(v)) }];
+    case 7: return [{ title: "돌아보기", rows: [["발표 정리", w.s7?.share], ["실제 전개와 비교", w.s7?.compare], ["AI 활용 점검", hasKeys(w.s7?.checks) ? `${countTrue(w.s7.checks)} / ${REFLECT_N}` : ""], ["성찰", w.s7?.reflection]].filter(([, v]) => tx(v)) }];
   }
   return [];
 }

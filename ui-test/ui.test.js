@@ -70,7 +70,7 @@ async function newPage(init, handler, arg, ctxOpts = {}) {
   pg.on("pageerror", (e) => errors.push(e.message));
   if (process.env.UI_DEBUG) { pg.on("pageerror", (e) => console.log("PAGEERROR", e.message)); pg.on("console", (m) => m.type() === "error" && console.log("CONSOLE", m.text())); }
   await pg.route(/gstatic\.com\/firebasejs/, (r) => r.fulfill({ contentType: "text/javascript", body: stubs[r.request().url().split("/").pop()] || "" }));
-  await pg.route(/fonts\.(googleapis|gstatic)/, (r) => r.abort());
+  await pg.route(/fonts\.(googleapis|gstatic)|cdn\.jsdelivr/, (r) => r.abort());
   await pg.addInitScript(init, arg);
   await pg.addInitScript(() => { window.__fn = (n, d) => window.__node(n, d); window.__log = []; window.__writes = []; });
   await pg.exposeFunction("__node", handler);
@@ -384,9 +384,9 @@ test("학생: 단계 순서 — 핵심 원인 전에는 4단계 AI 검토, 최�
   await s1.pg.click('.stage-tab[data-stage="4"]');
   await s1.pg.waitForSelector('[data-act="ask-feedback"]');
   assert.ok(await s1.pg.locator('[data-act="ask-feedback"]').isDisabled());
-  assert.match(await s1.pg.locator("#panel").innerText(), /핵심 원인을 먼저 정해야/);
+  assert.match(await s1.pg.locator("#panel").innerText(), /가장 큰 원인을 먼저 정해야/);
   await s1.pg.click('.stage-tab[data-stage="5"]');
-  await s1.pg.waitForFunction(() => /최종 대안을 30자 이상 먼저 써야/.test(document.querySelector("#panel").innerText));
+  await s1.pg.waitForFunction(() => /최종 해결책을 30자 이상 먼저 써야/.test(document.querySelector("#panel").innerText));
   assert.equal(await s1.pg.locator('[data-act="ask-scenario"]').count(), 0);
   const s2 = await openStudent(studentFixture(), { work: { s3: { chain: { cause: "취업 허가가 늦어 생계가 막혔다" } }, s4: { proposals, final: "나".repeat(40) } } });
   await login(s2.pg);
@@ -471,7 +471,7 @@ test("학생 모바일: 입장 → 아래 단계 막대로 이동, 글을 쓰는
   await s.pg.waitForFunction(() => !document.body.classList.contains("typing"));
   await s.pg.tap('#tabs .stage-tab[data-stage="3"]');
   await s.pg.waitForSelector('#tabs .stage-tab.on[data-stage="3"]');
-  assert.match(await s.pg.locator("#panel").innerText(), /검증 질문 확인하기/);
+  assert.match(await s.pg.locator("#panel").innerText(), /확인 질문 확인하기/);
   await shot(s.pg, "m-stage3");
   const w = await s.pg.evaluate(() => document.documentElement.scrollWidth);
   assert.ok(w <= 390, `가로로 밀리지 않아야 한다 (${w}px)`);
@@ -496,11 +496,11 @@ test("교사 모바일: 학생·모둠 표가 카드로 보이고, 아래 메뉴
   assert.deepEqual(errors, []);
 });
 
-test("학생 모바일: 안내 글은 한 줄로 줄이고(누르면 펼침, 다시 그려도 유지), AI 역할은 한 줄 요약, 사건 자료(학습 내용)는 펼친 채로 시작한다", async () => {
+test("학생 모바일: 안내 글은 한 줄로 줄이고(누르면 펼침, 다시 그려도 유지), AI 역할 상자(개발자용 설명)는 보이지 않고, 사건 자료(학습 내용)는 펼친 채로 시작한다", async () => {
   const s = await openStudent(studentFixture(), { ctxOpts: phone });
   await login(s.pg);
-  await s.pg.waitForSelector(".m-role", { state: "attached" });
-  assert.equal(await s.pg.locator("details.m-role").getAttribute("open"), null, "AI 역할 설명은 접혀 있다");
+  await s.pg.waitForSelector(".subnav");
+  assert.equal(await s.pg.locator(".role").count(), 0, "AI 역할 상자는 학생 화면에 없다");
   await s.pg.tap('#tabs .stage-tab[data-stage="2"]');
   await s.pg.waitForSelector("details.fold");
   // 설명 글은 한 줄로 줄어 있고, 누르면 펼쳐지며, 화면을 다시 그려도 펼친 채로 있다
@@ -788,7 +788,7 @@ test("학생: 2단계 ①은 처음 내 생각에서 출발하고, 생각 도우
   await s.pg.waitForSelector(".toast");
   await s.pg.evaluate(() => window.__push("sessions/ABC234", { chatLimit: 5, coach: false }));
   await s.pg.waitForFunction(() => !document.querySelector('[data-act="ask-coach"]'));
-  assert.match(await s.pg.locator("#panel").innerText(), /AI 사용 안 함/);
+  assert.doesNotMatch(await s.pg.locator("#panel").innerText(), /생각 도우미에게 보여 주기/);
 });
 
 // ---------- 브라우저·홈 화면 아이콘 ----------
