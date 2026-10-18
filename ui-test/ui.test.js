@@ -210,15 +210,17 @@ test("교사: 연결 점검 — 기다리는 동안 움직이는 표시와 초�
 
 // ---------- 학생 ----------
 function studentFixture() {
-  const st = { joined: [], chatCalls: [], releaseChat: null, failNext: false, calls: [] };
+  const st = { joined: [], chatCalls: [], releaseChat: null, failNext: false, calls: [], caseExtra: {} };
   st.handler = async (name, data) => {
     st.calls.push(name);
     const caseData = () => ({ title: "제목", summary: "요약", stakeholders: [],
-      letters: [{ id: "p1", name: "김씨", brief: "예멘에서 온 20대 청년", letter: ["안녕하세요"], refugee: true, personal: true }, { id: "p2", name: "이씨", brief: "제주시 식당 주인", letter: ["식당을 합니다"], refugee: false, personal: true }, { id: "p3", name: "박씨", brief: "인권 단체 활동가", letter: ["단체에서 일합니다"], refugee: false, personal: false }],
+      letters: [{ id: "p1", name: "김씨", brief: "예멘에서 온 20대 청년", letter: ["안녕하세요"], required: true, personal: true }, { id: "p2", name: "이씨", brief: "제주시 식당 주인", letter: ["식당을 합니다"], required: false, personal: true }, { id: "p3", name: "박씨", brief: "인권 단체 활동가", letter: ["단체에서 일합니다"], required: false, personal: false }],
       me: st.me === undefined ? { id: "p1", name: "김씨", letter: ["안녕하세요"], personal: true } : st.me, materials: [],
       cases: [{ id: "canada", country: "캐나다", title: "민간 후원 제도", what: "시민이 난민을 후원한다.", result: "정착이 빠르다는 평가가 있다.", think: "제주와 비교하면?", links: [{ title: "기사", outlet: "정부", date: "2016-09", url: "https://example.org/a" }, { title: "위험", outlet: "x", url: "javascript:alert(1)" }] },
               { id: "uganda", country: "우간다", title: "열린 정책", what: "땅을 준다.", result: "한계가 드러났다.", think: "다르다.", links: [] }],
-      aftermath: [{ kind: "사실", text: "많은 사람이 육지로 떠났다.", links: [{ outlet: "세계일보", date: "2019-06-20", url: "https://example.org/b" }] }] });
+      aftermath: [{ kind: "사실", text: "많은 사람이 육지로 떠났다.", links: [{ outlet: "세계일보", date: "2019-06-20", url: "https://example.org/b" }] }],
+      ui: { letterSign: "2018년 12월, 제주에서", requiredWho: "고향을 떠나 온 당사자(예멘에서 온 분)", requiredTag: "당사자", compareWith: "제주", afterSince: "2018년 12월", casesKinds: "받아들이는 정책과 막는 정책" },
+      ...st.caseExtra });
     if (name === "joinSession") { if (!data.code) throw new Error("functions: 입장 미리 깨우기"); st.joined.push(data); if (st.joinDelay) await new Promise((r) => setTimeout(r, st.joinDelay)); if (data.password !== "pw1234") throw new Error("functions: 비밀번호가 맞지 않습니다."); return { groupId: "g1", nickname: data.nickname, started: st.started !== false, chatLimit: st.chatLimit || 5, case: caseData() }; }
     if (name === "getCase") return caseData();
     if (name === "choosePersona") { st.chose = data; if (st.chooseErr) throw new Error("functions: " + st.chooseErr); const l = caseData().letters.find((x) => x.id === data.personaId); return { me: { id: l.id, name: l.name, letter: l.letter, personal: l.personal } }; }
@@ -279,6 +281,17 @@ test("학생: 로그아웃하면 입장 정보가 지워지고 처음 화면으�
   await pg.waitForSelector("#j-pw");
   assert.equal(await pg.evaluate(() => sessionStorage.getItem("eps_code")), null);
   assert.ok(await pg.locator("#join").isVisible());
+});
+
+test("학생: 편지 서명은 사건마다 서버가 보낸 문구를 쓴다", async () => {
+  const st = studentFixture();
+  st.caseExtra = { ui: { letterSign: "2019년 2월", goodQuestion: "평택항으로 돌아온 쓰레기는 몇 t인가?" } };
+  const { pg } = await openStudent(st);
+  await login(pg);
+  await pg.waitForSelector("details.letter .sign", { state: "attached" }); // 대화가 있으면 편지는 접혀 있다
+  const sign = await pg.locator("details.letter .sign").textContent();
+  assert.match(sign, /2019년 2월/);
+  assert.doesNotMatch(sign, /제주/);
 });
 
 test("학생: 인물의 답을 기다리는 동안 움직이는 표시·흐르는 초·안내가 보이고, 실패하면 오류와 '다시 보내기'가 나온다", async () => {
@@ -909,6 +922,19 @@ test("학생: 인물을 아직 안 골랐으면 모든 인물의 편지가 보�
   await pg.click('.notice.ok [data-sub="chat"]');
   await pg.waitForSelector("#msgs");
   assert.match(await pg.locator(".chat-head .nm").innerText(), /김씨/);
+  assert.deepEqual(errors, []);
+});
+
+test("학생: 다른 사건(쓰레기 수출)이면 꼭 골라야 할 인물 안내와 사례 카드 비교 문구가 그 사건에 맞게 바뀐다", async () => {
+  const st = studentFixture(); st.me = null;
+  st.caseExtra = { ui: { letterSign: "2019년 2월", requiredWho: "쓰레기가 쌓인 필리핀 마을 쪽 사람", requiredTag: "필리핀 현지", compareWith: "이 사건", afterSince: "2019년 2월", casesKinds: "쓰레기를 막는 정책과 되돌려 보내는 정책" } };
+  const { pg, errors } = await openStudent(st, { picks: {} });
+  await login(pg);
+  await pg.waitForSelector(".pcards");
+  const notice = await pg.locator(".notice.yellow").innerText();
+  assert.match(notice, /필리핀 마을 쪽 사람과 이야기해야/, "받침에 맞는 조사(과)");
+  assert.doesNotMatch(notice, /예멘/);
+  assert.match(await pg.locator(".pcard").first().innerText(), /필리핀 현지/);
   assert.deepEqual(errors, []);
 });
 

@@ -70,6 +70,17 @@ let groupRef = null, memberRef = null;
 
 // ---------- 데이터 도우미 ----------
 const w = (path) => path.split(".").reduce((o, k) => (o == null ? undefined : o[k]), S.work);
+// 사건마다 다른 편지 서명과 예시 문구(서버의 getCase 가 사건에 맞게 보낸다). 없으면 사건과 무관한 문구를 쓴다.
+const UI_FALLBACK = {
+  letterSign: "", causeExample: "도움을 받을 수 있는 길이 좁았다", badQuestion: "그 사람들은 나쁜가?",
+  goodQuestion: "그 일이 있었던 해에 몇 명이 그 일을 겪었나?", checkQuestion: "그때 그 사람들은 법적으로 그 일을 할 수 있었나?",
+  heardExample: "○○: 일자리를 구하기 어려웠다", broadProblem: "사회 문제", decidedProblem: "그 제도를 없애야 한다",
+  pickLead: "이 사건에는 입장이 서로 다른 여러 사람이 있었어요.", requiredWho: "꼭 들어야 할 당사자", requiredTag: "당사자",
+  casesKinds: "서로 다른 정책", compareWith: "이 사건", afterSince: "대화", afterExample: "우리는 ~할 거라 예상했지만, 실제로는 ~했다",
+};
+// 받침이 있으면 a, 없으면 b (예: 강서와, 제주와, 이 사건과)
+const josa = (word, a, b) => { const c = String(word).trim().slice(-1).charCodeAt(0) - 0xac00; return c >= 0 && c <= 11171 && c % 28 ? a : b; };
+const ui = () => ({ ...UI_FALLBACK, ...(S.info?.ui || {}) });
 // 모둠 산출물 목록은 {항목ID: 항목} 지도로 저장해, 여러 학생이 동시에 추가해도 서로 덮어쓰지 않는다.
 function toList(x) {
   if (Array.isArray(x)) return x.map((v, i) => (v && typeof v === "object" ? { id: String(v.id ?? i), ...v } : { id: String(i), text: v }));
@@ -393,11 +404,11 @@ async function maybeHelp(force = false) {
   helpBusy = true;
   try {
     for (;;) {
-      const v = await showModal({ title: esc(HELP[key].title), body: helpSimple(key, esc, S.chatLimit),
+      const v = await showModal({ title: esc(HELP[key].title), body: helpSimple(key, esc, S.chatLimit, ui()),
         actions: [{ label: "이해했어요", value: "ok", kind: "btn-primary" }, { label: "이해 못했어요", value: "more" }] });
       if (v === null) return; // 다른 창이 먼저 떠서 밀려난 경우: 본 것으로 치지 않는다
       if (v === "ok") break;
-      const d = await showModal({ title: esc(HELP[key].title), body: helpDetail(key, esc, S.chatLimit), wide: true,
+      const d = await showModal({ title: esc(HELP[key].title), body: helpDetail(key, esc, S.chatLimit, ui()), wide: true,
         actions: [{ label: "이해했어요", value: "ok", kind: "btn-primary" }, { label: "← 간단히 보기", value: "back" }] });
       if (d === null) return;
       if (d === "ok") break;
@@ -753,13 +764,13 @@ const renderStage = {
       <p class="desc">위의 '우리 모둠의 문제'가 왜 생겼을까요? 아직은 추측(가설)입니다. 층위마다 하나 이상 쓰세요. 3단계에서 확인합니다.</p>
       ${listHtml("s2.causes", (q) => `${q.level ? `<span class="tag">${esc(q.level)}</span> ` : ""}${esc(q.text)}`)}
       <div class="row" style="margin-top:8px"><select id="cz-lv" style="width:auto">${CAUSE_LEVELS.map((x) => `<option>${x}</option>`).join("")}</select>
-        <input type="text" id="cz" maxlength="${MAX_INPUT}" placeholder="예) 난민 신청자가 일할 수 있는 길이 좁았다" style="flex:1;min-width:0" /><button class="btn btn-tinted" data-act="add-cause">추가</button></div></div>
+        <input type="text" id="cz" maxlength="${MAX_INPUT}" placeholder="예) ${esc(ui().causeExample)}" style="flex:1;min-width:0" /><button class="btn btn-tinted" data-act="add-cause">추가</button></div></div>
 
     <div class="card"><h3>③ 확인할 것을 검증 질문으로 바꾸기 ${shared}</h3>
       <p class="desc">확인할 것은 두 가지입니다. <b>인물에게 들은 말이 사실인지</b>, 그리고 <b>②의 원인 가설이 맞는지</b>. 각각을 질문으로 바꾸고, 위 자료와 먼저 비교해 보세요.</p>
       <div class="example tip"><b>좋은 검증 질문</b>은 ① 예/아니오나 숫자로 답할 수 있고 ② 언제·어디서·누가가 분명하고 ③ 확인할 자료가 있습니다.
-        <div class="ex-row bad">✗ 난민은 위험한가? <span>생각(의견)을 묻는 질문이라 자료로 확인할 수 없어요</span></div>
-        <div class="ex-row good">✓ 2018년에 제주에 온 예멘 난민 신청자는 몇 명인가? <span>숫자로 답할 수 있고 자료가 있어요</span></div></div>
+        <div class="ex-row bad">✗ ${esc(ui().badQuestion)} <span>생각(의견)을 묻는 질문이라 자료로 확인할 수 없어요</span></div>
+        <div class="ex-row good">✓ ${esc(ui().goodQuestion)} <span>숫자로 답할 수 있고 자료가 있어요</span></div></div>
       ${list("s2.checks").map((c) => `<div class="card flat" style="margin-bottom:10px">
         ${causeTag(c)}<div><span class="tag b">확인할 말</span> ${esc(c.heard)}</div>
         <div style="margin-top:6px"><span class="tag y">검증 질문</span> <b>${esc(c.question)}</b>${c.srcType ? ` <span class="tag x">${esc(c.srcType)}</span>` : ""}</div>
@@ -768,8 +779,8 @@ const renderStage = {
       ${doubts.length ? `<label class="lbl">모둠원이 확인하고 싶다고 한 말 (누르면 아래 칸에 들어가요)</label>
         <div class="chipbar">${doubts.map((f) => `<button class="chip" data-act="use-doubt" data-t="${esc(`${f.persona || f.nick}: ${f.doubt}`)}">${esc(f.doubt.slice(0, 30))}</button>`).join("")}</div>` : ""}
       <label class="lbl">무엇을 확인하나요?</label><select id="ch-cause"><option value="">인물에게 들은 말</option>${list("s2.causes").map((q) => `<option value="${q.id}">원인 가설: ${esc((q.text || "").slice(0, 40))}</option>`).join("")}</select>
-      <label class="lbl">확인할 말 (들은 말이면 누가 한 말인지 함께)</label><input type="text" id="ch-heard" maxlength="${MAX_INPUT}" placeholder="예) ○○: 일자리를 구하기 어려웠다" />
-      <label class="lbl">검증 질문</label><input type="text" id="ch-q" maxlength="${MAX_INPUT}" placeholder="예) 2018년 제주의 난민 신청자는 합법적으로 일할 수 있었나?" />
+      <label class="lbl">확인할 말 (들은 말이면 누가 한 말인지 함께)</label><input type="text" id="ch-heard" maxlength="${MAX_INPUT}" placeholder="예) ${esc(ui().heardExample)}" />
+      <label class="lbl">검증 질문</label><input type="text" id="ch-q" maxlength="${MAX_INPUT}" placeholder="예) ${esc(ui().checkQuestion)}" />
       <label class="lbl">무엇으로 확인할까요?</label><select id="ch-src">${SRC_TYPES.map((x) => `<option>${x}</option>`).join("")}</select>
       <div style="margin-top:10px"><button class="btn btn-tinted" data-act="add-check">추가</button></div></div>`;
   },
@@ -824,13 +835,13 @@ const renderStage = {
     ${cause ? `<div class="notice muted"><b>3단계에서 정한 핵심 원인</b><br>${esc(cause)}</div>` : ""}
     ${!ready.cause() ? lockNote("3단계 ③에서 핵심 원인을 먼저 정해야 AI 검토를 받을 수 있어요. 검토자는 대안이 그 원인을 줄이는지도 봅니다.", 3) : ""}
     <details class="fold" open><summary>다른 나라의 사례 살펴보기 (참고용)</summary><div class="inner">
-      <p class="desc">다른 나라는 비슷한 문제를 어떻게 다루었을까요? <b>받아들이는 정책과 막는 정책</b>이 모두 있습니다. 사례는 그 나라의 조건에서 나온 것이니 그대로 옮기지 말고, 제주의 조건과 비교하며 빌려 올 점과 피할 점을 찾으세요.</p>
+      <p class="desc">다른 나라(다른 곳)는 비슷한 문제를 어떻게 다루었을까요? <b>${esc(ui().casesKinds)}</b>이 모두 있습니다. 사례는 그곳의 조건에서 나온 것이니 그대로 옮기지 말고, ${esc(ui().compareWith)}의 조건과 비교하며 빌려 올 점과 피할 점을 찾으세요.</p>
       ${cur ? `<div class="chipbar scroll">${cases.map((c) => `<button class="chip ${c.id === cur.id ? "on" : ""}" data-act="case-tab" data-id="${c.id}">${esc(c.country)}</button>`).join("")}</div>
       <div class="case">
         <div class="case-head"><span class="tag b">${esc(cur.country)}</span><h3>${esc(cur.title)}</h3></div>
         <div class="case-sec"><b>무엇을 했나</b><p>${esc(cur.what)}</p></div>
         <div class="case-sec"><b>어떻게 되었나 (평가와 논란)</b><p>${esc(cur.result)}</p></div>
-        <div class="case-sec think"><b>제주와 비교해 생각해 볼 점</b><p>${esc(cur.think)}</p></div>
+        <div class="case-sec think"><b>${esc(ui().compareWith)}${josa(ui().compareWith, "과", "와")} 비교해 생각해 볼 점</b><p>${esc(cur.think)}</p></div>
         <div class="case-src"><b>출처</b>${cur.links.map(linkHtml).join("<br>")}</div>
       </div>` : `<div class="notice muted">선생님이 사례 자료를 준비하는 중입니다.</div>`}</div></details>
     <div class="card"><h3>① 우리 모둠 대안 쓰기 ${shared}</h3>
@@ -930,11 +941,11 @@ const renderStage = {
       <p class="desc">위의 흐름을 바탕으로, 왜 그렇게 정했는지 근거를 넣어 짧게 정리하세요.</p>
       ${fld("s7.share", "", "", true)}</div>
     <div class="card"><h3>실제로는 어떻게 되었을까? ${shared}</h3>
-      <p class="desc">인물들과 이야기를 나눈 2018년 12월 이후, 실제로 일어난 일입니다. 우리 모둠의 대안과 5단계 시나리오를 실제 전개와 비교해 보세요.</p>
+      <p class="desc">인물들과 이야기를 나눈 ${esc(ui().afterSince)} 이후, 실제로 일어난 일입니다. 우리 모둠의 대안과 5단계 시나리오를 실제 전개와 비교해 보세요.</p>
       ${(S.info.aftermath || []).length ? `<div class="mat">${S.info.aftermath.map((it) => `<div class="mat-item"><span class="kind k-${esc(it.kind)}">${esc(it.kind)}</span><p>${esc(it.text)}</p>
         <div class="cap">${it.links.map((l) => `<a href="${esc(safeHref(l.url))}" target="_blank" rel="noopener noreferrer">${esc(l.outlet)}${l.date && !/확인/.test(l.date) ? ` ${esc(l.date)}` : ""}</a>`).join(" · ")}</div></div>`).join("")}</div>`
         : `<div class="notice muted">선생님이 이후 전개 자료를 준비하는 중입니다.</div>`}
-      ${fld("s7.compare", "우리 시나리오와 비교하면? (비슷한 점 / 다른 점 / 우리가 놓친 것)", "예) 우리는 제주에 남을 거라 예상했지만, 실제로는 많은 사람이 일을 찾아 육지로 떠났다", true)}</div>
+      ${fld("s7.compare", "우리 시나리오와 비교하면? (비슷한 점 / 다른 점 / 우리가 놓친 것)", `예) ${ui().afterExample}`, true)}</div>
     <div class="card"><h3>④ AI 활용 점검 ${shared}</h3>
       <div class="group">${CHECKLIST.map((t, i) => `<label class="cell" style="cursor:pointer"><input type="checkbox" data-save="s7.checks.${i}" ${w(`s7.checks.${i}`) ? "checked" : ""} style="width:20px;height:20px;margin-top:2px"><span class="grow">${esc(t)}</span></label>`).join("")}</div>
       ${fld("s7.reflection", "오늘 AI의 답 중 무엇을 받아들이고 무엇을 버렸나요? 왜 그랬나요?", "", true)}</div>`;
@@ -942,16 +953,16 @@ const renderStage = {
 };
 
 const sub1 = {
-  // 모든 인물의 편지를 보여 주고, 모둠이 상의해 한 명씩 고른다(직소). 당사자(난민)는 모둠에 꼭 한 명 있어야 한다.
+  // 모든 인물의 편지를 보여 주고, 모둠이 상의해 한 명씩 고른다(직소). 사건마다 정한 인물(제주는 난민 신청자)은 모둠에 꼭 한 명 있어야 한다.
   pick() {
     const letters = S.info.letters || [];
     const takenBy = (id) => S.picks[id];
     const mineId = S.me?.id;
-    const hasRefugee = letters.some((l) => l.refugee && takenBy(l.id));
+    const hasRequired = letters.some((l) => l.required && takenBy(l.id));
     const started = S.chatCount > 0;
     const card = (l) => {
       const t = takenBy(l.id), mine = l.id === mineId, other = t && !mine;
-      const state = mine ? `<span class="tag g">내가 고른 인물</span>` : other ? `<span class="tag x">${esc(t.nick || "친구")} 선택</span>` : l.refugee ? `<span class="tag y">당사자</span>` : "";
+      const state = mine ? `<span class="tag g">내가 고른 인물</span>` : other ? `<span class="tag x">${esc(t.nick || "친구")} 선택</span>` : l.required ? `<span class="tag y">${esc(ui().requiredTag)}</span>` : "";
       const btn = mine ? "" : `<button class="btn ${other ? "btn-plain" : "btn-primary"} btn-sm" data-act="choose" data-id="${esc(l.id)}" ${other || started ? "disabled" : ""}>${other ? "이미 선택됨" : mineId ? "이 분으로 바꿀래요" : "이 분과 이야기할래요"}</button>`;
       return `<details class="pcard ${mine ? "mine" : ""} ${other ? "taken" : ""}" data-keep="pc-${esc(l.id)}">
         <summary><div class="avatar sm">${esc(l.name.slice(0, 1))}</div><div class="pc-t"><b>${esc(l.name)}</b><small>${esc(l.brief)}</small></div>${state}</summary>
@@ -959,7 +970,7 @@ const sub1 = {
     };
     return `<div class="card"><h3>누구와 이야기할까요? <span class="tag">모둠</span></h3>
       <p class="desc">편지를 모두 읽고, 모둠 친구들과 <b>누구의 이야기를 들으면 문제를 이해하는 데 가장 도움이 될지</b> 상의하세요. 그다음 한 사람이 한 명씩, 겹치지 않게 고릅니다.</p>
-      ${hasRefugee ? "" : `<div class="notice yellow" role="status"><b>모둠에 한 명은 꼭</b> 고향을 떠나 온 당사자(<b>예멘에서 온 분</b>)와 이야기해야 해요. 아직 아무도 고르지 않았어요.</div>`}
+      ${hasRequired ? "" : `<div class="notice yellow" role="status"><b>모둠에 한 명은 꼭</b> <b>${esc(ui().requiredWho)}</b>${josa(ui().requiredWho, "과", "와")} 이야기해야 해요. 아직 아무도 고르지 않았어요.</div>`}
       ${mineId ? `<div class="notice ok" role="status"><b>${esc(S.me.name)}</b>님과 이야기하기로 했어요.${started ? "" : " 대화를 시작하기 전에는 바꿀 수 있어요."} <button class="link" data-go="1" data-sub="chat">대화하러 가기 →</button></div>` : ""}
       ${started ? `<div class="meta-line">대화를 시작해서 인물을 바꿀 수 없어요. 바꾸고 싶으면 선생님께 말씀드리세요.</div>` : ""}
       <div class="pcards">${letters.map(card).join("")}</div>
@@ -970,7 +981,7 @@ const sub1 = {
     const me = S.me;
     return `<details class="letter" data-keep="letter" ${S.chat.length ? "" : "open"}>
       <summary>${esc(me.name)}에게서 편지가 왔어요</summary>
-      <div class="body">${me.letter.map((p) => `<p>${esc(p)}</p>`).join("")}<div class="sign">2018년 12월, 제주에서<br>${esc(me.name)} 드림</div></div>
+      <div class="body">${me.letter.map((p) => `<p>${esc(p)}</p>`).join("")}<div class="sign">${esc(ui().letterSign)}<br>${esc(me.name)} 드림</div></div>
     </details>
     <div class="goal-chips m-only" aria-label="알아낼 것"><span>알아낼 것</span><b>① 누구인지</b><b>② 힘든 것</b><b>③ 바라는 것</b></div>
     <div class="notice muted tip pc-only"><b>할 일</b> ${esc(me.name)}에게 질문해 세 가지를 알아내세요: <b>① 누구인지 ② 무엇이 힘든지 ③ 무엇을 바라는지</b>. 질문은 <b>${S.chatLimit}번</b>만 할 수 있으니, 한 번에 무엇을 알아낼지 골라서 물어보세요. 다 알아냈으면 아래 '다음'을 누르세요.</div>
@@ -1028,8 +1039,8 @@ const sub1 = {
       ${fld("s1.problem.conflict", "누구의 바람과 누구의 걱정이 부딪히나요?", "예) ○○는 ~을 원하지만, △△는 ~을 걱정한다", true)}</div>
     <div class="card"><h3>4) 우리 모둠의 문제를 한 문장으로 ${shared}</h3>
       <p class="desc">2)와 3)을 합쳐 '어떻게 하면 ~하면서도 ~할 수 있을까?' 질문으로 쓰세요. 한쪽 편만 드는 질문이 아니라 <b>부딪히는 두 바람을 함께 담는</b> 질문이 좋습니다.</p>
-      <div class="example tip"><div class="ex-row bad">✗ 난민 문제 <span>너무 넓어요</span></div>
-        <div class="ex-row bad">✗ 난민을 받아들여야 한다 <span>이미 답을 정한 주장이에요</span></div>
+      <div class="example tip"><div class="ex-row bad">✗ ${esc(ui().broadProblem)} <span>너무 넓어요</span></div>
+        <div class="ex-row bad">✗ ${esc(ui().decidedProblem)} <span>이미 답을 정한 주장이에요</span></div>
         <div class="ex-row good">✓ (다른 주제 예시) 어떻게 하면 급식 줄 서는 시간을 줄이면서도 모두가 충분히 먹을 수 있을까?</div></div>
       ${fld("s1.problem.situation", "문제 상황: 누가 어떤 어려움을 겪고 있나요? (한두 문장)", "", true)}
       ${fld("s1.problem.hmw", "우리가 풀 질문", "어떻게 하면 ________하면서도 ________할 수 있을까?", true)}</div>

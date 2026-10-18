@@ -9,11 +9,11 @@ export const HELP = {
     what: "모든 인물의 편지를 읽고, 모둠이 상의해서 한 사람씩 골라요.",
     how: ["편지를 모두 읽어요", "누구와 이야기해야 문제를 이해하기 좋을지 모둠이 상의해요", "한 사람이 한 명씩, 겹치지 않게 골라요"],
     detail: {
-      lead: "제주에는 입장이 서로 다른 여러 사람이 있었어요. 모두 만날 수는 없으니, 모둠이 나눠서 만나고 나중에 서로 들은 이야기를 합쳐요.",
+      lead: "{pickLead} 모두 만날 수는 없으니, 모둠이 나눠서 만나고 나중에 서로 들은 이야기를 합쳐요.",
       steps: [
         ["편지를 읽어요", "카드를 눌러 편지를 펼쳐 보세요. 모든 인물의 편지를 훑어보세요."],
         ["상의해서 정해요", "문제를 이해하려면 어떤 입장을 들어야 할까요? 비슷한 사람만 모이지 않게 서로 다른 입장을 고르면 좋아요."],
-        ["당사자는 꼭 한 명", "고향을 떠나 제주에 온 당사자(예멘에서 온 분)의 이야기는 모둠에서 꼭 한 명이 들어야 해요."],
+        ["{requiredTag} 인물은 꼭 한 명", "{requiredWho}의 이야기는 모둠에서 꼭 한 명이 들어야 해요."],
         ["한 명씩 골라요", "'이 분과 이야기할래요'를 눌러요. 다른 친구가 고른 인물은 고를 수 없어요. 대화를 시작하기 전에는 바꿀 수 있어요."],
       ],
       tip: "누구와 이야기할지 정하는 것도 문제 해결의 첫걸음이에요.",
@@ -74,9 +74,9 @@ export const HELP = {
         ["자료를 읽어요", "'실제 사건 자료'를 열어 인물에게 들은 말과 비교해 보세요."],
         ["나·우리와 이어 봐요", "인물의 처지가 우리 주변과 어떻게 닮았는지 찾아요. 원인을 여러 각도에서 보는 데 도움이 돼요."],
         ["원인을 추측해요", "개인 · 지역·사회 · 제도·정책, 층위마다 하나 이상 써 보세요."],
-        ["검증 질문을 만들어요", "예/아니오나 숫자로 답할 수 있고, 확인할 자료가 있는 질문이 좋아요. 예) '2018년에 제주에 온 예멘 신청자는 몇 명인가?'"],
+        ["검증 질문을 만들어요", "예/아니오나 숫자로 답할 수 있고, 확인할 자료가 있는 질문이 좋아요. 예) '{goodQuestion}'"],
       ],
-      tip: "의견을 묻는 질문('난민은 위험한가?')은 자료로 확인할 수 없어요. 사실을 묻는 질문으로 바꿔 보세요.",
+      tip: "의견을 묻는 질문('{badQuestion}')은 자료로 확인할 수 없어요. 사실을 묻는 질문으로 바꿔 보세요.",
     },
   },
   3: {
@@ -154,18 +154,21 @@ export const HELP = {
   },
 };
 
-const fill = (s, n) => String(s).replaceAll("{n}", n);
+// {n} 은 인물 질문 횟수, {goodQuestion}·{pickLead} 같은 나머지는 사건에 맞는 문구(ex, 서버가 보낸 ui)로 바꾼다
+const FILL_FALLBACK = { goodQuestion: "그 일이 있었던 해에 몇 명이 그 일을 겪었나?", badQuestion: "그 사람들은 나쁜가?",
+  pickLead: "이 사건에는 입장이 서로 다른 여러 사람이 있었어요.", requiredWho: "꼭 들어야 할 당사자", requiredTag: "당사자" };
+const fill = (s, n, ex = {}) => String(s).replace(/\{(\w+)\}/g, (m, k) => (k === "n" ? n : ex[k] || FILL_FALLBACK[k] || m));
 
 // 처음 보여 주는 간단한 안내(무엇을 · 어떻게)
-export function helpSimple(key, esc, n) {
+export function helpSimple(key, esc, n, ex) {
   const h = HELP[key];
-  return `<div class="help-what"><span>무엇을 해요?</span>${esc(fill(h.what, n))}</div>
-    <div class="help-how"><span>어떻게 해요?</span><ol>${h.how.map((x) => `<li>${esc(fill(x, n))}</li>`).join("")}</ol></div>`;
+  return `<div class="help-what"><span>무엇을 해요?</span>${esc(fill(h.what, n, ex))}</div>
+    <div class="help-how"><span>어떻게 해요?</span><ol>${h.how.map((x) => `<li>${esc(fill(x, n, ex))}</li>`).join("")}</ol></div>`;
 }
 // '이해 못했어요'를 눌렀을 때의 자세한 설명
-export function helpDetail(key, esc, n) {
+export function helpDetail(key, esc, n, ex) {
   const d = HELP[key].detail;
-  return `<p class="help-lead">${esc(fill(d.lead, n))}</p>
-    <ol class="help-steps">${d.steps.map(([t, x]) => `<li><div><b>${esc(fill(t, n))}</b><span>${esc(fill(x, n))}</span></div></li>`).join("")}</ol>
-    <div class="help-tip">💡 ${esc(fill(d.tip, n))}</div>`;
+  return `<p class="help-lead">${esc(fill(d.lead, n, ex))}</p>
+    <ol class="help-steps">${d.steps.map(([t, x]) => `<li><div><b>${esc(fill(t, n, ex))}</b><span>${esc(fill(x, n, ex))}</span></div></li>`).join("")}</ol>
+    <div class="help-tip">💡 ${esc(fill(d.tip, n, ex))}</div>`;
 }

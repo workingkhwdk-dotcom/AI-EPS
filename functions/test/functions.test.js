@@ -165,7 +165,7 @@ test("입장: 인물을 배정하지 않고 모든 인물의 편지를 돌려주
     assert.equal(r.case.me, null, "아직 고르지 않았다");
     assert.ok(r.case.letters.length >= 8, "모든 인물의 편지");
     assert.ok(r.case.letters.every((l) => l.id && l.name && l.brief && l.letter.length >= 3));
-    assert.equal(r.case.letters.filter((l) => l.refugee).length, 2);
+    assert.equal(r.case.letters.filter((l) => l.required).length, 2);
     assert.equal(store.get(`sessions/${code}/assign/${uid}`), undefined, "랜덤 배정 없음");
   }
   for (const [i, uid] of ["S1", "S2", "S3", "S4", "S5"].entries()) await api.choosePersona({ ...student(uid), data: { code, personaId: PICKS[i] } });
@@ -252,6 +252,67 @@ test("getCase(교사): 인물별 역할·근거 진술·출처와 자료 전체(
   assert.ok(data.event.background.length >= 5);
   assert.ok(data.materials.every((c) => c.items.every((i) => Array.isArray(i.src) && typeof i.verified === "boolean")));
   await assert.rejects(api.getCase({ ...student("S1"), data: { eventId: "jeju2018" } }), /교사/);
+});
+
+test("쓰레기 수출 사건 수업: 그 사건의 인물·축·자료·화면 문구가 나가고, 인물·감독자·검색이 그 사건 범위로 동작한다", async () => {
+  const { code: w } = await api.createSession({ ...teacher, data: { groupCount: 1, eventId: "waste2019" } });
+  await api.updateSession({ ...teacher, data: { code: w, started: true } });
+  assert.equal(store.get(`sessions/${w}`).eventId, "waste2019");
+  assert.equal(store.get(`sessions/${w}`).title, "한국 쓰레기 필리핀 불법 수출·반송 논란 (2018~2019)");
+  const { EVENTS } = require("../case");
+  const picks = ["w_resident", "w_recycler", "w_ph_activist", "w_customs"];
+  for (const [i, uid] of ["W1", "W2", "W3", "W4"].entries()) {
+    const r = await api.joinSession({ ...student(uid), data: { code: w, groupNo: 1, nickname: "숲" + i, password: "pw" + i + "99" } });
+    assert.deepEqual(r.case.letters.map((l) => l.id).sort(), ["w_citizen", "w_customs", "w_kr_activist", "w_ministry", "w_ph_activist", "w_pyeongtaek", "w_recycler", "w_resident", "w_worker"]);
+    assert.deepEqual(r.case.letters.filter((l) => l.required).map((l) => l.id).sort(), ["w_resident", "w_worker"], "필리핀 현지 인물이 모둠 필수");
+    assert.ok(r.case.letters.every((l) => l.brief && !/필리핀 현지|한국 시민/.test(l.brief)));
+    assert.ok(r.case.cases.length >= 3 && r.case.aftermath.length >= 3);
+    await api.choosePersona({ ...student(uid), data: { code: w, personaId: picks[i] } });
+  }
+  // 필리핀 현지 인물을 맡은 유일한 학생은 다른 인물로 바꿀 수 없다
+  await assert.rejects(api.choosePersona({ ...student("W1"), data: { code: w, personaId: "w_citizen" } }), /필리핀 마을/);
+
+  const data = await api.getCase({ ...student("W1"), data: { code: w } });
+  assert.match(data.summary, /필리핀/);
+  assert.equal(data.ui.letterSign, "2019년 2월");
+  assert.ok(data.materials.some((c) => c.id === "return"));
+  assert.doesNotMatch(JSON.stringify(data), /예멘/);
+  const mats = await api.getMaterials({ ...teacher, data: { code: w } });
+  assert.ok(mats.isDefault && mats.categories.some((c) => c.id === "return"));
+  assert.ok((await api.resetMaterials({ ...teacher, data: { code: w } })).categories.some((c) => c.id === "return"));
+  const admin = await api.getCase({ ...teacher, data: { eventId: "waste2019" } });
+  assert.equal(admin.personas.length, 9);
+  assert.deepEqual(admin.event.axes, EVENTS.waste2019.axes);
+  assert.ok(admin.materials.every((c) => c.items.every((i) => i.src.every((id) => id.startsWith("W")))));
+
+  calls.length = 0;
+  personaToolCalls = 1;
+  await api.aiRequest({ ...student("W1"), data: { code: w, stage: 1, type: "persona_chat", payload: { message: "남은 쓰레기는 얼마나 돼요?" } } });
+  const persona = calls.find((c) => c.kind === "persona").body;
+  assert.match(persona.messages[0].content, /타골로안/);
+  assert.match(persona.messages[0].content, /2019년 2월 말/);
+  assert.doesNotMatch(persona.messages[0].content, /예멘/);
+  assert.match(JSON.stringify(persona.tools), /평택항에 돌아온/);
+  assert.match(calls.find((c) => c.kind === "search").body.instructions, /필리핀/);
+  const guard = calls.find((c) => c.kind === "guard").body.messages[0].content;
+  assert.match(guard, /한국 쓰레기의 필리핀 불법 수출/);
+  assert.doesNotMatch(guard, /예멘/);
+});
+
+test("강서 특수학교 사건 수업: 그 사건의 축·자료·화면 문구가 나간다", async () => {
+  const { code: k } = await api.createSession({ ...teacher, data: { groupCount: 1, eventId: "school2018" } });
+  await api.updateSession({ ...teacher, data: { code: k, started: true } });
+  for (const [i, uid] of ["SK1", "SK2"].entries()) {
+    const r = await api.joinSession({ ...student(uid), data: { code: k, groupNo: 1, nickname: "들" + i, password: "pw" + i + "99" } });
+    assert.deepEqual(r.case.letters.filter((l) => l.required).map((l) => l.id).sort(), ["s_mother", "s_sister"], "장애 학생 가족이 모둠 필수");
+  }
+  await api.choosePersona({ ...student("SK1"), data: { code: k, personaId: "s_mother" } });
+  const data = await api.getCase({ ...student("SK1"), data: { code: k } });
+  assert.equal(data.me.id, "s_mother");
+  assert.match(data.summary, /특수학교/);
+  assert.equal(data.ui.letterSign, "2018년 9월, 강서구에서");
+  assert.ok(data.materials.some((c) => c.id === "agreement"));
+  assert.equal((await api.getCase({ ...teacher, data: { eventId: "school2018" } })).personas.length, 9);
 });
 
 const ask = (uid, message = "불안한 이유가 뭐예요?") =>

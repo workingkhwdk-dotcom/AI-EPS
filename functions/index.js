@@ -3,8 +3,8 @@ const { defineSecret, defineString, defineInt } = require("firebase-functions/pa
 const admin = require("firebase-admin");
 
 const {
-  EVENTS, PERSONAS, availablePersonas, personaSourceIds, toPublicSource, materialsFor, materialsAdmin,
-  casesFor, casesAdmin, aftermathFor, aftermathAdmin, BRIEFS, isRefugee,
+  EVENTS, PERSONAS, DEFAULT_EVENT, availablePersonas, personaSourceIds, toPublicSource, materialsFor, materialsAdmin,
+  casesFor, casesAdmin, aftermathFor, aftermathAdmin, BRIEFS, isRequired,
 } = require("./case");
 const { checkGate, toList, proposalText } = require("./policy");
 const conduct = require("./conduct");
@@ -39,7 +39,6 @@ const TEACHER_EMAILS = defineString("TEACHER_EMAILS", { default: "" });
 // true 이면 출처 원문 대조 전(verified:false) 페르소나·자료도 사용 가능. 리허설 전용, 실제 수업에서는 false 로 둔다.
 const ALLOW_UNVERIFIED = defineString("ALLOW_UNVERIFIED_PERSONAS", { default: "false" });
 const allowUnverified = () => ALLOW_UNVERIFIED.value() === "true";
-const DEFAULT_EVENT = "jeju2018";
 
 const REGION = "asia-northeast3"; // 서울
 const MAX_AI_CALLS_PER_GROUP = 150; // 수업별로 정하지 않았을 때의 모둠당 한도(3~5단계)
@@ -305,7 +304,7 @@ async function studentCase(code, sess, uid, member) {
   const gid = member?.groupId;
   const [personas, materials, a, groupSnap] = await Promise.all([
     personasFor(code, ev.id),
-    studentMaterials(code),
+    studentMaterials(code, ev.id),
     db.doc(`sessions/${code}/assign/${uid}`).get(),
     gid ? db.doc(`sessions/${code}/groups/${gid}`).get() : Promise.resolve(null),
   ]);
@@ -315,16 +314,17 @@ async function studentCase(code, sess, uid, member) {
     title: ev.title,
     summary: ev.summary,
     stakeholders: ev.stakeholders,
-    letters: personas.map((p) => ({ id: p.id, name: p.name, brief: BRIEFS[p.id] || p.label || "", letter: p.letter, refugee: isRefugee(p), personal: isPersonal(p) })),
+    letters: personas.map((p) => ({ id: p.id, name: p.name, brief: BRIEFS[p.id] || p.label || "", letter: p.letter, required: isRequired(p), personal: isPersonal(p) })),
     me: mine ? { id: mine.id, name: mine.name, letter: mine.letter, personal: isPersonal(mine) } : null,
+    ui: ev.ui,
     materials,
-    cases: casesFor(allowUnverified()),
-    aftermath: aftermathFor(allowUnverified()),
+    cases: casesFor(ev.id, allowUnverified()),
+    aftermath: aftermathFor(ev.id, allowUnverified()),
   };
 }
 
 // 학생: 이 모둠에서 내가 대화할 인물을 고른다. 모둠원마다 서로 다른 인물이어야 하고, 대화를 시작한 뒤에는 바꿀 수 없다.
-//  - 당사자(난민) 인물은 모둠에 꼭 한 명 있어야 한다. 이미 당사자를 맡은 학생이 다른 인물로 바꿔 모둠에 당사자가 없어지는 것은 막는다.
+//  - 사건마다 정한 축(제주는 난민 신청자)의 인물은 모둠에 꼭 한 명 있어야 한다. 그 인물을 맡은 학생이 다른 인물로 바꿔 모둠에서 없어지는 것은 막는다.
 exports.choosePersona = onCall(fastOpts, async (req) => {
   const auth = requireAuth(req);
   const code = String(req.data?.code || "").toUpperCase();
@@ -348,9 +348,10 @@ exports.choosePersona = onCall(fastOpts, async (req) => {
     if (cur === pid) return;
     if ((m.data()?.chatCount || 0) > 0) throw new HttpsError("failed-precondition", "인물과 대화를 시작한 뒤에는 인물을 바꿀 수 없어요. 바꾸고 싶으면 선생님께 말씀드리세요.");
     if (picks[pid] && picks[pid].uid !== auth.uid) throw new HttpsError("already-exists", `${picks[pid].nick || "다른 친구"}가 이미 고른 인물이에요. 다른 인물을 골라 보세요.`);
-    if (cur && isRefugee(personas.find((p) => p.id === cur)) && !isRefugee(persona)) {
-      const another = Object.entries(picks).some(([id, pk]) => pk?.uid !== auth.uid && isRefugee(personas.find((p) => p.id === id)));
-      if (!another) throw new HttpsError("failed-precondition", "모둠에 당사자(난민) 인물을 맡은 친구가 한 명은 있어야 해요. 다른 친구가 당사자를 고른 뒤에 바꿀 수 있어요.");
+    if (cur && isRequired(personas.find((p) => p.id === cur)) && !isRequired(persona)) {
+      const another = Object.entries(picks).some(([id, pk]) => pk?.uid !== auth.uid && isRequired(personas.find((p) => p.id === id)));
+      const who = EVENTS[sess.eventId].ui.requiredWho;
+      if (!another) throw new HttpsError("failed-precondition", `모둠에 ${who} 인물을 맡은 친구가 한 명은 있어야 해요. 다른 친구가 그 인물을 고른 뒤에 바꿀 수 있어요.`);
     }
     const used = (ag.exists ? ag.data().personaIds || [] : []).slice();
     if (cur) { const i = used.indexOf(cur); if (i >= 0) used.splice(i, 1); }
@@ -545,7 +546,7 @@ exports.healthCheck = onCall(aiOpts, async (req) => {
     ...models.map(ask),
   ]);
   const search = PERSONA_WEB_SEARCH.value() === "false" ? { skipped: true }
-    : await timed(async () => { const r = await webSearch({ apiKey, model: SEARCH_MODEL.value() || OPENAI_MODEL.value(), query: "2018년 제주 예멘 난민 신청 인원", domains }); return { found: r.found, sources: r.sources.length, error: r.error ? "검색 호출 실패(모델이 web_search 를 지원하는지 확인)" : undefined }; });
+    : await timed(async () => { const ev = EVENTS[DEFAULT_EVENT]; const r = await webSearch({ apiKey, model: SEARCH_MODEL.value() || OPENAI_MODEL.value(), event: ev, query: ev.search.example, domains }); return { found: r.found, sources: r.sources.length, error: r.error ? "검색 호출 실패(모델이 web_search 를 지원하는지 확인)" : undefined }; });
   return {
     firestore, models: modelResults, search,
     config: { webSearch: PERSONA_WEB_SEARCH.value() !== "false", allowedDomains: domains.length, allowUnverified: allowUnverified(), personas: availablePersonas(DEFAULT_EVENT, allowUnverified()).length },
@@ -583,11 +584,11 @@ exports.deleteSession = onCall(opts, async (req) => {
 const materialsRef = (code) => db.doc(`sessions/${code}/private/materials`);
 
 exports.getMaterials = onCall(opts, async (req) => {
-  const { code } = await ownSession(req);
+  const { code, sess } = await ownSession(req);
   const snap = await materialsRef(code).get();
   return snap.exists
     ? { categories: snap.data().categories || [], isDefault: false }
-    : { categories: defaultMaterials(allowUnverified()), isDefault: true };
+    : { categories: defaultMaterials(sess.eventId, allowUnverified()), isDefault: true };
 });
 
 exports.saveMaterials = onCall(opts, async (req) => {
@@ -599,16 +600,16 @@ exports.saveMaterials = onCall(opts, async (req) => {
 });
 
 // 학생이 보는 2단계 자료: 교사가 이 수업의 자료를 고쳤다면 그 목록, 아니면 기본 자료
-async function studentMaterials(code) {
+async function studentMaterials(code, eventId) {
   const custom = await materialsRef(code).get();
-  return custom.exists ? toStudentMaterials(custom.data().categories) : materialsFor(allowUnverified());
+  return custom.exists ? toStudentMaterials(custom.data().categories) : materialsFor(eventId, allowUnverified());
 }
 
 // 이 수업만의 자료를 지우고 기본 자료로 되돌린다
 exports.resetMaterials = onCall(opts, async (req) => {
-  const { code } = await ownSession(req);
+  const { code, sess } = await ownSession(req);
   await materialsRef(code).delete();
-  return { categories: defaultMaterials(allowUnverified()), isDefault: true };
+  return { categories: defaultMaterials(sess.eventId, allowUnverified()), isDefault: true };
 });
 
 // 화면이 쓰는 수업 설정.
@@ -626,17 +627,17 @@ exports.getCase = onCall(fastOpts, async (req) => {
       sources: personaSourceIds(p).map(toPublicSource),
       claims: p.claims.map(([text, src, kind]) => ({ text, src, kind })),
     });
-    const materials = materialsAdmin().map((c) => ({
+    const materials = materialsAdmin(ev.id).map((c) => ({
       ...c,
       items: c.items.map((it) => ({ ...it, verified: it.src.every((id) => toPublicSource(id).verified) })),
     }));
     return {
-      event: { id: ev.id, title: ev.title, summary: ev.summary, teacherNote: ev.teacherNote,
+      event: { id: ev.id, title: ev.title, summary: ev.summary, teacherNote: ev.teacherNote, axes: ev.axes, requiredAxis: ev.requiredAxis,
         background: (ev.background || []).map(([text, src, kind]) => ({ text, src, kind, verified: toPublicSource(src).verified })) },
       personas: PERSONAS.filter((p) => p.events.includes(ev.id)).map(full),
       materials,
-      cases: casesAdmin().map((c) => ({ ...c, sources: c.src.map(toPublicSource) })),
-      aftermath: aftermathAdmin().map((a) => ({ ...a, sources: a.src.map(toPublicSource) })),
+      cases: casesAdmin(ev.id).map((c) => ({ ...c, sources: c.src.map(toPublicSource) })),
+      aftermath: aftermathAdmin(ev.id).map((a) => ({ ...a, sources: a.src.map(toPublicSource) })),
       allowUnverified: allowUnverified(),
     };
   }
@@ -716,7 +717,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
   const effort = REASONING_EFFORT.value();
   const searchOn = PERSONA_WEB_SEARCH.value() !== "false" && sessData.webSearch !== false;
   const domains = SEARCH_ALLOWED_DOMAINS.value().split(",").map((x) => x.trim()).filter(Boolean);
-  const search = (query) => webSearch({ apiKey, model: SEARCH_MODEL.value() || baseModel, query, domains });
+  const search = (query) => webSearch({ apiKey, model: SEARCH_MODEL.value() || baseModel, event: ev, query, domains });
   const bump = {};
 
   try {
@@ -746,7 +747,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
       } else {
         // 인물이 자기 자료로 답할 수 없는 사실을 물으면 웹에서 찾아 본다. 못 찾으면 모른다고 답한다.
         if (searchOn) {
-          const r = await chatWithLookup({ apiKey, model: personaModel, messages, maxTokens: 400, effort, search });
+          const r = await chatWithLookup({ apiKey, model: personaModel, event: ev, messages, maxTokens: 400, effort, search });
           reply = r.content; lookups = r.lookups;
           if (!String(reply).trim()) throw new Error("인물 응답이 비어 있음");
         } else {
@@ -758,7 +759,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
         try {
           const verdictText = await callModel({
             apiKey, model: GUARD_MODEL.value() || baseModel, json: true, maxTokens: 900, efforts: ["low"],
-            messages: guardMessages({ persona, claims: persona.claims, background: ev.background, history: past.slice(-3), studentMessage: input, reply, lookups }),
+            messages: guardMessages({ event: ev, persona, claims: persona.claims, history: past.slice(-3), studentMessage: input, reply, lookups }),
           });
           verdict = parseVerdict(verdictText);
         } catch (e) {
@@ -824,7 +825,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
         (c.srcType ? `\n학생들이 확인하려는 자료 종류: ${clip(c.srcType, 40)}` : "");
       // 모델의 기억이 아니라 수업 자료와 웹 검색 결과를 근거로 답하게 한다
       const [mats, found] = await Promise.all([
-        studentMaterials(code).then((cats) => materialsText(cats)),
+        studentMaterials(code, ev.id).then((cats) => materialsText(cats)),
         searchOn ? search(clip(c.question, 200)) : Promise.resolve(null),
       ]);
       messages = [{ role: "system", content: prompts.verifyPrompt(evCtx, { materials: mats, search: found }) }, { role: "user", content: input }];

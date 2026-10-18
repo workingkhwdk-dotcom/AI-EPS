@@ -1,11 +1,11 @@
-// case.js 의 인물·출처를 원문 대조용 마크다운 점검표로 내보낸다: node scripts/export-sources.js > ../docs/PERSONA_SOURCES.md
+// cases/*.js 의 인물·출처를 원문 대조용 마크다운 점검표로 내보낸다: node scripts/export-sources.js > ../docs/PERSONA_SOURCES.md
 const { SOURCES, EVENTS, PERSONAS, MATERIALS, CASES, AFTERMATH } = require("../case");
 const CROSS = { ok: "교차 확인", partial: "일부 확인", fixed: "고쳐 씀", todo: "확인 못 함" };
 const out = [];
 out.push("# 페르소나 근거 자료 점검표", "");
-out.push("> 이 문서는 `functions/case.js`에서 자동 생성됩니다 (`cd functions && npm run export-sources`).");
-out.push("> 근거 진술은 AI가 웹 검색 결과 요약을 바탕으로 정리한 것이며 **원문을 직접 열람하지 못했습니다.** 수업 전에 각 출처의 원문을 열어 아래 항목을 확인한 뒤, 맞으면 `case.js`에서 해당 출처의 `verified`를 true로 바꾸세요. 틀린 진술은 고치거나 지우세요.", "");
-out.push("> **검색 교차 확인(2026-10)**: 원문 페이지를 열 수 없는 환경이라, 검색으로 원문 기사 요약과 다른 매체 보도를 대조했습니다. 결과는 맨 아래 출처 목록의 '교차 확인' 열에 있습니다(교차 확인 / 일부 확인 / 고쳐 씀 / 확인 못 함). 교차 확인은 원문 대조를 대신하지 않습니다. '일부 확인'과 '확인 못 함'부터 원문을 보세요.", "");
+out.push("> 이 문서는 `functions/cases/`의 사건 파일에서 자동 생성됩니다 (`cd functions && npm run export-sources`).");
+out.push("> 근거 진술은 AI가 웹 검색 결과 요약을 바탕으로 정리한 것입니다. 원문과 대조한 출처는 그 사건 파일(`functions/cases/<사건>.js`)에 `verified: true`가 적혀 있고, 그 출처만 학생에게 쓰입니다. 틀린 진술은 고치거나 지우세요.", "");
+out.push("> **검색 교차 확인(2026-10)**: 원문 페이지를 열 수 없는 환경이라, 검색으로 원문 기사 요약과 다른 매체 보도를 대조했습니다. 제주 사건은 '교차 확인' 열에, 쓰레기 수출·강서 특수학교 사건은 '확인할 것' 열의 **[대조함]** 메모에 결과가 있습니다.", "");
 out.push("**확인 방법**: 진술이 원문에 있는가 / 표현이 과장·왜곡되지 않았는가 / 누구의 발언·주장인가(기자 서술, 인터뷰, 칼럼 의견) / 날짜와 수치가 맞는가 / **진술 종류(증언·사실·주장·의견)가 맞는가**(주장을 사실로 쓰지 않았는가)", "");
 for (const ev of Object.values(EVENTS)) {
   out.push(`## ${ev.title}`, "", ev.summary, "", `> 교사 메모: ${ev.teacherNote}`, "");
@@ -23,25 +23,29 @@ for (const ev of Object.values(EVENTS)) {
     p.claims.forEach(([t, id, kind]) => out.push(`  - [ ] **[${kind}]** ${t} **(${id})**`));
     out.push("");
   }
+  out.push(`### 실제 자료 (학생에게 보이는 카테고리별 정리)`, "", "> 출처가 모두 검증된 항목만 학생에게 보입니다. 학생에게는 출처 ID 대신 매체·날짜만 표시됩니다.", "");
+  for (const c of MATERIALS[ev.id]) {
+    out.push(`#### ${c.title}`);
+    if (c.stats) out.push(`- 통계 타일: ${c.stats.map((x) => `${x.label} ${x.value}`).join(" / ")} **(${c.statsSrc.join(", ")})**`);
+    c.items.forEach((it) => out.push(`  - [ ] **[${it.kind}]** ${it.date ? `${it.date} ` : ""}${it.text} **(${it.src.join(", ")})**`));
+    out.push("");
+  }
+  if (CASES[ev.id].length) {
+    out.push("### 4단계 다른 나라(다른 곳) 사례 카드 (학생에게 출처 링크가 보입니다)", "");
+    for (const c of CASES[ev.id]) {
+      out.push(`#### ${c.country}: ${c.title} **(${c.src.join(", ")})**`, `- [ ] 무엇을 했나: ${c.what}`, `- [ ] 어떻게 되었나: ${c.result}`, `- 생각해 볼 점: ${c.think}`, "");
+    }
+  }
+  if (AFTERMATH[ev.id].length) {
+    out.push("### 7단계 실제 이후 전개", "");
+    AFTERMATH[ev.id].forEach((it) => out.push(`  - [ ] **[${it.kind}]** ${it.text} **(${it.src.join(", ")})**`));
+    out.push("");
+  }
 }
-out.push("## 3단계 실제 자료 (학생에게 보이는 카테고리별 정리)", "", "> 출처가 모두 검증된 항목만 학생에게 보입니다. 학생에게는 출처 ID 대신 매체·날짜만 표시됩니다.", "");
-for (const c of MATERIALS) {
-  out.push(`### ${c.title}`);
-  if (c.stats) out.push(`- 통계 타일: ${c.stats.map((x) => `${x.label} ${x.value}`).join(" / ")} **(${c.statsSrc.join(", ")})**`);
-  c.items.forEach((it) => out.push(`  - [ ] **[${it.kind}]** ${it.date ? `${it.date} ` : ""}${it.text} **(${it.src.join(", ")})**`));
-  out.push("");
-}
-out.push("## 4단계 다른 나라 사례 카드 (학생에게 출처 링크가 보입니다)", "");
-for (const c of CASES) {
-  out.push(`### ${c.country}: ${c.title} **(${c.src.join(", ")})**`, `- [ ] 무엇을 했나: ${c.what}`, `- [ ] 어떻게 되었나: ${c.result}`, `- 생각해 볼 점: ${c.think}`, "");
-}
-out.push("## 7단계 실제 이후 전개", "");
-AFTERMATH.forEach((it) => out.push(`  - [ ] **[${it.kind}]** ${it.text} **(${it.src.join(", ")})**`));
-out.push("");
 out.push("## 출처 목록", "", "| ID | 제목 | 매체 | 날짜 | 확인할 것 | 교차 확인 | 원문 대조 |", "|---|---|---|---|---|---|---|");
 for (const [id, s] of Object.entries(SOURCES)) {
   const t = s.titleIsDescriptive ? `${s.title} *(설명 문구, 실제 제목 확인)*` : s.title;
   const cc = s.crossCheck ? `**${CROSS[s.crossCheck.status]}** ${s.crossCheck.note}` : "";
-  out.push(`| ${id} | [${t.replace(/\|/g, "/")}](${s.url}) | ${s.outlet} | ${s.date} | ${s.check} | ${cc.replace(/\|/g, "/")} | ${s.verified ? "✅" : "☐"} |`);
+  out.push(`| ${id} | [${t.replace(/\|/g, "/")}](${s.url}) | ${s.outlet} | ${s.date} | ${s.check.replace(/\|/g, "/")} | ${cc.replace(/\|/g, "/")} | ${s.verified ? "✅" : "☐"} |`);
 }
 console.log(out.join("\n"));
