@@ -54,12 +54,15 @@
 
       <!-- 2) 수업 하나를 열었을 때: 위에 수업 정보, 아래에 세 가지 작업 -->
       <div id="class-view" class="hidden">
-        <div class="card">
-          <div class="row" style="justify-content:space-between;align-items:flex-start">
-            <div><button class="btn btn-plain btn-sm" id="back-btn" type="button">← 수업 목록</button>
-              <div class="meta-line" id="d-title" style="margin-top:10px"></div><div class="code-big" id="d-code"></div>
-              <div class="meta-line">학생에게 이 <b>수업 코드</b>와 <b>모둠 번호</b>를 알려 주세요</div><div id="open-note" style="margin-top:8px"></div></div>
+        <!-- 수업 머리: 위 줄은 목록으로·작업 버튼, 아래 줄은 수업 이름·코드(왼쪽)와 상태(오른쪽) -->
+        <div class="card cls-head">
+          <div class="row ch-top" style="justify-content:space-between">
+            <button class="btn btn-plain btn-sm" id="back-btn" type="button">← 수업 목록</button>
             <div class="row"><button class="btn btn-sm" id="open-btn" type="button"></button><button class="btn btn-tinted btn-sm" id="copy-btn" type="button">코드 복사</button><button class="btn btn-plain btn-sm" id="csv-btn" type="button">기록 CSV</button></div>
+          </div>
+          <div class="ch-main">
+            <div><div class="meta-line" id="d-title" style="margin-top:10px"></div><div class="code-big" id="d-code"></div></div>
+            <div class="ch-note"><div class="meta-line">학생에게 이 <b>수업 코드</b>와 <b>모둠 번호</b>를 알려 주세요</div><div id="open-note" style="margin-top:8px"></div></div>
           </div>
         </div>
         <div class="seg" id="ctabs">

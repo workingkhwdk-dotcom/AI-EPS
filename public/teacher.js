@@ -147,6 +147,14 @@ const isOnline = (m) => m.lastSeen?.toMillis && Date.now() - m.lastSeen.toMillis
 const ago = (m) => { const t = m.lastSeen?.toMillis?.(); if (!t) return "기록 없음"; const s = Math.max(0, Math.round((Date.now() - t) / 1000)); return s < 60 ? `${s}초 전` : s < 3600 ? `${Math.round(s / 60)}분 전` : `${Math.round(s / 3600)}시간 전`; };
 const personaLabels = {}; // 인물 ID → 교사용 역할명 (getCase 로 채움)
 
+// 현황 숫자 칸의 선 아이콘(24칸 기준)
+const kpiSvg = (d) => `<svg class="kpi-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const KPI_ICON = {
+  online: kpiSvg('<circle cx="12" cy="12" r="3"/><path d="M6.3 6.3a8 8 0 0 0 0 11.4M17.7 6.3a8 8 0 0 1 0 11.4"/>'),
+  people: kpiSvg('<circle cx="9" cy="8.5" r="3"/><path d="M3.5 20c0-3 2.5-5.5 5.5-5.5s5.5 2.5 5.5 5.5"/><circle cx="16.5" cy="9.5" r="2.3"/><path d="M16 14.6c2.6.3 4.5 2.5 4.5 5.1"/>'),
+  ai: kpiSvg('<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H10l-4.5 3.5V16A1.5 1.5 0 0 1 4 14.5z"/><path d="M8.5 9h7M8.5 12h4.5"/>'),
+  guard: kpiSvg('<path d="M12 3l7 3v5.5c0 4.3-2.9 7.8-7 9.5-4.1-1.7-7-5.2-7-9.5V6z"/><path d="M12 8.5v4M12 15.5v.01"/>'),
+};
 function renderDash() {
   if (!current) return;
   renderLobby();
@@ -154,8 +162,8 @@ function renderDash() {
   const online = members.filter(isOnline).length;
   const ai = members.reduce((n, m) => n + (m.aiCount || 0), 0); // 인물 대화 + 3~5단계
   const guard = groups.reduce((n, g) => n + (g.guardCount || 0), 0);
-  $("#kpis").innerHTML = [["접속 중", `${online}명`], ["참여 학생", `${members.length}명`], ["AI 호출", `${ai}회`], ["감독자 개입", `${guard}회`]]
-    .map(([k, v]) => `<div class="kpi"><b>${v}</b><span>${k}</span></div>`).join("");
+  $("#kpis").innerHTML = [["접속 중", `${online}명`, "online"], ["참여 학생", `${members.length}명`, "people"], ["AI 호출", `${ai}회`, "ai"], ["감독자 개입", `${guard}회`, "guard"]]
+    .map(([k, v, ic]) => `<div class="kpi">${KPI_ICON[ic]}<div><b>${v}</b><span>${k}</span></div></div>`).join("");
 
   $("#g-filter").innerHTML = [`<button class="chip sm ${gFilter === "all" ? "on" : ""}" data-g="all">전체</button>`,
     ...groups.map((g) => `<button class="chip sm ${gFilter === g.id ? "on" : ""}" data-g="${g.id}">${esc(g.name)}</button>`)].join("");

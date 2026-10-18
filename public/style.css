@@ -220,7 +220,8 @@ th{ color:var(--ink-2); font-weight:700; }
 .code-big{ font-size:34px; font-weight:800; letter-spacing:.14em; font-variant-numeric:tabular-nums; color:var(--navy); }
 @media (prefers-color-scheme: dark){ .code-big{ color:var(--accent); } }
 .kpis{ display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; margin:12px 0; }
-.kpi{ background:var(--fill); border-radius:14px; padding:12px 14px; }
+.kpi{ background:var(--fill); border-radius:14px; padding:12px 14px; display:flex; align-items:center; gap:10px; }
+.kpi-ic{ flex:none; width:32px; height:32px; padding:7px; border-radius:10px; background:var(--surface); color:var(--accent); }
 .kpi b{ display:block; font-size:24px; font-variant-numeric:tabular-nums; letter-spacing:-0.02em; }
 .kpi span{ font-size:12px; color:var(--ink-2); }
 .tbl-wrap{ overflow-x:auto; }
@@ -522,8 +523,8 @@ body.modal-open{ overflow:hidden; }
 /* 단계 머리말(.hero)은 PC 넓은 화면에서만 보인다 */
 .hero{ display:none; }
 @media (min-width:1100px){
-  /* ---------- 학생 화면 꾸밈(PC): 부드러운 바탕, 단계 머리말, 카드 제목 표시, 지금 쓰는 카드 강조 ---------- */
-  body:not(.m):has(#app){ background:
+  /* ---------- PC 꾸밈(학생·교사 공통): 부드러운 바탕, 카드 제목 표시, 지금 쓰는 카드 강조. 단계 머리말은 학생 화면 ---------- */
+  body:not(.m){ background:
     radial-gradient(1200px 520px at 0% 0%, rgba(78,168,43,0.08), transparent 60%),
     radial-gradient(1100px 560px at 100% 0%, rgba(10,126,208,0.10), transparent 60%), var(--bg); background-attachment:fixed; }
 
@@ -548,24 +549,60 @@ body.modal-open{ overflow:hidden; }
   body:not(.m) .subnav button.on{ background:var(--grad); box-shadow:0 10px 22px -12px rgba(6,34,107,0.9); }
 
   /* 카드 제목 앞의 색 막대, 지금 쓰고 있는 카드는 테두리로 알려 준다 */
-  body:not(.m) #panel .card > h3:first-child{ padding-left:14px; background:linear-gradient(var(--green),var(--blue)) 0 3px / 4px calc(100% - 15px) no-repeat; }
-  body:not(.m) #panel .card{ transition:box-shadow .2s ease; }
-  body:not(.m) #panel .card:focus-within{ box-shadow:0 0 0 2px var(--blue), 0 14px 30px -16px rgba(10,126,208,0.45); }
-  body:not(.m) #panel .card.flat:focus-within{ box-shadow:none; }
+  body:not(.m) .wrap .card > h3:first-child, body:not(.m) .wrap .card > h2:first-child{ padding-left:14px; background:linear-gradient(var(--green),var(--blue)) 0 3px / 4px calc(100% - 15px) no-repeat; }
+  body:not(.m) .wrap .card{ transition:box-shadow .2s ease; }
+  body:not(.m) .wrap .card:focus-within{ box-shadow:0 0 0 2px var(--blue), 0 14px 30px -16px rgba(10,126,208,0.45); }
+  body:not(.m) .wrap .card.flat:focus-within, body:not(.m) .wrap .card.cls-head:focus-within{ box-shadow:none; }
 
   /* 입력 칸: 누르면 하얗게 밝아지고 파란 테두리 */
-  body:not(.m) #panel input[type=text], body:not(.m) #panel textarea, body:not(.m) #panel select{ border-radius:14px; transition:background .15s ease, box-shadow .15s ease; }
-  body:not(.m) #panel input[type=text]:hover, body:not(.m) #panel textarea:hover, body:not(.m) #panel select:hover{ box-shadow:inset 0 0 0 1.5px var(--fill-strong); }
-  body:not(.m) #panel input[type=text]:focus, body:not(.m) #panel textarea:focus, body:not(.m) #panel select:focus{ background:var(--surface); box-shadow:inset 0 0 0 1.5px var(--blue), 0 0 0 4px var(--accent-tint); }
+  body:not(.m) .wrap :is(input[type=text], input[type=number], input[type=password], textarea, select){ border-radius:14px; transition:background .15s ease, box-shadow .15s ease; }
+  body:not(.m) .wrap :is(input[type=text], input[type=number], input[type=password], textarea, select):hover{ box-shadow:inset 0 0 0 1.5px var(--fill-strong); }
+  body:not(.m) .wrap :is(input[type=text], input[type=number], input[type=password], textarea, select):focus{ background:var(--surface); box-shadow:inset 0 0 0 1.5px var(--blue), 0 0 0 4px var(--accent-tint); }
 
   /* '모둠 공용 · 실시간' 표시 앞의 작은 점 */
   body:not(.m) #panel .tag.b{ display:inline-flex; align-items:center; gap:5px; vertical-align:middle; }
   body:not(.m) #panel h3 .tag.b::before{ content:""; width:6px; height:6px; border-radius:50%; background:var(--green); }
 
   /* 버튼: 둥글게, 다음 단계 버튼은 크게 */
-  body:not(.m) #panel .btn{ border-radius:14px; }
-  body:not(.m) #panel .btn-primary:hover:not(:disabled){ transform:translateY(-1px); }
+  body:not(.m) .wrap .btn{ border-radius:14px; }
+  body:not(.m) .wrap .btn-sm{ border-radius:10px; }
+  body:not(.m) .wrap .btn-primary:hover:not(:disabled){ transform:translateY(-1px); }
   body:not(.m) .nav-foot .btn{ padding:14px 22px; font-size:15.5px; }
+}
+@media (min-width:1100px){
+  /* ---------- 교사 화면(PC) ---------- */
+  /* 위 메뉴(내 수업 / 점검)와 수업 안 메뉴: 크게, 지금 메뉴는 학교 색 */
+  body:not(.m) #main > .seg, body:not(.m) #ctabs{ padding:4px; border-radius:14px; gap:4px; }
+  body:not(.m) #main > .seg button, body:not(.m) #ctabs button{ padding:11px 22px; font-size:15px; border-radius:11px; }
+  body:not(.m) #main > .seg button.on, body:not(.m) #ctabs button.on{ background:var(--grad); color:#fff; box-shadow:0 8px 18px -10px rgba(6,34,107,0.9); }
+  body:not(.m) #main > .seg button:hover:not(.on), body:not(.m) #ctabs button:hover:not(.on){ background:var(--surface); }
+
+  /* 수업 머리: 수업 이름·코드는 왼쪽에 크게, 학생 안내와 상태는 오른쪽 */
+  body:not(.m) .cls-head{ background:linear-gradient(120deg, var(--surface) 0%, var(--surface) 45%, var(--accent-tint) 100%); }
+  body:not(.m) .ch-main{ display:flex; align-items:flex-end; justify-content:space-between; gap:28px; margin-top:6px; }
+  body:not(.m) .ch-main .code-big{ font-size:44px; line-height:1.15; }
+  body:not(.m) .ch-main #d-title{ font-size:15px; font-weight:700; color:var(--ink-2); }
+  body:not(.m) .ch-note{ text-align:right; max-width:520px; }
+  body:not(.m) .ch-note #open-note .row{ justify-content:flex-end; }
+
+  /* 진행 현황: '확인이 필요해요'와 숫자 칸은 나란히 */
+  body:not(.m) #cpane-live:not(.hidden){ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); column-gap:var(--gap); align-items:start; }
+  body:not(.m) #cpane-live > *{ grid-column:1 / -1; }
+  body:not(.m) #cpane-live > #alerts:not(.hidden), body:not(.m) #cpane-live > #alerts:not(.hidden) + .card{ grid-column:auto; align-self:stretch; }
+  body:not(.m) #alerts:not(.hidden) + .card .kpis{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+  body:not(.m) .kpi{ display:flex; align-items:center; gap:14px; background:var(--surface-2); }
+  body:not(.m) .kpi-ic{ flex:none; width:40px; height:40px; padding:9px; border-radius:12px; background:var(--surface); color:var(--accent); }
+  body:not(.m) .kpi b{ font-size:26px; line-height:1.2; }
+
+  /* 표: 머리줄은 옅은 바탕, 줄 위에 올리면 살짝 표시 */
+  body:not(.m) .tbl thead th{ background:var(--fill); font-size:12.5px; }
+  body:not(.m) .tbl thead th:first-child{ border-radius:10px 0 0 10px; } body:not(.m) .tbl thead th:last-child{ border-radius:0 10px 10px 0; }
+  body:not(.m) .tbl td, body:not(.m) .tbl th{ padding:13px 12px; vertical-align:middle; }
+  body:not(.m) .tbl tbody tr:hover td{ background:var(--fill); }
+
+  /* 수업 목록: 줄마다 넉넉히 */
+  body:not(.m) #sessions .cell{ padding:18px 20px; align-items:center; }
+  body:not(.m) #sessions .cls b{ font-size:16px; }
 }
 @media (min-width:1100px) and (max-width:1279px){
   /* 조금 좁은 PC: 단계 탭과 항목 사이 여백을 조금 줄인다 */
