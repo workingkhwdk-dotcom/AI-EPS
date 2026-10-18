@@ -238,3 +238,9 @@ body.m.chat-mode{ position:fixed; left:0; right:0; top:var(--vvt,0px); height:va
 
 /* PC 넓은 화면에서 좌우로 나누는 묶음(.split)은 휴대폰에서는 없는 것처럼 둔다(대화 화면의 세로 배치를 그대로 유지) */
 .m .split, .m .split-side, .m .split-main{ display:contents; }
+
+/* 글을 쓰는 동안(대화 화면 밖): 머리글과 1단계 작은 단계 막대도 접어, 키보드 위에 쓰는 칸이 넉넉히 보이게 한다.
+   길게 쓰는 칸은 보이는 화면의 40%까지만 늘어나게 해서 칸 이름과 위아래 맥락이 가려지지 않게 한다. */
+.m.typing:not(.chat-mode) .hdr{ transform:translateY(-100%); }
+.m.typing:not(.chat-mode) .subnav{ display:none; }
+.m.typing:not(.chat-mode) textarea:focus{ max-height:calc(var(--vvh, 100dvh) * .4); }

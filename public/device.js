@@ -48,8 +48,21 @@
       if (!isText(e.target)) return;
       document.body.classList.add("typing");
       // 대화 화면에서는 키보드가 올라올 때 브라우저가 화면을 밀어 올리지 않도록 맨 위로 되돌린다
-      if (document.body.classList.contains("chat-mode")) setTimeout(function () { window.scrollTo(0, 0); }, 50);
+      if (document.body.classList.contains("chat-mode")) { setTimeout(function () { window.scrollTo(0, 0); }, 50); return; }
+      // 다른 화면: 키보드가 다 올라온 뒤, 쓰고 있는 칸(위의 칸 이름까지)을 보이는 화면 위쪽으로 끌어올린다
+      setTimeout(function () { showField(e.target); }, 320);
     });
+    // 쓰고 있는 칸이 키보드에 가리면, 칸 이름이 보이는 화면 맨 위 근처에 오도록 스크롤한다
+    var showField = function (el) {
+      if (!el || document.activeElement !== el || document.body.classList.contains("chat-mode")) return;
+      var lbl = el.previousElementSibling && el.previousElementSibling.matches("label") ? el.previousElementSibling : el;
+      var top = lbl.getBoundingClientRect().top, bottom = el.getBoundingClientRect().bottom;
+      var viewH = vv ? vv.height : window.innerHeight, viewTop = vv ? vv.offsetTop : 0;
+      if (top - viewTop >= 8 && bottom - viewTop <= viewH - 8) return; // 이미 다 보이면 그대로
+      window.scrollBy({ top: top - viewTop - 12, behavior: "smooth" });
+    };
+    // 키보드 높이가 바뀌면(예측 단어 줄이 생기는 등) 한 번 더 맞춘다
+    if (vv) vv.addEventListener("resize", function () { var a = document.activeElement; if (isText(a)) showField(a); });
     document.addEventListener("focusout", function () {
       setTimeout(function () { if (!isText(document.activeElement)) document.body.classList.remove("typing"); }, 50);
     });
