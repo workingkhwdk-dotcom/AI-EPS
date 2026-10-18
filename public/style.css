@@ -452,3 +452,56 @@ body.modal-open{ overflow:hidden; }
 .lobby-m .dot{ margin-right:5px; }
 .lobby-mv{ font:inherit; font-size:11.5px; font-weight:700; border:none; background:var(--fill-strong); color:var(--ink-2); border-radius:14px; padding:3px 9px; margin-left:6px; cursor:pointer; }
 .modal-acts.grid .btn small{ font-weight:600; opacity:.7; }
+
+/* ---------- PC 넓은 화면(1100px 이상) ----------
+   좁은 한 줄(780px)로 두면 좌우가 비므로, 화면 폭을 넓게 쓴다. 모바일 화면(body.m)에는 쓰지 않는다.
+   - 학생: 왼쪽에 1~7단계 목록(세로, 화면에 붙어 있음), 오른쪽에 활동. 활동 카드는 두 줄로 나란히 놓는다.
+     1단계 대화는 편지·할 일(왼쪽)과 대화창(오른쪽), 2단계는 실제 자료(왼쪽)와 활동(오른쪽)으로 나눈다(.split).
+   - 교사: 표가 넓게 펼쳐지고, 수업 설정·인물 편집 등은 두 줄로 놓는다.
+   - 입장·로그인처럼 칸이 몇 개 없는 화면은 가운데에 알맞은 폭으로 둔다. */
+.split-side, .split-main{ min-width:0; }
+@media (min-width:1100px){
+  body:not(.m){ --pc-w:1480px; --stick:84px; }
+  body:not(.m) .wrap{ max-width:var(--pc-w); padding:20px 28px; }
+  body:not(.m) .hdr{ padding-left:28px; padding-right:28px; }
+  body:not(.m) .hdr-in{ max-width:calc(var(--pc-w) - 56px); }
+  body:not(.m) #join, body:not(.m) #login{ max-width:560px; margin:24px auto; }
+
+  /* 학생: 단계 목록 + 활동 */
+  body:not(.m) #app:not(.hidden){ display:grid; grid-template-columns:200px minmax(0,1fr); gap:24px; align-items:start; }
+  body:not(.m) .stages{ position:sticky; top:var(--stick); flex-direction:column; gap:6px; overflow:visible; padding:0; }
+  body:not(.m) .stage-tab{ display:flex; align-items:center; gap:10px; text-align:left; padding:10px 12px; min-width:0; }
+  body:not(.m) .stage-tab b{ flex:none; width:26px; height:26px; border-radius:50%; background:var(--fill); display:flex; align-items:center; justify-content:center; font-size:14px; }
+  body:not(.m) .stage-tab.on b{ background:rgba(255,255,255,0.2); }
+  body:not(.m) .stage-tab span{ font-size:13.5px; font-weight:700; line-height:1.3; }
+
+  /* 활동 카드는 두 줄로. 안내·역할·이동 버튼·넓은 표가 든 카드는 한 줄을 다 쓴다 */
+  body:not(.m) #panel{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:16px; align-items:start; }
+  body:not(.m) #panel > *{ grid-column:1 / -1; }
+  body:not(.m) #panel > .card{ grid-column:auto; }
+  body:not(.m) #panel > .card:has(.board, .flow, .timeline, table){ grid-column:1 / -1; }
+
+  /* 왼쪽(참고: 편지·자료)은 화면에 붙어 있고, 오른쪽에서 활동한다 */
+  body:not(.m) .split{ display:grid; grid-template-columns:minmax(0,5fr) minmax(0,7fr); gap:16px; align-items:start; }
+  body:not(.m) .split-side{ position:sticky; top:var(--stick); max-height:calc(100vh - var(--stick) - 16px); overflow-y:auto; overscroll-behavior:contain; border-radius:16px; scrollbar-width:thin; }
+  body:not(.m) .split-side > :last-child{ margin-bottom:0; }
+  body:not(.m) .chat-split{ grid-template-columns:minmax(0,2fr) minmax(0,3fr); }
+  body:not(.m) .chat-split .msgs{ min-height:calc(100vh - 380px); }
+  body:not(.m) .role-g{ grid-template-columns:repeat(3,minmax(0,1fr)); }
+
+  /* 대기실 */
+  body:not(.m) #wait:not(.hidden){ max-width:980px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:16px; align-items:start; }
+  body:not(.m) #wait > .wait-hero, body:not(.m) #wait > .wait-me, body:not(.m) #wait > .wait-note{ grid-column:1 / -1; }
+
+  /* 교사 */
+  body:not(.m) #cpane-settings:not(.hidden){ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); column-gap:16px; align-items:start; }
+  body:not(.m) #cpane-settings > .card:first-child{ grid-row:span 4; }
+  body:not(.m) #persona-edit, body:not(.m) #mat-body, body:not(.m) #persona-check{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:16px; align-items:start; }
+  body:not(.m) #persona-edit > :only-child, body:not(.m) #mat-body > :only-child, body:not(.m) #persona-check > :only-child{ grid-column:1 / -1; }
+  body:not(.m) .newbox{ max-width:720px; }
+  body:not(.m) #cmp-body{ display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); column-gap:24px; }
+}
+@media (min-width:1100px) and (max-width:1279px){
+  /* 조금 좁은 PC: 단계 목록은 번호와 짧은 이름만 */
+  body:not(.m) #app:not(.hidden){ grid-template-columns:150px minmax(0,1fr); gap:18px; }
+}

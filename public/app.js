@@ -626,12 +626,13 @@ const renderStage = {
         ? `<div class="timeline">${cur.items.map((it) => `<div class="tl"><div class="d">${esc(it.date)}</div><p>${esc(it.text)}</p><div class="cap">${esc(it.caption)}</div></div>`).join("")}</div>`
         : `${cur.stats ? `<div class="stats">${cur.stats.map((s, i) => `<div class="stat ${i === 2 ? "g" : i === 0 ? "" : "b"}"><b>${esc(s.value)}</b><span>${esc(s.label)}</span></div>`).join("")}</div>` : ""}
            <div class="mat">${cur.items.map(itemHtml).join("")}</div>`;
-    return `${roleBox(2)}${problemBar()}
+    // PC 넓은 화면에서는 자료를 왼쪽에 붙여 두고(.split-side) 오른쪽에서 활동한다
+    return `${roleBox(2)}${problemBar()}<div class="split"><div class="split-side">
     <details class="fold" data-keep="mat" open><summary>실제 사건 자료</summary><div class="inner">
       <div class="overview"><b>${esc(S.info.title)}</b><p>${esc(S.info.summary)}</p></div>
       <p class="desc">인물에게 들은 말과 비교할 자료입니다. <span class="kind">사실</span> <span class="kind k-증언">증언</span>은 일어난 일, <span class="kind k-주장">주장</span> <span class="kind k-의견">의견</span>은 누군가의 생각입니다.</p>
       <div class="chipbar scroll">${cats.map((c) => `<button class="chip ${cur && c.id === cur.id ? "on" : ""}" data-act="mat-tab" data-id="${c.id}">${esc(c.title)}</button>`).join("")}</div>
-      ${matBody}</div></details>
+      ${matBody}</div></details></div><div class="split-main">
 
     <div class="card"><h3>① 나·우리와 이어 보기 ${shared}</h3>
       <p class="desc">원인을 찾기 전에, 인물의 처지가 우리 주변과 어떻게 이어지는지 찾아보세요. 원인을 여러 층위에서 보는 데 도움이 됩니다.</p>
@@ -665,7 +666,7 @@ const renderStage = {
       <label class="lbl">확인할 말 (들은 말이면 누가 한 말인지 함께)</label><input type="text" id="ch-heard" maxlength="${MAX_INPUT}" placeholder="예) ○○: 일자리를 구하기 어려웠다" />
       <label class="lbl">검증 질문</label><input type="text" id="ch-q" maxlength="${MAX_INPUT}" placeholder="예) 2018년 제주의 난민 신청자는 합법적으로 일할 수 있었나?" />
       <label class="lbl">무엇으로 확인할까요?</label><select id="ch-src">${SRC_TYPES.map((x) => `<option>${x}</option>`).join("")}</select>
-      <div style="margin-top:10px"><button class="btn btn-tinted" data-act="add-check">추가</button></div></div>`;
+      <div style="margin-top:10px"><button class="btn btn-tinted" data-act="add-check">추가</button></div></div></div></div>`;
   },
 
   3() {
@@ -815,13 +816,14 @@ const renderStage = {
 const sub1 = {
   chat() {
     const me = S.me;
-    return `<details class="letter" data-keep="letter" ${S.chat.length ? "" : "open"}>
+    // PC 넓은 화면에서는 편지·할 일을 왼쪽에, 대화창을 오른쪽에 둔다
+    return `<div class="split chat-split"><div class="split-side"><details class="letter" data-keep="letter" ${S.chat.length ? "" : "open"}>
       <summary>${esc(me.name)}에게서 편지가 왔어요</summary>
       <div class="body">${me.letter.map((p) => `<p>${esc(p)}</p>`).join("")}<div class="sign">2018년 12월, 제주에서<br>${esc(me.name)} 드림</div></div>
     </details>
     <div class="goal-chips m-only" aria-label="알아낼 것"><span>알아낼 것</span><b>① 누구인지</b><b>② 힘든 것</b><b>③ 바라는 것</b></div>
-    <div class="notice muted tip pc-only"><b>할 일</b> ${esc(me.name)}에게 질문해 세 가지를 알아내세요: <b>① 누구인지 ② 무엇이 힘든지 ③ 무엇을 바라는지</b>. 질문은 <b>${S.chatLimit}번</b>만 할 수 있으니, 한 번에 무엇을 알아낼지 골라서 물어보세요. 다 알아냈으면 아래 '다음'을 누르세요.</div>
-    <div class="card chat-card">
+    <div class="notice muted tip pc-only"><b>할 일</b> ${esc(me.name)}에게 질문해 세 가지를 알아내세요: <b>① 누구인지 ② 무엇이 힘든지 ③ 무엇을 바라는지</b>. 질문은 <b>${S.chatLimit}번</b>만 할 수 있으니, 한 번에 무엇을 알아낼지 골라서 물어보세요. 다 알아냈으면 아래 '다음'을 누르세요.</div></div>
+    <div class="split-main"><div class="card chat-card">
       <div class="chat-head"><div class="avatar">${esc(me.name.slice(0, 1))}</div><div><div class="nm">${esc(me.name)}</div><div class="st">대화 중</div></div><button class="btn btn-plain btn-sm" style="margin-left:auto" data-act="dl-chat" aria-label="내 대화를 글 파일로 저장">대화 저장</button></div>
       <div class="msgs" id="msgs" role="log" aria-live="polite" aria-label="인물과의 대화"></div>
       <div class="starters">${STARTERS.map((q) => `<button class="chip sm" data-act="starter" data-t="${esc(q)}">${esc(q)}</button>`).join("")}</div>
@@ -830,7 +832,7 @@ const sub1 = {
         <input type="text" id="msg" maxlength="500" placeholder="${esc(me.name)}에게 메시지 보내기" />
         <button class="send" id="send-btn" type="submit" aria-label="보내기">${SEND_ICON}</button>
       </form>
-    </div>`;
+    </div></div></div>`;
   },
 
   note() {
