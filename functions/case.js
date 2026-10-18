@@ -6,7 +6,7 @@
 //     학생 화면에는 사람 이름(name)만 보인다. 역할(label)·근거·출처는 교사에게만 보인다.
 //  2) 같은 처지·같은 유형의 여러 인터뷰는 한 인물로 융합한다(composite). 융합 근거는 basis 에 적는다.
 //  3) 진술 종류(kind): 증언(당사자가 말한 것) / 사실(공식 발표·보도된 사실) / 주장(집단의 주장, 사실 검증 필요) / 의견(개인·단체의 의견)
-//  4) 모든 출처는 verified:false 로 시작한다. 교사가 원문과 대조해 true 로 바꾸기 전에는 학생에게 노출되지 않는다
+//  4) 출처는 원문과 대조해 사건 파일에 verified: true 를 적기 전에는 학생에게 노출되지 않는다
 //     (ALLOW_UNVERIFIED_PERSONAS=true 인 리허설 제외).
 //  5) 인물 위에는 상위 AI(사건 규범 감독자, charter.js)가 있어 사건 범위(EVENT.scope)와 근거 진술을 벗어난 응답을 차단한다.
 //  6) 출처 ID 는 사건마다 다른 머리글자를 쓴다(제주 J, 쓰레기 수출 W, 특수학교 S). 모든 사건의 출처를 한 목록으로 합쳐 쓰기 때문이다.
@@ -22,8 +22,8 @@ for (const c of CASES) for (const [id, s] of Object.entries(c.SOURCES)) {
   SOURCES[id] = s;
 }
 Object.values(SOURCES).forEach((s) => { s.titleIsDescriptive = !!s.titleIsDescriptive; });
-// 모든 출처는 미검증으로 시작. 교사가 원문 대조 후 해당 출처의 verified 를 true 로 바꾼다.
-Object.values(SOURCES).forEach((s) => (s.verified = false));
+// 원문 대조를 마친 출처만 사건 파일에 verified: true 를 적는다. 적지 않은 출처는 미검증으로 본다.
+Object.values(SOURCES).forEach((s) => (s.verified = s.verified === true));
 
 const EVENTS = Object.fromEntries(CASES.map((c) => [c.EVENT.id, c.EVENT]));
 const PERSONAS = CASES.flatMap((c) => c.PERSONAS);

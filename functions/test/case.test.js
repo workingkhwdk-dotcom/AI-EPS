@@ -94,17 +94,18 @@ test("검증되지 않은 주장은 '주장' 종류로 표시된다 (집회 발�
   assert.equal(locals.find((i) => i.text.includes("500여 명")).kind, "주장");
 });
 
-test("모든 출처는 미검증으로 시작하므로 기본 설정에서는 인물과 자료가 학생에게 노출되지 않는다", () => {
-  assert.ok(Object.values(SOURCES).every((s) => s.verified === false));
+test("대조를 마친 출처만 검증됨으로 본다: 제주 출처는 미검증이라 노출되지 않고, 쓰레기 수출·강서 특수학교는 노출된다", () => {
+  const ids = (prefix) => Object.keys(SOURCES).filter((id) => id.startsWith(prefix));
+  assert.ok(ids("J").every((id) => SOURCES[id].verified === false));
+  assert.ok([...ids("W"), ...ids("S")].every((id) => SOURCES[id].verified === true));
+  assert.ok([...ids("W"), ...ids("S")].every((id) => /대조함/.test(SOURCES[id].check)), "대조 결과가 check 에 적혀 있다");
   assert.equal(availablePersonas("jeju2018", false).length, 0);
   assert.equal(availablePersonas("jeju2018", true).length, 9);
-  assert.equal(availablePersonas("waste2019", false).length, 0);
-  assert.equal(availablePersonas("waste2019", true).length, 9);
-  assert.equal(availablePersonas("school2018", false).length, 0);
-  assert.equal(availablePersonas("school2018", true).length, 9);
+  assert.equal(availablePersonas("waste2019", false).length, 9);
+  assert.equal(availablePersonas("school2018", false).length, 9);
   assert.deepEqual(materialsFor("jeju2018", false), []);
-  assert.deepEqual(materialsFor("waste2019", false), []);
-  assert.deepEqual(materialsFor("school2018", false), []);
+  assert.deepEqual(materialsFor("waste2019", false).map((c) => c.id), MATERIALS.waste2019.map((c) => c.id));
+  assert.deepEqual(materialsFor("school2018", false).map((c) => c.id), MATERIALS.school2018.map((c) => c.id));
 });
 
 test("학생용 자료에는 출처 ID·URL 없이 매체·날짜 캡션만 있다", () => {
