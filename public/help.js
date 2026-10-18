@@ -4,6 +4,21 @@
 //   detail : '이해 못했어요'를 눌렀을 때 보여 주는 자세한 설명 (lead 한 문장, steps 순서별 설명, tip 한 줄)
 // 글에 {n} 이 있으면 이 수업에서 정한 인물 질문 횟수로 바뀐다.
 export const HELP = {
+  "1-pick": {
+    title: "1단계 먼저, 누구와 이야기할지 정해요",
+    what: "모든 인물의 편지를 읽고, 모둠이 상의해서 한 사람씩 골라요.",
+    how: ["편지를 모두 읽어요", "누구와 이야기해야 문제를 이해하기 좋을지 모둠이 상의해요", "한 사람이 한 명씩, 겹치지 않게 골라요"],
+    detail: {
+      lead: "{pickLead} 모두 만날 수는 없으니, 모둠이 나눠서 만나고 나중에 서로 들은 이야기를 합쳐요.",
+      steps: [
+        ["편지를 읽어요", "카드를 눌러 편지를 펼쳐 보세요. 모든 인물의 편지를 훑어보세요."],
+        ["상의해서 정해요", "문제를 이해하려면 어떤 입장을 들어야 할까요? 비슷한 사람만 모이지 않게 서로 다른 입장을 고르면 좋아요."],
+        ["{requiredTag} 인물은 꼭 한 명", "{requiredWho}의 이야기는 모둠에서 꼭 한 명이 들어야 해요."],
+        ["한 명씩 골라요", "'이 분과 이야기할래요'를 눌러요. 다른 친구가 고른 인물은 고를 수 없어요. 대화를 시작하기 전에는 바꿀 수 있어요."],
+      ],
+      tip: "누구와 이야기할지 정하는 것도 문제 해결의 첫걸음이에요.",
+    },
+  },
   "1-chat": {
     title: "1단계 ① 한 사람을 만나 보세요",
     what: "편지를 보낸 사람과 메신저로 이야기해요.",
@@ -139,10 +154,10 @@ export const HELP = {
   },
 };
 
-// {n} 은 인물 질문 횟수, {goodQuestion}·{badQuestion} 은 사건에 맞는 예시 질문(ex)으로 바꾼다
-const fill = (s, n, ex = {}) => String(s).replaceAll("{n}", n)
-  .replaceAll("{goodQuestion}", ex.goodQuestion || "그 일이 있었던 해에 몇 명이 그 일을 겪었나?")
-  .replaceAll("{badQuestion}", ex.badQuestion || "그 사람들은 나쁜가?");
+// {n} 은 인물 질문 횟수, {goodQuestion}·{pickLead} 같은 나머지는 사건에 맞는 문구(ex, 서버가 보낸 ui)로 바꾼다
+const FILL_FALLBACK = { goodQuestion: "그 일이 있었던 해에 몇 명이 그 일을 겪었나?", badQuestion: "그 사람들은 나쁜가?",
+  pickLead: "이 사건에는 입장이 서로 다른 여러 사람이 있었어요.", requiredWho: "꼭 들어야 할 당사자", requiredTag: "당사자" };
+const fill = (s, n, ex = {}) => String(s).replace(/\{(\w+)\}/g, (m, k) => (k === "n" ? n : ex[k] || FILL_FALLBACK[k] || m));
 
 // 처음 보여 주는 간단한 안내(무엇을 · 어떻게)
 export function helpSimple(key, esc, n, ex) {

@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert");
-const { SOURCES, EVENTS, PERSONAS, MATERIALS, DEFAULT_EVENT, availablePersonas, personaSourceIds, personaVerified, materialsFor, materialsAdmin } = require("../case");
+const { SOURCES, EVENTS, PERSONAS, MATERIALS, DEFAULT_EVENT, CASES, AFTERMATH, availablePersonas, personaSourceIds, personaVerified, materialsFor, materialsAdmin, casesFor, aftermathFor } = require("../case");
 const { personaPrompt } = require("../prompts");
 
 const KINDS = ["증언", "사실", "주장", "의견"];
@@ -51,7 +51,13 @@ test("인물은 사람 이름과 편지, 말투, 설정을 갖고, 이름은 서
     assert.ok(Array.isArray(p.letter) && p.letter.length >= 7 && p.letter.join("").length >= 500, `${p.id}: 편지는 7문단 이상, 충분히 길게`);
     assert.ok(p.letter[0].includes(p.name), `${p.id}: 편지 첫머리에 이름`);
     // 편지는 인물 목소리여야 하므로 개발자·수업 관점의 말이 없어야 한다
-    assert.doesNotMatch(p.letter.join(" "), /수업용|챗봇|AI|자료|보도|인터뷰/, p.id);
+    assert.doesNotMatch([...p.letter, p.ps || ""].join(" "), /수업용|챗봇|AI|자료|보도|인터뷰/, p.id);
+    // 개인으로 등장하는 인물(난민 신청자·도민)은 나이·가족 같은 신상 질문에 설정대로 답해야 하므로, 설정이나 삶의 이야기에 나이와 가족이 있어야 한다
+    if (require("../charter").isPersonal(p)) {
+      const life = [p.setting, ...p.story].join(" ");
+      assert.match(life, /(\d+세|\d+대|스물|서른|마흔|쉰|예순|[가-힣]{1,3}\s*살)/, `${p.id}: 나이`);
+      assert.match(life, /(부모|아버지|어머니|엄마|아빠|아내|남편|아이|딸|아들|동생|가족|형|누나)/, `${p.id}: 가족`);
+    }
   }
 });
 
@@ -72,6 +78,8 @@ test("사용되지 않는 출처가 없다 (인물 진술 또는 실제 자료 �
   const used = new Set([
     ...PERSONAS.flatMap(personaSourceIds),
     ...Object.values(MATERIALS).flat().flatMap((m) => [...(m.statsSrc || []), ...m.items.flatMap((i) => i.src)]),
+    ...Object.values(CASES).flat().flatMap((c) => c.src),
+    ...Object.values(AFTERMATH).flat().flatMap((a) => a.src),
   ]);
   for (const id of Object.keys(SOURCES)) assert.ok(used.has(id), `미사용 출처 ${id}`);
 });
@@ -242,4 +250,36 @@ test("강서 특수학교 사건: 그 사건의 시점·범위만 담고, 실존
   assert.match(life("s_sister"), /같은 아파트 단지에 사는 엄마/); assert.match(life("s_neighbor"), /대학생의 글/); // 하늘 ↔ 나윤희
   assert.match(life("s_opponent"), /젊은 활동가/); assert.match(life("s_mediator"), /부동산 사무소/);               // 송기철 ↔ 고민석
   assert.match(life("s_parent_group"), /장학사에게 전화/); assert.match(life("s_officer"), /부모 단체 활동가가 전화/); // 임현주 ↔ 백승민
+});
+
+test("4단계 해외 사례 카드: 여는 정책과 막는 정책이 섞여 있고, 출처 링크가 있으며 검증 전에는 숨는다", () => {
+  const all = Object.values(CASES).flat();
+  for (const [ev, list] of Object.entries(CASES)) assert.ok(list.length >= 3, ev);
+  assert.ok(CASES.jeju2018.some((c) => c.id === "australia") && CASES.jeju2018.some((c) => c.id === "canada"));
+  for (const c of all) {
+    assert.ok(c.country && c.title && c.what.length > 30 && c.result.length > 30 && c.think.length > 20, c.id);
+    for (const id of c.src) assert.match(SOURCES[id].url, /^https:\/\//, `${c.id}: ${id}`);
+  }
+  assert.equal(casesFor("jeju2018", false).length, 0);
+  // 출처 대조를 마친 사건의 카드는 학생에게 나간다
+  assert.equal(casesFor("waste2019", false).length, CASES.waste2019.length);
+  assert.equal(casesFor("school2018", false).length, CASES.school2018.length);
+  const shown = casesFor("jeju2018", true);
+  assert.ok(shown.every((c) => c.links.length && !("src" in c) && c.links.every((l) => l.url && !("verified" in l))));
+});
+
+test("7단계 이후 전개 자료: 종류와 출처가 있고 검증 전에는 숨는다", () => {
+  for (const [ev, list] of Object.entries(AFTERMATH)) assert.ok(list.length >= 4, ev);
+  for (const a of Object.values(AFTERMATH).flat()) { assert.ok(KINDS.includes(a.kind)); assert.ok(a.src.every((id) => SOURCES[id])); }
+  assert.equal(aftermathFor("jeju2018", false).length, 0);
+  assert.equal(aftermathFor("school2018", false).length, AFTERMATH.school2018.length);
+  assert.ok(aftermathFor("jeju2018", true).every((a) => a.caption && a.links.length));
+});
+
+test("제주 출처에는 모두 검색 교차 확인 기록이 있고, 교차 확인만으로는 학생에게 공개되지 않는다", () => {
+  for (const [id, x] of Object.entries(SOURCES).filter(([id]) => /^[JCAN]\d/.test(id))) {
+    assert.ok(["ok", "partial", "fixed", "todo"].includes(x.crossCheck?.status), id);
+    assert.ok(x.crossCheck.note.length > 5, id);
+    assert.equal(x.verified, false, id);
+  }
 });

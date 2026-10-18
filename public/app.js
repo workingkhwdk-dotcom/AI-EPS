@@ -3,7 +3,7 @@ import { waitHtml, startWaitTicker, STEPS } from "./wait.js";
 import { showModal, confirmModal } from "./modal.js";
 import { HELP, helpSimple, helpDetail } from "./help.js";
 import { signInAnonymously, onAuthStateChanged, setPersistence, browserSessionPersistence, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { doc, getDoc, onSnapshot, updateDoc, collection, query, orderBy, serverTimestamp, deleteField } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { doc, getDoc, getDocFromServer, onSnapshot, updateDoc, collection, query, orderBy, serverTimestamp, deleteField } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const STAGES = [
   { n: 1, name: "사건 경험", ai: "Y", cap: "공감하기" },
@@ -50,6 +50,7 @@ const ROLES = {
 };
 // 1단계의 작은 단계: 혼자 대화 → 혼자 정리·제출 → 모둠이 모여 문제 정하기
 const SUBS = [
+  { id: "pick", name: "인물 고르기", who: "모둠" },
   { id: "chat", name: "① 대화", who: "혼자" },
   { id: "note", name: "② 정리·제출", who: "혼자" },
   { id: "group", name: "③ 모둠 문제", who: "모둠" },
@@ -58,7 +59,7 @@ const STARTERS = ["안녕하세요, 어떤 일을 하세요?", "요즘 가장 �
 
 const S = {
   code: null, groupId: null, nick: null, uid: null, info: null, me: null,
-  work: {}, logs: [], chat: [], stage: 1, sub1: "chat", aiCount: 0, memberCount: 0, chatCount: 0, chatLimit: 5, started: true,
+  work: {}, locked: false, strikes: 0, caseTab: null, logs: [], chat: [], picks: {}, pickSeen: false, pickedAt: 0, stage: 1, sub1: "chat", aiCount: 0, memberCount: 0, chatCount: 0, chatLimit: 5, started: true,
   opened: {}, busy: null, waitSince: 0, chatErr: null, sending: false, pending: null, draft: "", letterClosed: false, matTab: null, proposalId: null, round: 1, scrollChat: false,
 };
 const $ = (s) => document.querySelector(s);
@@ -74,7 +75,11 @@ const UI_FALLBACK = {
   letterSign: "", causeExample: "도움을 받을 수 있는 길이 좁았다", badQuestion: "그 사람들은 나쁜가?",
   goodQuestion: "그 일이 있었던 해에 몇 명이 그 일을 겪었나?", checkQuestion: "그때 그 사람들은 법적으로 그 일을 할 수 있었나?",
   heardExample: "○○: 일자리를 구하기 어려웠다", broadProblem: "사회 문제", decidedProblem: "그 제도를 없애야 한다",
+  pickLead: "이 사건에는 입장이 서로 다른 여러 사람이 있었어요.", requiredWho: "꼭 들어야 할 당사자", requiredTag: "당사자",
+  casesKinds: "서로 다른 정책", compareWith: "이 사건", afterSince: "대화", afterExample: "우리는 ~할 거라 예상했지만, 실제로는 ~했다",
 };
+// 받침이 있으면 a, 없으면 b (예: 강서와, 제주와, 이 사건과)
+const josa = (word, a, b) => { const c = String(word).trim().slice(-1).charCodeAt(0) - 0xac00; return c >= 0 && c <= 11171 && c % 28 ? a : b; };
 const ui = () => ({ ...UI_FALLBACK, ...(S.info?.ui || {}) });
 // 모둠 산출물 목록은 {항목ID: 항목} 지도로 저장해, 여러 학생이 동시에 추가해도 서로 덮어쓰지 않는다.
 function toList(x) {
@@ -185,14 +190,21 @@ $("#j-btn").onclick = async () => {
   if (!S.uid) return toast("연결하는 중입니다. 잠시 후 다시 눌러 주세요.", true);
   const btn = $("#j-btn");
   btn.disabled = true;
+  // 입장하는 동안은 멈춘 것이 아니라 일하는 중임을 보여 준다(움직이는 표시와 흐르는 시간)
+  const label = btn.textContent;
+  btn.textContent = "입장 중…";
+  $("#join-wait")?.remove();
+  btn.insertAdjacentHTML("afterend", `<div id="join-wait">${waitHtml({ steps: STEPS.join, compact: true })}</div>`);
   try {
-    await call("joinSession")({ code, groupNo: Number(groupNo), nickname, password });
+    const r = (await call("joinSession")({ code, groupNo: Number(groupNo), nickname, password })).data;
     $("#j-pw").value = "";
     saveCode(code);
-    await enter(code);
+    await enter(code, r); // 입장 응답에 수업 내용이 들어 있어 getCase 를 다시 부르지 않는다
   } catch (e) { toast(errMsg(e), true); }
-  finally { btn.disabled = false; }
+  finally { btn.disabled = false; btn.textContent = label; $("#join-wait")?.remove(); }
 };
+// 입장 화면을 보는 동안 입장 기능을 미리 깨워 둔다(첫 입장이 느린 것을 줄인다). 결과는 쓰지 않는다.
+function prewarm() { if (!S.code && !savedCode()) call("joinSession")({}).catch(() => {}); }
 for (const id of ["#j-code", "#j-group", "#j-nick", "#j-pw"]) $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") $("#j-btn").click(); });
 
 // 로그아웃: 저장 중인 입력을 먼저 올리고, '입력 중' 표시를 지운 뒤, 로그인 정보를 지우고 처음 화면으로 돌아간다
@@ -221,18 +233,25 @@ let idleTimer = null;
 function resetIdle() { clearTimeout(idleTimer); idleTimer = setTimeout(() => logout("오랫동안 사용하지 않아 로그아웃되었습니다. 다시 입장하면 하던 것이 이어집니다."), IDLE_MS); }
 for (const ev of ["pointerdown", "keydown", "touchstart", "scroll"]) document.addEventListener(ev, () => { if (S.code) resetIdle(); }, { passive: true, capture: true });
 
-async function enter(code) {
+async function enter(code, joined) {
   memberRef = doc(db, `sessions/${code}/members/${S.uid}`);
-  const mSnap = await getDoc(memberRef);
-  if (!mSnap.exists()) { saveCode(null); return; }
-  Object.assign(S, { code, groupId: mSnap.data().groupId, nick: mSnap.data().nickname });
+  let ss;
+  if (joined) {
+    Object.assign(S, { code, groupId: joined.groupId, nick: joined.nickname });
+    S.info = joined.case; S.started = joined.started; S.chatLimit = joined.chatLimit || 5;
+  } else {
+    const mSnap = await getDoc(memberRef);
+    if (!mSnap.exists()) { saveCode(null); return; }
+    Object.assign(S, { code, groupId: mSnap.data().groupId, nick: mSnap.data().nickname });
+    const [info, sess] = await Promise.all([call("getCase")({ code }), getDoc(doc(db, `sessions/${code}`))]);
+    S.info = info.data; ss = sess.data() || {};
+    // 선생님이 '수업 시작'을 누르기 전(started === false)에는 대기실을 보여 준다. 값이 없는 예전 수업은 시작된 것으로 본다.
+    S.started = ss.started !== false; S.chatLimit = ss.chatLimit || 5;
+  }
   groupRef = doc(db, `sessions/${code}/groups/${S.groupId}`);
-  S.info = (await call("getCase")({ code })).data;
   S.me = S.info.me;
+  S.sub1 = S.me ? "chat" : "pick"; // 인물을 아직 안 골랐으면 인물 고르기부터
   S.matTab = S.info.materials?.[0]?.id || null;
-  // 선생님이 '수업 시작'을 누르기 전(started === false)에는 대기실을 보여 준다. 값이 없는 예전 수업은 시작된 것으로 본다.
-  const ss = (await getDoc(doc(db, `sessions/${code}`))).data() || {};
-  S.started = ss.started !== false; S.chatLimit = ss.chatLimit || 5;
   $("#join").classList.add("hidden");
   showArea();
   addHelpButton();
@@ -252,23 +271,25 @@ async function enter(code) {
     const d = s.data() || {};
     if (d.closed) logout("수업이 끝나 닫혔습니다. 수고했어요!");
     S.chatLimit = d.chatLimit || 5; renderChatLeft();
-    const was = S.started; S.started = d.started !== false;
-    if (S.started !== was) {
-      showArea();
-      if (S.started) { toast("수업이 시작됐어요! 🎉"); render(true); setTimeout(() => maybeHelp(), 300); }
-      else renderWait();
-    } else if (!S.started) renderWait();
+    applyStarted(d.started !== false);
   }, lost);
+  startStartPoll(code);
+  // 내 접속 문서: 모둠 이동, 쓴 질문 수, 대화 규칙 위반으로 대화가 멈췄는지(교사가 다시 열면 바로 풀린다)
   onSnapshot(memberRef, (s) => {
-    const d = s.data();
-    if (d?.groupId && d.groupId !== S.groupId) return moved(d.groupId);
-    S.chatCount = d?.chatCount || 0; renderChatLeft();
+    const d = s.data() || {};
+    if (d.groupId && d.groupId !== S.groupId) return moved(d.groupId);
+    S.chatCount = d.chatCount || 0; S.strikes = d.conduct?.strikes || 0;
+    const locked = !!d.chatLocked;
+    if (locked !== S.locked) { S.locked = locked; if (S.stage === 1) render(true); }
+    renderChatLeft();
   }, lost);
   onSnapshot(groupRef, (s) => {
     const d = s.data() || {};
     S.work = d.work || {};
     for (const [path, p] of pending) setLocal(path, p.value); // 아직 저장 중인 내 입력은 유지
     S.aiCount = d.aiCount || 0; S.memberCount = d.memberCount || 0;
+    S.picks = d.picks || {};
+    syncMyPick();
     scheduleRender();
   }, lost);
   onSnapshot(collection(db, `sessions/${code}/groups/${S.groupId}/logs`), (s) => { S.logs = s.docs.map((d) => ({ id: d.id, ...d.data() })); scheduleRender(); });
@@ -283,8 +304,51 @@ async function enter(code) {
   maybeHelp();
 }
 
+// 모둠 문서의 인물 선택에서 내 인물을 맞춘다. 선생님이 풀어 준 경우(내가 고른 것이 한 번 보였다가 사라짐)에는 다시 고르게 한다.
+// (방금 고른 직후에는 서버 반영이 늦을 수 있어 잠시 기다린다)
+function syncMyPick() {
+  const mine = Object.entries(S.picks).find(([, v]) => v?.uid === S.uid)?.[0];
+  if (mine) {
+    S.pickSeen = true;
+    if (S.me?.id !== mine) {
+      const l = (S.info?.letters || []).find((x) => x.id === mine);
+      if (l) S.me = { id: l.id, name: l.name, letter: l.letter, personal: l.personal };
+    }
+  } else if (S.pickSeen && S.me && Date.now() - S.pickedAt > 5000) {
+    S.me = null; S.pickSeen = false;
+    if (S.stage === 1 && S.sub1 !== "pick") S.sub1 = "pick";
+    toast("선생님이 인물 선택을 풀어 주셨어요. 다시 골라 주세요.");
+  }
+}
+// 수업 시작 여부 반영. 실시간 알림이나 아래 확인(폴링) 중 먼저 온 쪽이 처리한다.
+function applyStarted(started) {
+  const was = S.started; S.started = started;
+  if (S.started !== was) {
+    showArea();
+    if (S.started) { toast("수업이 시작됐어요! 🎉"); render(true); setTimeout(() => maybeHelp(), 300); }
+    else renderWait();
+  } else if (!S.started) renderWait();
+}
+// 대기 중에는 실시간 알림이 늦거나 끊겨도(특히 휴대폰) 몇 초 안에 알아채도록 서버에서 직접 다시 확인한다.
+// 화면을 다시 켜거나 인터넷이 돌아온 순간에도 바로 확인한다.
+let startPoll = null;
+function startStartPoll(code) {
+  const check = async () => {
+    if (S.started || document.hidden) return;
+    try { applyStarted(((await getDocFromServer(doc(db, `sessions/${code}`))).data() || {}).started !== false); } catch {}
+  };
+  clearInterval(startPoll);
+  startPoll = setInterval(check, 3000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) check(); });
+  window.addEventListener("online", check);
+}
+
 // 대기실과 활동 화면 중 맞는 쪽만 보인다
+// 휴대폰에서 인물과 대화하는 동안은 화면 전체가 움직이지 않고 대화창 안에서만 스크롤한다(키보드가 올라와도 입력창이 보이게, device.js 가 화면 크기를 맞춘다).
+const chatModeNow = () => IS_M && S.started && S.stage === 1 && S.sub1 === "chat" && !!S.me;
+function updateChatMode() { document.body.classList.toggle("chat-mode", chatModeNow()); }
 function showArea() {
+  updateChatMode();
   $("#app").classList.toggle("hidden", !S.started);
   $("#wait").classList.toggle("hidden", S.started);
 }
@@ -334,7 +398,7 @@ const seenList = () => { try { return JSON.parse(localStorage.getItem(seenStore(
 const markSeen = (k) => { try { const l = seenList(); if (!l.includes(k)) localStorage.setItem(seenStore(), JSON.stringify([...l, k])); } catch {} };
 let helpBusy = false;
 async function maybeHelp(force = false) {
-  if (!S.started || !S.info || !S.me || helpBusy) return;
+  if (!S.started || !S.info || helpBusy) return;
   const key = helpKeyNow();
   if (!HELP[key] || (!force && seenList().includes(key))) return;
   helpBusy = true;
@@ -374,6 +438,7 @@ onAuthStateChanged(auth, async (u) => {
   S.uid = u.uid;
   const saved = savedCode();
   if (saved && !S.code) enter(saved).catch(console.error);
+  else prewarm();
 });
 
 // ---------- 이동 ----------
@@ -423,6 +488,9 @@ const pick = (path, label, opts) => {
   return `${label ? `<label class="lbl">${label}</label>` : ""}<select data-save="${path}"><option value="">선택하세요</option>${all.map((o) => `<option ${cur === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`;
 };
 // 기다리는 중 표시: 움직이는 점·막대, 흐르는 시간, 오래 걸릴 때의 안내(wait.js)
+// 서버가 준 출처 주소는 http(s)만 링크로 쓴다
+const safeHref = (u) => (/^https?:\/\//i.test(String(u || "")) ? String(u) : "#");
+const linkHtml = (l) => `<a href="${esc(safeHref(l.url))}" target="_blank" rel="noopener noreferrer">${esc(l.title || l.outlet)}</a><span class="meta-line"> · ${esc(l.outlet)}${l.date && !/확인/.test(l.date) ? ` · ${esc(l.date)}` : ""}</span>`;
 const loading = (msg) => waitHtml({ first: msg && msg.replace(/…$/, ""), steps: STEPS.ai, since: S.waitSince || Date.now() });
 function listHtml(path, rowFn, empty = "아직 없습니다.") {
   const items = list(path);
@@ -440,7 +508,8 @@ function footer() {
     prev = S.stage === 2 ? { s: 1, sub: "group", label: "1단계 ③ 모둠 문제" } : { s: S.stage - 1, label: `${S.stage - 1}단계 ${STAGES[S.stage - 2].name}` };
     if (S.stage < 7) next = { s: S.stage + 1, label: `${S.stage + 1}단계 ${STAGES[S.stage].name}` };
   }
-  const btn = (x, cls, text) => `<button class="btn ${cls}" data-go="${x.s}" data-sub="${x.sub || ""}">${text}</button>`;
+  const lockedNext = S.stage === 1 && S.sub1 === "pick" && !S.me; // 인물을 고르기 전에는 다음으로 갈 수 없다
+  const btn = (x, cls, text) => `<button class="btn ${cls}" data-go="${x.s}" data-sub="${x.sub || ""}" ${cls === "btn-primary" && lockedNext ? "disabled" : ""}>${text}</button>`;
   return `<div class="nav-foot">${prev ? btn(prev, "btn-plain", `← ${esc(prev.label)}`) : "<span></span>"}
     ${next ? btn(next, "btn-primary", `다음: ${esc(next.label)} →`) : `<span class="meta-line">마지막 단계입니다. 수고했어요!</span>`}</div>
     <div class="meta-line m-hide" style="text-align:right;margin-top:8px">우리 모둠 AI 사용(3~5단계) ${S.aiCount}회</div>`;
@@ -456,6 +525,7 @@ const isEditing = () => {
 function render(force = false) {
   if (!S.info) return;
   if (!S.started) { renderWait(); return; }
+  updateChatMode();
   if (!force && (isEditing() || ptrDown)) { deferred = true; syncLive(); return; }
   deferred = false;
   const html = renderStage[S.stage]() + footer();
@@ -503,23 +573,44 @@ function srcNote(l) {
   return `<details class="srcnote"><summary>🔎 웹에서 찾은 내용이 쓰였어요 (출처 보기)</summary><div class="srcs">${
     urls.length ? urls.map((x) => `<a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title)}</a>`).join("") : "출처 주소가 없습니다. 꼭 다시 확인하세요."}</div></details>`;
 }
-function msgsHtml() {
+// 말풍선 하나하나를 (키, HTML) 목록으로 만든다. 바뀐 곳부터 뒤쪽만 다시 그려서, 대화가 길어져도 매끄럽고 읽던 자리가 흔들리지 않는다.
+function msgItems() {
   const name = S.me?.name || "", ini = esc(name.slice(0, 1));
   const rows = [];
   for (const l of S.chat) {
-    rows.push(`<div class="msg me"><div class="col"><div class="bubble">${esc(l.input)}</div><span class="time">${fmtTime(l.createdAt)}</span></div></div>`);
-    rows.push(`<div class="msg ai"><div class="avatar sm">${ini}</div><div class="col"><span class="name">${esc(name)}</span><div class="bubble">${esc(l.output)}</div>${srcNote(l)}${l.refunded ? `<span class="time">이 답은 질문 횟수에 들어가지 않았어요</span>` : ""}<span class="time">${fmtTime(l.createdAt)}</span></div></div>`);
+    rows.push([`m${l.id}`, `<div class="msg me"><div class="col"><div class="bubble">${esc(l.input)}</div><span class="time">${fmtTime(l.createdAt)}</span></div></div>`]);
+    rows.push([`a${l.id}`, `<div class="msg ai"><div class="avatar sm">${ini}</div><div class="col"><span class="name">${esc(name)}</span><div class="bubble">${esc(l.output)}</div>${srcNote(l)}${l.refunded ? `<span class="time">이 답은 질문 횟수에 들어가지 않았어요</span>` : ""}<span class="time">${fmtTime(l.createdAt)}</span></div></div>`]);
+    if (l.conduct) rows.push([`c${l.id}`, `<div class="sysmsg" role="status">⚠ ${esc(l.conduct.notice)}</div>`]);
   }
-  if (S.pending) rows.push(`<div class="msg me"><div class="col"><div class="bubble">${esc(S.pending.text)}</div></div></div>`);
-  if (S.sending) rows.push(`<div class="msg ai typing"><div class="avatar sm">${ini}</div><div class="col"><div class="bubble"><i></i><i></i><i></i></div>${waitHtml({ steps: STEPS.chat, since: S.waitSince, compact: true })}</div></div>`);
-  if (S.chatErr && !S.sending) rows.push(`<div class="msg ai err" role="alert"><div class="avatar sm">!</div><div class="col"><div class="bubble">답을 받지 못했어요. (${esc(S.chatErr.msg)})<br><button class="btn btn-plain btn-sm" style="margin-top:8px" data-act="retry-chat">다시 보내기</button></div></div></div>`);
-  if (!rows.length) rows.push(`<div class="empty">${esc(name)}에게 먼저 말을 걸어 보세요.<br>아래 예시를 눌러 시작해도 돼요.</div>`);
-  return rows.join("");
+  if (S.pending) rows.push(["pending", `<div class="msg me"><div class="col"><div class="bubble">${esc(S.pending.text)}</div></div></div>`]);
+  if (S.sending) rows.push(["typing", `<div class="msg ai typing"><div class="avatar sm">${ini}</div><div class="col"><div class="bubble"><i></i><i></i><i></i></div>${waitHtml({ steps: STEPS.chat, since: S.waitSince, compact: true })}</div></div>`]);
+  if (S.chatErr && !S.sending) rows.push(["err", `<div class="msg ai err" role="alert"><div class="avatar sm">!</div><div class="col"><div class="bubble">답을 받지 못했어요. (${esc(S.chatErr.msg)})<br><button class="btn btn-plain btn-sm" style="margin-top:8px" data-act="retry-chat">다시 보내기</button></div></div></div>`]);
+  if (!rows.length) rows.push(["empty", `<div class="empty">${esc(name)}에게 먼저 말을 걸어 보세요.<br>아래 예시를 눌러 시작해도 돼요.</div>`]);
+  return rows;
+}
+// 휴대폰 대화창: 맨 아래를 보고 있는 동안은 창 크기가 바뀌어도(키보드가 올라오거나 안내 줄이 접혀도) 마지막 말풍선이 계속 보이게 한다.
+// 위로 올려 읽는 중이면 건드리지 않는다.
+function pinMsgs(el) {
+  if (el._pinned || typeof ResizeObserver === "undefined") return;
+  el._pinned = true; el._stick = true;
+  el.addEventListener("scroll", () => { el._stick = el.scrollHeight - el.scrollTop - el.clientHeight < 40; }, { passive: true });
+  new ResizeObserver(() => { if (el._stick && document.body.classList.contains("chat-mode")) el.scrollTop = el.scrollHeight; }).observe(el);
 }
 let lastSig = "";
 function renderMsgs() {
   const el = $("#msgs"); if (!el) return;
-  el.innerHTML = msgsHtml();
+  pinMsgs(el);
+  const items = msgItems(), cur = [...el.children];
+  let i = 0;
+  while (i < cur.length && i < items.length && cur[i].dataset.k === items[i][0] && cur[i]._h === items[i][1]) i++;
+  cur.slice(i).forEach((n) => n.remove());
+  const tpl = document.createElement("template");
+  for (const [k, html] of items.slice(i)) {
+    tpl.innerHTML = html;
+    const node = tpl.content.firstElementChild;
+    node.dataset.k = k; node._h = html;
+    el.appendChild(node);
+  }
   const n = S.chat.length + (S.sending ? 1 : 0) + (S.pending ? 1 : 0);
   // 대화가 시작되면 편지는 접는다
   if (n > 0 && !S.letterClosed) { document.querySelector("details.letter")?.removeAttribute("open"); S.letterClosed = true; }
@@ -544,6 +635,8 @@ function renderChatLeft() {
 }
 // 마지막 말풍선이 머리글과 입력창 사이에 보이게 한다. 이미 보이면 움직이지 않고, 길면 말풍선의 첫 줄에 맞춘다.
 function scrollToLatest() {
+  // 휴대폰 대화 화면은 대화창 안에서만 스크롤한다(화면 전체가 움직이지 않는다)
+  if (document.body.classList.contains("chat-mode")) { const m = $("#msgs"); if (m) { m._stick = true; m.scrollTop = m.scrollHeight; } return; }
   const last = document.querySelector("#msgs .msg:last-child"); if (!last) return;
   const top = ($(".hdr")?.offsetHeight || 0) + 8;
   // 모바일 화면에서는 입력창 아래에 단계 막대가 있다(입력 중에는 숨겨져 높이 0)
@@ -552,6 +645,23 @@ function scrollToLatest() {
   if (r.top >= top && r.bottom <= bottom) return;
   const delta = r.height > bottom - top || r.top < top ? r.top - top : r.bottom - bottom;
   window.scrollTo({ top: window.scrollY + delta, behavior: "smooth" });
+}
+
+// 인물 고르기. 서버가 겹침·당사자 규칙을 확인하고, 안 되면 이유를 알려 준다.
+async function choosePersona(id, btn) {
+  const l = (S.info.letters || []).find((x) => x.id === id); if (!l) return;
+  const ok = await confirmModal(`${esc(l.name)}님과 이야기할까요?`, `<p>${esc(l.brief)}</p><p>대화를 시작하기 전에는 다른 인물로 바꿀 수 있어요.</p>`, "이 분과 이야기할래요", "더 볼래요");
+  if (!ok) return;
+  if (btn) btn.disabled = true;
+  try {
+    const r = (await call("choosePersona")({ code: S.code, personaId: id })).data;
+    S.me = { id: r.me.id, name: r.me.name, letter: r.me.letter, personal: r.me.personal };
+    S.pickedAt = Date.now();
+    S.picks = { ...Object.fromEntries(Object.entries(S.picks).filter(([, v]) => v?.uid !== S.uid)), [id]: { uid: S.uid, nick: S.nick } };
+    S.pickSeen = true;
+    toast(`${l.name}님과 이야기해요.`);
+    render(true);
+  } catch (e) { toast(errMsg(e), true); render(true); }
 }
 
 async function sendChat(text) {
@@ -618,8 +728,8 @@ function findingCard(f, mine = false) {
 
 const renderStage = {
   1() {
-    const nav = `<div class="subnav">${SUBS.map((x) => `<button class="${S.sub1 === x.id ? "on" : ""}" data-go="1" data-sub="${x.id}">${x.name}<small>${x.who}</small></button>`).join("")}</div>`;
-    if (!S.me) return `${roleBox(1)}<div class="notice">배정된 인물이 없습니다. 선생님께 알려 주세요.</div>`;
+    const nav = `<div class="subnav">${SUBS.map((x) => `<button class="${S.sub1 === x.id ? "on" : ""}" data-go="1" data-sub="${x.id}" ${!S.me && x.id !== "pick" ? "disabled" : ""}>${x.name}<small>${x.who}</small></button>`).join("")}</div>`;
+    if (!S.me && S.sub1 !== "pick") S.sub1 = "pick"; // 인물을 고르기 전에는 대화·정리를 열 수 없다
     return roleBox(1) + nav + sub1[S.sub1]();
   },
 
@@ -718,15 +828,32 @@ const renderStage = {
   4() {
     const props = list("s4.proposals"), logs = stageLogs(4);
     const cause = txt(w("s3.chain.cause"));
+    const cases = S.info.cases || [];
+    const cur = cases.find((c) => c.id === S.caseTab) || cases[0];
+    const refOpts = ["", ...cases.map((c) => `${c.country} · ${c.title}`), "참고한 사례 없음(우리 아이디어)"];
     return `${roleBox(4)}${problemBar()}
     ${cause ? `<div class="notice muted"><b>3단계에서 정한 핵심 원인</b><br>${esc(cause)}</div>` : ""}
     ${!ready.cause() ? lockNote("3단계 ③에서 핵심 원인을 먼저 정해야 AI 검토를 받을 수 있어요. 검토자는 대안이 그 원인을 줄이는지도 봅니다.", 3) : ""}
+    <details class="fold" open><summary>다른 나라의 사례 살펴보기 (참고용)</summary><div class="inner">
+      <p class="desc">다른 나라(다른 곳)는 비슷한 문제를 어떻게 다루었을까요? <b>${esc(ui().casesKinds)}</b>이 모두 있습니다. 사례는 그곳의 조건에서 나온 것이니 그대로 옮기지 말고, ${esc(ui().compareWith)}의 조건과 비교하며 빌려 올 점과 피할 점을 찾으세요.</p>
+      ${cur ? `<div class="chipbar scroll">${cases.map((c) => `<button class="chip ${c.id === cur.id ? "on" : ""}" data-act="case-tab" data-id="${c.id}">${esc(c.country)}</button>`).join("")}</div>
+      <div class="case">
+        <div class="case-head"><span class="tag b">${esc(cur.country)}</span><h3>${esc(cur.title)}</h3></div>
+        <div class="case-sec"><b>무엇을 했나</b><p>${esc(cur.what)}</p></div>
+        <div class="case-sec"><b>어떻게 되었나 (평가와 논란)</b><p>${esc(cur.result)}</p></div>
+        <div class="case-sec think"><b>${esc(ui().compareWith)}${josa(ui().compareWith, "과", "와")} 비교해 생각해 볼 점</b><p>${esc(cur.think)}</p></div>
+        <div class="case-src"><b>출처</b>${cur.links.map(linkHtml).join("<br>")}</div>
+      </div>` : `<div class="notice muted">선생님이 사례 자료를 준비하는 중입니다.</div>`}</div></details>
     <div class="card"><h3>① 우리 모둠 대안 쓰기 ${shared}</h3>
       <p class="desc">위의 핵심 원인을 줄일 대안을 먼저 우리끼리 쓰세요. 여러 개를 써서 비교해도 좋아요. <b>누가, 무엇을, 어떻게</b> 할지 30자 이상 써야 AI 검토를 받을 수 있어요.</p>
-      ${props.map((p) => `<div class="card flat" style="margin-bottom:10px"><div class="grow">${esc(p.text)}</div>${who(p)}
+      ${props.map((p) => `<div class="card flat" style="margin-bottom:10px"><div class="grow">${esc(p.text)}</div>
+        ${p.cause ? `<div class="meta-line" style="margin-top:4px"><span class="tag y">겨냥하는 원인</span> ${esc(p.cause)}</div>` : ""}
+        ${p.ref ? `<div class="meta-line" style="margin-top:4px"><span class="tag b">참고 사례</span> ${esc(p.ref)}</div>` : ""}${who(p)}
         <div class="row" style="margin-top:8px"><button class="btn btn-primary btn-sm" data-act="ask-feedback" data-id="${p.id}" ${S.busy || !ready.cause() ? "disabled" : ""}>AI 검토 받기</button>
         <button class="btn btn-plain btn-sm" data-act="del" data-path="s4.proposals" data-id="${p.id}">삭제</button></div></div>`).join("")}
-      <textarea id="pt" maxlength="${MAX_AREA}" placeholder="예) 누가: ○○이 / 무엇을: ○○을 / 어떻게: ○○ 방식으로"></textarea>
+      <label class="lbl" for="pt">대안</label><textarea id="pt" maxlength="${MAX_AREA}" placeholder="예) 누가: ○○이 / 무엇을: ○○을 / 어떻게: ○○ 방식으로"></textarea>
+      <label class="lbl" for="pt-cause">이 대안이 겨냥하는 원인</label><input type="text" id="pt-cause" maxlength="${MAX_INPUT}" value="${esc(cause)}" placeholder="3단계 핵심 원인 중 무엇을 해결하나요?" />
+      <label class="lbl" for="pt-ref">참고한 사례</label><select id="pt-ref">${refOpts.map((o) => `<option value="${esc(o)}">${o ? esc(o) : "선택하세요 (없으면 비워 둬도 돼요)"}</option>`).join("")}</select>
       <div style="margin-top:8px"><button class="btn btn-tinted" data-act="add-proposal">대안 추가</button></div>
       ${S.busy === "feedback" ? loading("검토자 3명이 각자 검토하는 중입니다…") : ""}</div>
     ${logs.map((l) => { let rv = []; try { rv = JSON.parse(l.output).reviews || []; } catch {}
@@ -813,6 +940,12 @@ const renderStage = {
     <div class="card"><h3>③ 발표 준비 ${shared}</h3>
       <p class="desc">위의 흐름을 바탕으로, 왜 그렇게 정했는지 근거를 넣어 짧게 정리하세요.</p>
       ${fld("s7.share", "", "", true)}</div>
+    <div class="card"><h3>실제로는 어떻게 되었을까? ${shared}</h3>
+      <p class="desc">인물들과 이야기를 나눈 ${esc(ui().afterSince)} 이후, 실제로 일어난 일입니다. 우리 모둠의 대안과 5단계 시나리오를 실제 전개와 비교해 보세요.</p>
+      ${(S.info.aftermath || []).length ? `<div class="mat">${S.info.aftermath.map((it) => `<div class="mat-item"><span class="kind k-${esc(it.kind)}">${esc(it.kind)}</span><p>${esc(it.text)}</p>
+        <div class="cap">${it.links.map((l) => `<a href="${esc(safeHref(l.url))}" target="_blank" rel="noopener noreferrer">${esc(l.outlet)}${l.date && !/확인/.test(l.date) ? ` ${esc(l.date)}` : ""}</a>`).join(" · ")}</div></div>`).join("")}</div>`
+        : `<div class="notice muted">선생님이 이후 전개 자료를 준비하는 중입니다.</div>`}
+      ${fld("s7.compare", "우리 시나리오와 비교하면? (비슷한 점 / 다른 점 / 우리가 놓친 것)", `예) ${ui().afterExample}`, true)}</div>
     <div class="card"><h3>④ AI 활용 점검 ${shared}</h3>
       <div class="group">${CHECKLIST.map((t, i) => `<label class="cell" style="cursor:pointer"><input type="checkbox" data-save="s7.checks.${i}" ${w(`s7.checks.${i}`) ? "checked" : ""} style="width:20px;height:20px;margin-top:2px"><span class="grow">${esc(t)}</span></label>`).join("")}</div>
       ${fld("s7.reflection", "오늘 AI의 답 중 무엇을 받아들이고 무엇을 버렸나요? 왜 그랬나요?", "", true)}</div>`;
@@ -820,6 +953,30 @@ const renderStage = {
 };
 
 const sub1 = {
+  // 모든 인물의 편지를 보여 주고, 모둠이 상의해 한 명씩 고른다(직소). 사건마다 정한 인물(제주는 난민 신청자)은 모둠에 꼭 한 명 있어야 한다.
+  pick() {
+    const letters = S.info.letters || [];
+    const takenBy = (id) => S.picks[id];
+    const mineId = S.me?.id;
+    const hasRequired = letters.some((l) => l.required && takenBy(l.id));
+    const started = S.chatCount > 0;
+    const card = (l) => {
+      const t = takenBy(l.id), mine = l.id === mineId, other = t && !mine;
+      const state = mine ? `<span class="tag g">내가 고른 인물</span>` : other ? `<span class="tag x">${esc(t.nick || "친구")} 선택</span>` : l.required ? `<span class="tag y">${esc(ui().requiredTag)}</span>` : "";
+      const btn = mine ? "" : `<button class="btn ${other ? "btn-plain" : "btn-primary"} btn-sm" data-act="choose" data-id="${esc(l.id)}" ${other || started ? "disabled" : ""}>${other ? "이미 선택됨" : mineId ? "이 분으로 바꿀래요" : "이 분과 이야기할래요"}</button>`;
+      return `<details class="pcard ${mine ? "mine" : ""} ${other ? "taken" : ""}" data-keep="pc-${esc(l.id)}">
+        <summary><div class="avatar sm">${esc(l.name.slice(0, 1))}</div><div class="pc-t"><b>${esc(l.name)}</b><small>${esc(l.brief)}</small></div>${state}</summary>
+        <div class="pc-body">${l.letter.map((p) => `<p>${esc(p)}</p>`).join("")}${btn ? `<div class="pc-act">${btn}</div>` : ""}</div></details>`;
+    };
+    return `<div class="card"><h3>누구와 이야기할까요? <span class="tag">모둠</span></h3>
+      <p class="desc">편지를 모두 읽고, 모둠 친구들과 <b>누구의 이야기를 들으면 문제를 이해하는 데 가장 도움이 될지</b> 상의하세요. 그다음 한 사람이 한 명씩, 겹치지 않게 고릅니다.</p>
+      ${hasRequired ? "" : `<div class="notice yellow" role="status"><b>모둠에 한 명은 꼭</b> <b>${esc(ui().requiredWho)}</b>${josa(ui().requiredWho, "과", "와")} 이야기해야 해요. 아직 아무도 고르지 않았어요.</div>`}
+      ${mineId ? `<div class="notice ok" role="status"><b>${esc(S.me.name)}</b>님과 이야기하기로 했어요.${started ? "" : " 대화를 시작하기 전에는 바꿀 수 있어요."} <button class="link" data-go="1" data-sub="chat">대화하러 가기 →</button></div>` : ""}
+      ${started ? `<div class="meta-line">대화를 시작해서 인물을 바꿀 수 없어요. 바꾸고 싶으면 선생님께 말씀드리세요.</div>` : ""}
+      <div class="pcards">${letters.map(card).join("")}</div>
+      <div class="meta-line">우리 모둠 ${Math.max(S.memberCount, Object.keys(S.picks).length)}명 중 ${Object.keys(S.picks).length}명이 골랐어요.</div></div>`;
+  },
+
   chat() {
     const me = S.me;
     return `<details class="letter" data-keep="letter" ${S.chat.length ? "" : "open"}>
@@ -829,14 +986,19 @@ const sub1 = {
     <div class="goal-chips m-only" aria-label="알아낼 것"><span>알아낼 것</span><b>① 누구인지</b><b>② 힘든 것</b><b>③ 바라는 것</b></div>
     <div class="notice muted tip pc-only"><b>할 일</b> ${esc(me.name)}에게 질문해 세 가지를 알아내세요: <b>① 누구인지 ② 무엇이 힘든지 ③ 무엇을 바라는지</b>. 질문은 <b>${S.chatLimit}번</b>만 할 수 있으니, 한 번에 무엇을 알아낼지 골라서 물어보세요. 다 알아냈으면 아래 '다음'을 누르세요.</div>
     <div class="card chat-card">
-      <div class="chat-head"><div class="avatar">${esc(me.name.slice(0, 1))}</div><div><div class="nm">${esc(me.name)}</div><div class="st">대화 중</div></div><button class="btn btn-plain btn-sm" style="margin-left:auto" data-act="dl-chat" aria-label="내 대화를 글 파일로 저장">대화 저장</button></div>
+      <div class="chat-head"><div class="avatar">${esc(me.name.slice(0, 1))}</div><div><div class="nm">${esc(me.name)}</div><div class="st ${S.locked ? "off" : ""}">${S.locked ? "대화 멈춤" : "대화 중"}</div></div><div class="chat-tools"><button class="btn btn-plain btn-sm m-only" data-act="letter" aria-label="편지 다시 읽기">편지</button><button class="btn btn-plain btn-sm" data-act="dl-chat" aria-label="내 대화를 글 파일로 저장">대화 저장</button></div></div>
+      <div class="chat-rule">${me.personal
+        ? `나이·가족·고향·종교처럼 ${esc(me.name)}의 개인적인 이야기도 자유롭게 물어볼 수 있어요.`
+        : `${esc(me.name)}은(는) 단체·기관에서 일하는 사람이에요. 하는 일과 생각을 중심으로 물어보세요. 개인적인 신상은 대답하기 어려울 수 있어요.`}
+        다만 놀리거나 모욕하는 말, 성적인 말은 기록되어 선생님께 알려지고, 3번이면 대화가 멈춰요.</div>
       <div class="msgs" id="msgs" role="log" aria-live="polite" aria-label="인물과의 대화"></div>
       <div class="starters">${STARTERS.map((q) => `<button class="chip sm" data-act="starter" data-t="${esc(q)}">${esc(q)}</button>`).join("")}</div>
-      <form class="composer" id="chat-form" autocomplete="off">
+      ${S.locked ? `<div class="composer locked" role="alert">대화 규칙을 여러 번 어겨 대화가 멈췄어요. 선생님께 말씀드리면 다시 열어 주실 수 있어요.</div>`
+        : `<form class="composer" id="chat-form" autocomplete="off">
         <div class="chat-left" id="chat-left" role="status" aria-live="polite"></div>
-        <input type="text" id="msg" maxlength="500" placeholder="${esc(me.name)}에게 메시지 보내기" />
+        <input type="text" id="msg" maxlength="500" enterkeyhint="send" autocomplete="off" autocorrect="off" placeholder="${esc(me.name)}에게 메시지 보내기" />
         <button class="send" id="send-btn" type="submit" aria-label="보내기">${SEND_ICON}</button>
-      </form>
+      </form>`}
     </div>`;
   },
 
@@ -906,7 +1068,10 @@ panel.addEventListener("submit", (e) => {
   if (!text || S.sending) return;
   m.value = ""; S.draft = "";
   sendChat(text);
+  m.focus({ preventScroll: true }); // 키보드가 내려가지 않게 해서 이어서 바로 쓸 수 있다
 });
+// 보내기 버튼을 눌러도 입력칸의 초점을 뺏지 않는다(휴대폰에서 키보드가 닫혔다 열리는 것을 막는다)
+panel.addEventListener("pointerdown", (e) => { if (e.target.closest("#send-btn")) e.preventDefault(); });
 
 panel.addEventListener("click", async (e) => {
   const go = e.target.closest("[data-go]");
@@ -918,6 +1083,9 @@ panel.addEventListener("click", async (e) => {
     case "del": if (confirm("삭제할까요? 모둠원 화면에서도 사라집니다.")) await delItem(d.path, d.id); break;
     case "retry-chat": { const t = S.chatErr?.text; if (t && !S.sending) sendChat(t); break; }
     case "dl-chat": downloadChat(); break;
+    case "letter": if (S.me) await showModal({ title: `${esc(S.me.name)}에게서 온 편지`, body: S.me.letter.map((p) => `<p>${esc(p)}</p>`).join(""), dismissible: true, actions: [{ label: "닫기", value: true, kind: "btn-primary" }] }); break;
+    case "choose": await choosePersona(d.id, b); break;
+    case "case-tab": S.caseTab = d.id; render(true); break;
     case "mat-tab": S.matTab = d.id; render(true); break;
     case "starter": { const m = $("#msg"); if (m) { m.value = d.t; S.draft = d.t; m.focus(); } break; }
     case "submit-note": {
@@ -941,7 +1109,8 @@ panel.addEventListener("click", async (e) => {
     case "ask-check": await aiGroup(3, "verify_query", { checkId: d.id }, "check:" + d.id); break;
     case "add-proposal": {
       const t = val("pt"); if (t.length < 30) return toast("대안을 30자 이상 쓰세요.", true);
-      S.proposalId = await addItem("s4.proposals", { text: t }); render(true); break;
+      if (val("pt-cause").length < 4) return toast("이 대안이 겨냥하는 원인을 적으세요.", true);
+      S.proposalId = await addItem("s4.proposals", { text: t, cause: val("pt-cause"), ref: val("pt-ref") }); render(true); break;
     }
     case "ask-feedback": S.proposalId = d.id; await aiGroup(4, "proposal_feedback", { proposalId: d.id }, "feedback"); break;
     case "add-pred": {

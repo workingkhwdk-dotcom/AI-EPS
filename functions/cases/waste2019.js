@@ -52,6 +52,22 @@ const SOURCES = {
          check: "[대조함] 불법 수출된 6,500t 가운데 미사미스 오리엔탈 항구에서 압류된 51개 컨테이너(1,400t)가 먼저 반환 대상이라는 서술 확인" },
   W21: { verified: true, title: "South Korea to take back trash shipped to PH port", outlet: "Philippine Daily Inquirer", date: "2018-11", url: "https://globalnation.inquirer.net/171598/amp",
          check: "[대조함] 주필리핀 한국대사관이 11월 22일 성명에서 쓰레기를 최대한 빨리 한국으로 가져가겠다고 밝힌 서술, 약 5,100t 속에 수액 줄·기저귀·건전지·전구·전자기기가 섞여 있었다는 서술 확인(내용물 서술은 같은 시기 다른 매체일 수 있음)" },
+  WC1: { verified: true, title: "China rejecting rubbish", outlet: "Lowy Institute(The Interpreter)", date: "확인 필요", url: "https://lowyinstitute.org/the-interpreter/china-rejecting-rubbish",
+         check: "[대조함] 중국이 2018년 1월 플라스틱을 포함한 24종 폐기물 수입을 금지했고, 1년 사이 중국으로 가는 플라스틱 폐기물이 크게 줄었다는 서술 확인(감소 폭은 매체마다 다름)" },
+  WC2: { verified: true, title: "reduce plastic production to help southeast asia", outlet: "Dialogue Earth", date: "2021-08(확인 필요)", url: "https://dialogue.earth/en/pollution/reduce-plastic-production-to-help-southeast-asia/", titleIsDescriptive: true,
+         check: "[대조함] 2018년 중국의 수입 금지 뒤 동남아시아의 플라스틱 폐기물 수입이 급증했고(말레이시아가 한때 최대 수입국), 불법 재활용 시설과 불법 투기가 늘었다는 서술 확인. 기사 제목은 미확인" },
+  WC3: { verified: true, title: "Malaysia to send back plastic waste to foreign nations", outlet: "AP", date: "2019-05-28", url: "https://wjla.com/news/nation-world/malaysia-to-send-back-plastic-waste-to-foreign-nations",
+         check: "[대조함] 말레이시아 환경부 장관이 포트클랑에서 미국·영국·캐나다·호주 등에 재활용할 수 없는 플라스틱 폐기물 약 3,000t을 돌려보내겠다고 밝힌 서술, 오염된 쓰레기 컨테이너 60개, 수입이 2016년 이후 세 배로 늘어 2018년 87만t이라는 서술 확인" },
+  WC4: { verified: true, title: "Philippines ships 69 containers of dumped rubbish back to Canada", outlet: "Al Jazeera", date: "2019-05-31", url: "https://www.aljazeera.com/news/2019/5/31/philippines-ships-69-containers-of-dumped-rubbish-back-to-canada",
+         check: "[대조함] 2013~2014년 재활용 플라스틱으로 신고된 103개 컨테이너, 남은 69개 컨테이너(기저귀 등 생활·전자 쓰레기), 5월 15일 기한을 넘기자 대사·영사 소환, 캐나다가 빌린 배로 반송 확인" },
+  WC5: { verified: true, title: "187 countries agree to regulate plastic trade", outlet: "Waste Management Review", date: "2019-05", url: "https://wastemanagementreview.com.au/187-countries-agree-to-regulate-plastic-trade/",
+         check: "[대조함] 2019년 5월 제네바에서 187개국이 플라스틱 폐기물을 바젤협약 규제 대상에 넣었고, 오염되거나 섞인 플라스틱을 수출하려면 받는 나라의 동의가 필요하다는 서술 확인. 미국은 협약 당사국이 아님" },
+  WA1: { verified: true, title: "평택시, 필리핀 불법수출 폐기물 전량 처리 기사", outlet: "메트로신문", date: "2019-06-10", url: "https://www.metroseoul.co.kr/article/2019061000140", titleIsDescriptive: true,
+         check: "[대조함] 평택항 4,666t(컨테이너 195대)을 2019년 4월 24일~6월 10일 45일간 행정대집행 등으로 처리, 비용 약 10억 원, 업체 고발과 사업주 구속, 비용 구상 계획 확인" },
+  WA2: { verified: true, title: "11-hour blaze: Korean trash at Misamis industrial zone burns", outlet: "Philippine Daily Inquirer", date: "2019-08", url: "https://newsinfo.inquirer.net/1153957/11-hour-blaze-korean-trash-at-misamis-industrial-zone-burns/amp",
+         check: "[대조함] 8월 12일 타골로안에 쌓여 있던 한국 쓰레기 일부가 불탔고, 소방서가 메탄가스를 원인으로 추정했다는 서술 확인(최종 조사 결과는 미확인)" },
+  WA3: { verified: true, title: "필리핀 불법수출 폐기물 처리 완료 기사", outlet: "경기일보", date: "2020-12-23", url: "https://kyeonggi.com/article/202012231150339", titleIsDescriptive: true,
+         check: "[대조함] 필리핀에 남아 있던 약 5,177t(실제 반입 5,910t)을 2020년 2월~9월 여섯 차례 평택항으로 들여와 모두 처리했고, 처리비는 전액 국비, 업체에 고발·구상 절차를 진행한다는 서술 확인" },
 };
 
 const EVENT = {
@@ -68,8 +84,12 @@ const EVENT = {
     "총량(6,500t), 반송량(1,200t·1,400t), 남은 양(5,100t·5,177t)은 매체와 집계 시점마다 다르다. 수출업체와 수입업체는 실제 회사이므로 인물로 만들지 않았고, 업체의 책임은 수사·재판 결과를 확인한 뒤 다룰 것. " +
     "'잘사는 나라 대 가난한 나라'의 이분법에만 머물지 않도록, 한국 안의 처리 비용 구조(재활용 잔재, 소각장 부족)와 필리핀 쪽 통관 문제도 함께 보게 한다. " +
     "인물은 '실존 인물'이 아니라 여러 보도·성명을 융합한 수업용 인물이다.",
-  // 인물의 처지(축). 입장 시 모둠 안에서 축이 겹치지 않게 무작위로 배정한다.
+  // 인물의 처지(축). 학생은 편지를 읽고 인물을 직접 고르며, 교사 화면은 축별로 인물을 보여 준다.
   axes: ["필리핀 현지", "한국 시민", "시민사회", "제도"],
+  // 모둠에 꼭 한 명은 있어야 하는 축: 쓰레기가 쌓인 곳의 사람
+  requiredAxis: "필리핀 현지",
+  // 개인으로 등장하는 축(신상 질문에 설정대로 답한다)
+  personalAxes: ["필리핀 현지", "한국 시민"],
   stakeholders: ["필리핀 타골로안 주민·노동자", "한국의 재활용 업계와 시민", "한국·필리핀 환경단체", "두 나라 정부(필리핀 세관, 한국 환경부)"],
   // 모든 인물이 알고 있는 사건 공통 배경. 인물은 자기 진술(claims)과 이 배경에 있는 핵심 사실만 말한다.
   background: [
@@ -122,6 +142,13 @@ const EVENT = {
     heardExample: "○○: 컨테이너 안에 기저귀가 있었다",
     broadProblem: "쓰레기 문제",
     decidedProblem: "쓰레기 수출을 금지해야 한다",
+    pickLead: "이 사건에는 필리핀과 한국에 입장이 서로 다른 여러 사람이 있었어요.",
+    requiredWho: "쓰레기가 쌓인 필리핀 마을 쪽 사람",
+    requiredTag: "필리핀 현지",
+    casesKinds: "쓰레기를 막는 정책과 되돌려 보내는 정책",
+    compareWith: "이 사건",
+    afterSince: "2019년 2월",
+    afterExample: "우리는 남은 쓰레기가 금방 돌아올 거라 예상했지만, 실제로는 1년 넘게 걸렸다",
   },
 };
 
@@ -245,7 +272,7 @@ const PERSONAS = [
     id: "w_recycler", events: ["waste2019"], axis: "한국 시민",
     label: "경기 남부의 재활용 선별장 사장 (처리 비용 구조부터 봐야)",
     name: "박정수",
-    setting: "50대 중반 남성. 경기 남부에서 20년째 재활용 선별장을 운영한다. 아파트 단지에서 걷어 온 플라스틱·비닐을 종류별로 골라 팔고, 남는 것은 돈을 내고 처리한다. 직원은 열두 명이다. 2018년 봄 폐비닐 수거 거부 사태를 직접 겪었다.",
+    setting: "50대 중반 남성. 경기 남부에서 20년째 재활용 선별장을 운영한다. 아파트 단지에서 걷어 온 플라스틱·비닐을 종류별로 골라 팔고, 남는 것은 돈을 내고 처리한다. 직원은 열두 명이다. 아내가 선별장 경리를 맡고, 대학생 딸이 있다. 2018년 봄 폐비닐 수거 거부 사태를 직접 겪었다.",
     voice: "무뚝뚝하고 현실적인 반말 섞인 해요체. 숫자와 돈 이야기를 자주 한다. 억울함과 체념이 섞여 있다. 이모지는 거의 쓰지 않는다.",
     letter: [
       "박정수입니다. 경기도 남쪽에서 재활용 선별장을 합니다. 편지 같은 건 잘 안 써 봐서 그냥 생각나는 대로 씁니다.",
@@ -654,4 +681,49 @@ const MATERIALS = [
   ] },
 ];
 
-module.exports = { SOURCES, EVENT, PERSONAS, MATERIALS };
+// 4단계 "다른 나라의 사례" 카드: 대안을 만들 때 참고할 정책 사례. 막는 정책과 돌려보내는 정책, 국제 규칙을 함께 둔다.
+const POLICY_CASES = [
+  { id: "china", country: "중국", title: "쓰레기 수입을 막다",
+    what: "세계에서 가장 많은 폐기물을 수입하던 중국이 2018년 1월부터 플라스틱을 포함한 24종의 폐기물 수입을 금지했다.",
+    result: "중국으로 가던 플라스틱 폐기물이 크게 줄었다. 대신 그 쓰레기가 말레이시아·태국·베트남 같은 동남아시아로 몰렸고, 그곳에서 불법 재활용 시설과 불법 투기가 늘었다.",
+    think: "한 나라가 문을 닫으면 쓰레기는 사라지지 않고 다른 곳으로 옮겨 간다. 한국의 재활용 쓰레기 사태, 필리핀으로 간 쓰레기와 어떻게 이어져 있을까?",
+    src: ["WC1", "WC2"] },
+  { id: "malaysia", country: "말레이시아", title: "들어온 쓰레기를 되돌려 보내다",
+    what: "2019년 5월 말레이시아 환경부 장관이 오염된 쓰레기가 든 컨테이너들을 공개하고, 재활용할 수 없는 플라스틱 폐기물 약 3,000t을 미국·영국·캐나다·호주 등 보낸 나라로 돌려보내겠다고 밝혔다.",
+    result: "말레이시아의 플라스틱 폐기물 수입은 2016년 이후 세 배로 늘어 2018년 87만t에 이르렀다. 정부는 '잘사는 나라의 쓰레기장이 되지 않겠다'며 반송과 단속에 나섰다.",
+    think: "되돌려 보내는 데는 시간과 돈, 외교 협상이 든다. 필리핀이 한국 쓰레기를 돌려보낸 과정과 비교해 보자. 누가 비용을 내야 할까?",
+    src: ["WC3"] },
+  { id: "canada", country: "필리핀·캐나다", title: "외교 문제로 번진 쓰레기 반송",
+    what: "2013~2014년 캐나다에서 '재활용 플라스틱'으로 신고된 컨테이너 103개가 필리핀에 들어왔다. 남은 69개 컨테이너에는 기저귀 같은 생활 쓰레기와 전자 쓰레기가 있었다.",
+    result: "몇 년 동안 해결되지 않자 2019년 필리핀은 기한을 정하고, 기한이 지나자 캐나다에서 대사와 영사를 불러들였다. 결국 캐나다가 배를 빌려 2019년 5월 쓰레기를 실어 갔다.",
+    think: "한국은 비교적 빨리 반송에 합의했고, 캐나다와는 몇 년이 걸렸다. 무엇이 차이를 만들었을까? 쓰레기 문제가 나라 사이의 관계에 어떤 영향을 줄까?",
+    src: ["WC4"] },
+  { id: "basel", country: "국제 사회", title: "플라스틱 쓰레기도 받는 나라의 동의를 받게",
+    what: "2019년 5월 제네바에서 187개국이 바젤협약을 고쳐, 오염되거나 여러 가지가 섞인 플라스틱 폐기물을 수출하려면 받는 나라의 사전 동의를 받게 했다.",
+    result: "깨끗하게 분류된 재활용 플라스틱은 대상에서 빠졌다. 큰 수출국인 미국은 협약 당사국이 아니어서 이 규칙이 모든 나라에 똑같이 적용되지는 않는다.",
+    think: "국제 규칙이 생기면 이번 같은 일을 막을 수 있을까? 서류를 속여 신고하는 일은 규칙만으로 막을 수 있을까?",
+    src: ["WC5"] },
+];
+
+// 7단계 "실제로는 어떻게 되었나": 2019년 2월 이후의 전개. 모둠의 시나리오와 비교하는 성찰 자료.
+const AFTERMATH = [
+  { kind: "사실", text: "평택항에 쌓여 있던 4,666t은 2019년 4월 24일부터 6월 10일까지 45일 동안 행정대집행 등으로 모두 처리되었다. 비용은 약 10억 원이었고, 업체를 고발해 사업주가 구속되었다.", src: ["WA1"] },
+  { kind: "사실", text: "2019년 5월 187개국이 바젤협약을 고쳐, 오염되거나 섞인 플라스틱 폐기물을 수출하려면 받는 나라의 동의를 받게 했다.", src: ["WC5"] },
+  { kind: "사실", text: "2019년 8월 12일 타골로안에 쌓여 있던 한국 쓰레기 일부에 불이 났다. 소방 당국은 쓰레기에서 나온 메탄가스를 원인으로 추정했다.", src: ["WA2"] },
+  { kind: "사실", text: "필리핀에 남아 있던 쓰레기(실제 반입 5,910t)는 2020년 2월부터 9월까지 여섯 차례에 걸쳐 평택항으로 들어와 모두 처리되었다. 처리비는 전액 나랏돈으로 냈고, 평택시는 업체에 비용을 청구하는 절차를 밟기로 했다.", src: ["WA3"] },
+];
+
+// 학생이 인물을 고를 때 보는 한 줄 소개(편지와 함께). 하는 일만 적고 입장·평가는 담지 않는다.
+const BRIEFS = {
+  w_resident: "필리핀 항구 마을의 가게 주인",
+  w_worker: "필리핀 항구의 일용직 청년",
+  w_recycler: "경기도의 재활용 선별장 사장",
+  w_pyeongtaek: "평택항 근처 마을의 식당 주인",
+  w_citizen: "서울 아파트의 분리수거 반장",
+  w_ph_activist: "필리핀 환경단체 활동가",
+  w_kr_activist: "한국 환경단체 활동가",
+  w_customs: "필리핀 세관 검사관",
+  w_ministry: "한국 환경부 공무원",
+};
+
+module.exports = { SOURCES, EVENT, PERSONAS, MATERIALS, POLICY_CASES, AFTERMATH, BRIEFS };
