@@ -300,6 +300,9 @@ details.fold .inner{ margin-top:12px; }
 .live-who{ font-size:12px; color:var(--accent); font-weight:700; min-height:0; margin-top:3px; }
 .live-who:empty{ display:none; }
 .judge{ border-left:3px solid var(--blue); padding-left:12px; margin-top:8px; }
+.coach{ margin-top:10px; display:flex; flex-direction:column; gap:6px; align-items:flex-start; }
+.coach-q{ background:var(--fill); border-radius:12px; padding:10px 12px; word-break:break-word; align-self:stretch; }
+.card.prior{ border:1px dashed var(--blue); }
 
 /* 1단계 제출 카드·모둠 보드 */
 .finding{ background:var(--fill); border-radius:14px; padding:12px 14px; margin-bottom:10px; }

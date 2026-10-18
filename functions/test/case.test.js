@@ -284,3 +284,22 @@ test("제주 출처에는 모두 검색 교차 확인 기록이 있고, 확인 �
     assert.equal(x.verified, true, id);
   }
 });
+
+test("인물마다 틀릴 수 있는 믿음(beliefs)이 있어 인물끼리 같은 사실을 다르게 말하고, 프롬프트·감독자는 이를 위반으로 보지 않는다", () => {
+  const { guardMessages } = require("../guard");
+  for (const ev of Object.values(EVENTS)) {
+    const withB = PERSONAS.filter((p) => p.events.includes(ev.id) && (p.beliefs || []).length);
+    assert.ok(withB.length >= 4, ev.id);
+    for (const p of withB) {
+      for (const [t, note] of p.beliefs) { assert.ok(t.length > 15 && note.length > 15, p.id); }
+      const prompt = personaPrompt(ev, p);
+      assert.match(prompt, /\[네가 믿고 있는 것\]/);
+      assert.ok(p.beliefs.every((b) => prompt.includes(b[0])), p.id);
+      assert.ok(!p.beliefs.some((b) => prompt.includes(b[1])), `${p.id}: 교사용 메모(실제)는 인물에게 주지 않는다`);
+      const [sys] = guardMessages({ event: ev, persona: p, claims: p.claims, studentMessage: "정말요?", reply: "..." });
+      assert.ok(p.beliefs.every((b) => sys.content.includes(b[0])), p.id);
+      assert.match(sys.content, /fabrication·kind 위반이 아니다/);
+    }
+  }
+  assert.match(personaPrompt(EVENTS.jeju2018, PERSONAS.find((p) => p.id === "j_resident")), /자기 처지에서|네 처지에서/);
+});

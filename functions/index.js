@@ -42,6 +42,7 @@ const allowUnverified = () => ALLOW_UNVERIFIED.value() === "true";
 
 const REGION = "asia-northeast3"; // 서울
 const MAX_AI_CALLS_PER_GROUP = 150; // 수업별로 정하지 않았을 때의 모둠당 한도(3~5단계)
+const COACH_LIMIT = 8; // 2단계 생각 도우미: 학생 한 사람이 부를 수 있는 횟수
 const AI_LIMIT_RANGE = [10, 500];
 // 1단계 인물 대화는 학생마다 따로 센다. 횟수가 적어야 질문을 신중하게 고른다.
 const CHAT_LIMIT = 5;
@@ -99,6 +100,7 @@ function sessionSettings(d) {
     out.chatLimit = n;
   }
   if (d?.webSearch !== undefined) out.webSearch = d.webSearch === true;
+  if (d?.coach !== undefined) out.coach = d.coach === true;
   if (d?.autoCloseHours !== undefined) {
     const h = Number(d.autoCloseHours);
     if (!AUTO_CLOSE_CHOICES.includes(h)) throw new HttpsError("invalid-argument", "자동 닫힘 시간이 올바르지 않습니다.");
@@ -148,7 +150,7 @@ exports.createSession = onCall(opts, async (req) => {
     groupCount,
     closed: false,
     started: false, // 교사가 '수업 시작'을 누르기 전까지는 대기실. 이 값이 없는 예전 수업은 시작된 것으로 본다.
-    aiLimit: MAX_AI_CALLS_PER_GROUP, chatLimit: CHAT_LIMIT, webSearch: true, autoCloseHours: 0,
+    aiLimit: MAX_AI_CALLS_PER_GROUP, chatLimit: CHAT_LIMIT, webSearch: true, coach: true, autoCloseHours: 0,
     ...sessionSettings(req.data),
     createdAt: FieldValue().serverTimestamp(),
   });
@@ -561,7 +563,7 @@ exports.cloneSession = onCall(opts, async (req) => {
   const batch = db.batch();
   batch.set(db.doc(`sessions/${newCodeStr}`), {
     teacherUid: auth.uid, title, eventId: sess.eventId, groupCount: sess.groupCount, closed: false, started: false,
-    aiLimit: sess.aiLimit || MAX_AI_CALLS_PER_GROUP, chatLimit: sess.chatLimit || CHAT_LIMIT, webSearch: sess.webSearch !== false, autoCloseHours: sess.autoCloseHours || 0,
+    aiLimit: sess.aiLimit || MAX_AI_CALLS_PER_GROUP, chatLimit: sess.chatLimit || CHAT_LIMIT, webSearch: sess.webSearch !== false, coach: sess.coach !== false, autoCloseHours: sess.autoCloseHours || 0,
     createdAt: FieldValue().serverTimestamp(),
   });
   for (let i = 1; i <= sess.groupCount; i++) batch.set(db.doc(`sessions/${newCodeStr}/groups/g${i}`), { name: `${i}모둠`, aiCount: 0, memberCount: 0, guardCount: 0, work: {} });
@@ -623,7 +625,7 @@ exports.getCase = onCall(fastOpts, async (req) => {
     const ev = EVENTS[req.data.eventId];
     if (!ev) throw new HttpsError("not-found", "사건을 찾을 수 없습니다.");
     const full = (p) => ({
-      id: p.id, axis: p.axis, label: p.label, name: p.name, role: p.role, stance: p.stance, setting: p.setting, voice: p.voice, basis: p.basis, letter: p.letter, views: p.views, story: p.story, episodes: p.episodes, inner: p.inner, habits: p.habits, limits: p.limits || [],
+      id: p.id, axis: p.axis, label: p.label, name: p.name, role: p.role, stance: p.stance, setting: p.setting, voice: p.voice, basis: p.basis, letter: p.letter, views: p.views, story: p.story, episodes: p.episodes, inner: p.inner, habits: p.habits, limits: p.limits || [], beliefs: (p.beliefs || []).map(([text, note]) => ({ text, note })),
       sources: personaSourceIds(p).map(toPublicSource),
       claims: p.claims.map(([text, src, kind]) => ({ text, src, kind })),
     });
@@ -701,12 +703,15 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
   if (!gate.ok) throw new HttpsError("failed-precondition", gate.reason);
   // 한도 확인과 횟수 증가를 한 번에 처리한다(동시에 요청이 몰려도 한도를 넘지 않게). 실패하면 아래에서 되돌린다.
   const chatLimit = sessData.chatLimit || CHAT_LIMIT;
-  const counter = s === 1 ? { ref: memberRef, field: "chatCount" } : { ref: groupRef, field: "aiCount" };
+  // 생각 도우미(2단계)는 학생마다 따로 센다. 모둠의 3~5단계 AI 한도를 깎지 않는다.
+  const counter = s === 1 ? { ref: memberRef, field: "chatCount" } : s === 2 ? { ref: memberRef, field: "coachCount" } : { ref: groupRef, field: "aiCount" };
   await db.runTransaction(async (tx) => {
     const d = (await tx.get(counter.ref)).data() || {};
     if (s === 1 && (d.chatCount || 0) >= chatLimit)
       throw new HttpsError("resource-exhausted", `인물에게 물을 수 있는 ${chatLimit}번을 모두 썼어요. 지금까지 들은 이야기로 ② 정리를 해 보세요.`);
-    if (s !== 1 && (d.aiCount || 0) >= (sessData.aiLimit || MAX_AI_CALLS_PER_GROUP))
+    if (s === 2 && (d.coachCount || 0) >= COACH_LIMIT)
+      throw new HttpsError("resource-exhausted", `생각 도우미는 한 사람이 ${COACH_LIMIT}번까지 부를 수 있어요. 이제 모둠원과 이야기하며 다듬어 보세요.`);
+    if (s > 2 && (d.aiCount || 0) >= (sessData.aiLimit || MAX_AI_CALLS_PER_GROUP))
       throw new HttpsError("resource-exhausted", "이 모둠의 AI 사용 한도에 도달했습니다. 선생님께 문의하세요.");
     tx.update(counter.ref, { [counter.field]: FieldValue().increment(1) });
   });
@@ -817,7 +822,31 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
     // ---- 3~5단계: 모둠 로그 ----
     let messages, input, output, result, logPayload = {};
     let model = baseModel;
-    if (s === 3) {
+    if (s === 2) {
+      // 생각 도우미: 학생이 쓴 연결(또는 모둠의 원인 추측)을 보고 질문 하나만 한다
+      if (sessData.coach === false) throw new HttpsError("failed-precondition", "선생님이 이 수업에서 생각 도우미를 껐어요.");
+      const focus = payload.focus;
+      if (focus === "link") {
+        const l = toList(work.s2.links).find((x) => x.id === payload.linkId);
+        if ((l.by || l.uid) !== auth.uid) throw new HttpsError("permission-denied", "내가 쓴 생각만 생각 도우미에게 보여 줄 수 있어요.");
+        const me = personas.find((p) => p.id === personaId);
+        input = [`학생이 만난 인물: ${me ? `${me.name} (${me.role})` : "(모름)"}`,
+          `대화 전 처음 생각: ${clip(l.prior, 300) || "(없음)"}`, `대화하며 흔들린 순간: ${clip(l.surprise, 300) || "(없음)"}`,
+          `그 생각은 어디서 왔을까: ${clip(l.source, 400) || "(없음)"}`, `내 생활의 장면${l.angle ? `(${clip(l.angle, 40)})` : ""}: ${clip(l.scene, 400) || "(없음)"}`,
+          `그래서 생긴 질문: ${clip(l.question, 300) || "(없음)"}`].join("\n");
+      } else {
+        input = "모둠이 쓴 원인 추측:\n" + toList(work.s2.causes).slice(0, 12).map((q) => `- ${q.level ? `[${clip(q.level, 20)}] ` : ""}${clip(q.text, 200)}`).join("\n");
+      }
+      messages = [{ role: "system", content: prompts.coachPrompt(evCtx, focus) }, { role: "user", content: input }];
+      output = await callModel({ apiKey, model, messages, json: true, maxTokens: 400, efforts: ["low"] });
+      let v;
+      try { v = extractJson(output); } catch { throw new HttpsError("internal", "생각 도우미의 답을 읽지 못했어요. 다시 시도하세요."); }
+      const kinds = Object.keys(prompts.COACH_KINDS[focus]);
+      result = { kind: kinds.includes(v.kind) ? v.kind : "", question: clip(v.question, 300) };
+      if (!result.question) throw new HttpsError("internal", "생각 도우미의 답이 비어 있어요. 다시 시도하세요.");
+      output = JSON.stringify(result);
+      logPayload = { focus, ...(focus === "link" ? { linkId: payload.linkId } : {}), kind: result.kind };
+    } else if (s === 3) {
       const c = toList(work.s2.checks).find((x) => x.id === payload.checkId);
       const cause = c.causeId ? toList(work.s2?.causes).find((x) => x.id === c.causeId) : null;
       input = (cause ? `학생들이 확인하려는 원인 가설: ${clip(cause.text, 300)}\n확인할 말: ${clip(c.heard, 300) || "(적지 않음)"}` : `학생들이 인터뷰에서 들은 말: ${clip(c.heard, 300) || "(적지 않음)"}`) +
@@ -870,7 +899,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
     await Promise.all([
       logRef.set({ uid: auth.uid, nickname, stage: s, type, input, output, payload: logPayload, model, createdAt: FieldValue().serverTimestamp() }),
       Object.keys(bump).length ? groupRef.update(bump) : null,
-      memberRef.update({ aiCount: FieldValue().increment(1) }),
+      s === 2 ? null : memberRef.update({ aiCount: FieldValue().increment(1) }),
     ]);
     return { logId: logRef.id, result };
   } catch (e) {

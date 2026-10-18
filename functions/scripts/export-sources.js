@@ -19,6 +19,7 @@ for (const ev of Object.values(EVENTS)) {
       "- 기억나는 장면 (창작):", ...(p.episodes || []).map((v) => `  - ${v}`),
       `- 마음속 고민: ${p.inner || ""}`, `- 말버릇: ${p.habits || ""}`,
       ...((p.limits || []).length ? ["- 조심할 이야기 (경계):", ...p.limits.map((v) => `  - ${v}`)] : []),
+      ...((p.beliefs || []).length ? ["- 인물이 사실이라고 믿는 것 (틀리거나 과장일 수 있음, 학생 검증용):", ...p.beliefs.map(([t, n]) => `  - ${t} — *실제: ${n}*`)] : []),
       "- 학생에게 보이는 편지:", ...p.letter.map((t) => `  > ${t}`), "- 근거 진술 (종류 / 출처):");
     p.claims.forEach(([t, id, kind]) => out.push(`  - [ ] **[${kind}]** ${t} **(${id})**`));
     out.push("");
