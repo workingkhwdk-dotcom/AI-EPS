@@ -5,8 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
 <meta name="theme-color" content="#06226B" />
 <title>AI-EPS 교사용 · 확장된 경험 기반 문제해결학습 모형</title>
-<link rel="icon" type="image/webp" href="knue-mark.webp" />
-<link rel="apple-touch-icon" href="knue-mark@2x.webp" />
+<link rel="icon" type="image/png" sizes="32x32" href="icons/teacher-32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="icons/teacher-16.png" />
+<link rel="shortcut icon" href="icons/teacher.ico" />
+<link rel="apple-touch-icon" sizes="180x180" href="icons/teacher-180.png" />
+<link rel="manifest" href="manifest-teacher.webmanifest" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="AI-EPS 교사" />
 <script src="device.js"></script>
 <link rel="stylesheet" href="style.css" />
 <link rel="stylesheet" href="mobile.css" />
@@ -43,7 +50,11 @@
           <div id="new-form" class="hidden newbox">
             <h3>새 수업 만들기</h3>
             <label class="lbl" for="t-event">사건</label>
-            <select id="t-event"><option value="jeju2018">제주 예멘 난민 신청 논란 (2018)</option></select>
+            <select id="t-event">
+              <option value="jeju2018" data-title="제주 예멘 난민 사건, 갈등 해결 방안 제안하기">제주 예멘 난민 신청 논란 (2018)</option>
+              <option value="waste2019" data-title="필리핀으로 간 한국 쓰레기, 갈등 해결 방안 제안하기">한국 쓰레기 필리핀 불법 수출·반송 논란 (2018~2019)</option>
+              <option value="school2018" data-title="강서 특수학교 설립 갈등, 함께 사는 동네를 위한 해결 방안 제안하기">서울 강서 특수학교 설립 갈등 (2017~2018)</option>
+            </select>
             <label class="lbl" for="t-title">수업 이름</label><input type="text" id="t-title" value="제주 예멘 난민 사건, 갈등 해결 방안 제안하기" />
             <label class="lbl" for="t-groups">모둠 수 (1~12)</label><input type="number" id="t-groups" value="6" min="1" max="12" />
             <label class="lbl" for="t-chatlimit">학생 1명이 인물에게 물을 수 있는 횟수 (1~50번)</label><input type="number" id="t-chatlimit" value="5" min="1" max="50" />
@@ -79,6 +90,9 @@
             <div id="lobby-body"></div>
             <button class="btn btn-primary m-block" id="start-btn" type="button" style="margin-top:12px">수업 시작하기</button></div>
           <div class="card hidden" id="alerts"><h3>확인이 필요해요</h3><div id="alerts-body"></div></div>
+          <div class="card alert-card hidden" id="conduct-card"><h3>⚠ 대화 규칙 위반 신호</h3>
+            <p class="desc">학생이 인물을 의도적으로 조롱하거나 성적인 말을 하면 여기에 바로 나타납니다. 인물은 선을 긋는 답을 했고, 같은 학생이 3번 어기면 대화가 멈춥니다. 학생과 이야기를 나눈 뒤 <b>대화 다시 열기</b>로 풀어 주세요.</p>
+            <div id="conduct-list"></div></div>
           <div class="card"><div class="kpis" id="kpis"></div></div>
           <div class="card"><h3>학생 현황</h3>
             <div class="chipbar" id="g-filter" style="margin-bottom:10px"></div>
@@ -132,6 +146,9 @@
             <p class="meta-line" style="margin-top:6px">검색 도우미·검토자·시뮬레이션 요청을 모둠별로 셉니다. 한도에 닿으면 그 모둠은 3~5단계 AI를 더 쓸 수 없습니다.</p>
             <label class="lbl" for="s-web">웹 검색 (1단계 인물 · 3단계 검색 도우미)</label>
             <select id="s-web"><option value="1">사용</option><option value="0">사용 안 함 (수업 자료 안에서만 답함)</option></select>
+            <label class="lbl" for="s-coach">생각 도우미 (2단계)</label>
+            <select id="s-coach"><option value="1">사용 (질문만 함)</option><option value="0">사용 안 함</option></select>
+            <p class="meta-line" style="margin-top:6px">학생 한 명이 8번까지 부를 수 있고, 모둠의 3~5단계 한도는 쓰지 않습니다.</p>
             <label class="lbl" for="s-auto">자동 닫힘</label>
             <select id="s-auto"><option value="0">사용 안 함 (직접 닫기)</option><option value="1">마지막 접속 1시간 후</option><option value="2">마지막 접속 2시간 후</option><option value="4">마지막 접속 4시간 후</option><option value="8">마지막 접속 8시간 후</option><option value="24">마지막 접속 24시간 후</option></select>
             <p class="meta-line" style="margin-top:6px">수업이 끝난 뒤 닫는 것을 잊어도, 정한 시간 동안 아무도 접속하지 않으면 자동으로 닫힙니다. 다시 열 수 있습니다.</p>
@@ -166,14 +183,19 @@
       </div>
       <div class="card">
         <h2>인물·자료 점검</h2>
-        <p class="desc">인물과 실제 자료는 아래 출처의 보도 내용에만 근거합니다. <b>수업 전에 원문 링크를 열어 확인</b>하고, 확인한 출처는 <code>functions/case.js</code>에서 <code>verified</code>를 true로 바꿔 배포하세요. 확인 전 인물과 자료는 학생에게 보이지 않습니다. 이 탭의 내용은 학생에게 공개되지 않습니다.</p>
+        <p class="desc">인물과 실제 자료는 아래 출처의 보도 내용에만 근거합니다. <b>수업 전에 원문 링크를 열어 확인</b>하고, 확인한 출처는 <code>functions/cases/</code>의 사건 파일에서 <code>verified</code>를 true로 바꿔 배포하세요. 확인 전 인물과 자료는 학생에게 보이지 않습니다. 이 탭의 내용은 학생에게 공개되지 않습니다.</p>
+        <label class="lbl" for="check-event">점검할 사건</label><select id="check-event"></select>
         <div id="check-mode"></div>
         <div id="check-note"></div>
       </div>
-      <h3 style="margin:6px 4px 8px">인물 9명 (학생에게는 이름과 편지만 보입니다)</h3>
+      <h3 style="margin:6px 4px 8px">인물 <span id="persona-count">9</span>명 (학생에게는 이름과 편지만 보입니다)</h3>
       <div id="persona-check"></div>
       <h3 style="margin:14px 4px 8px">2단계 실제 자료</h3>
       <div id="material-check"></div>
+      <h3 style="margin:14px 4px 8px">4단계 다른 나라 사례 카드 (학생에게 출처 링크가 보입니다)</h3>
+      <div id="case-check"></div>
+      <h3 style="margin:14px 4px 8px">7단계 실제 이후 전개</h3>
+      <div id="after-check"></div>
     </div>
   </section>
   <p class="m-switch"><a href="teacher.html?view=pc">PC 화면으로 보기</a></p>

@@ -18,8 +18,8 @@ const s1 = { problem: { hmw: "어떻게 하면 주민의 불안을 줄이면서�
 const s3 = { chain: { cause: "난민 신청자의 취업 허가가 늦어 생계가 막혔다" } };
 
 test("3단계: 2단계에서 만든 검증 질문(지도 또는 배열)만 AI에게 물을 수 있다", () => {
-  const map = { s1, s2: { checks: { c1: { heard: "일자리가 어렵대요", question: "난민 신청자의 취업은 어떻게 제한되나?", t: 1 } } } };
-  const arr = { s1, s2: { checks: [{ id: "c1", heard: "x", question: "난민 신청자의 취업은 어떻게 제한되나?" }] } };
+  const map = { s1, s2: { checks: { c1: { heard: "일자리가 어렵대요", question: "난민 신청자의 취업은 어떻게 제한되나?", real: "자료에 없음", t: 1 } } } };
+  const arr = { s1, s2: { checks: [{ id: "c1", heard: "x", question: "난민 신청자의 취업은 어떻게 제한되나?", real: "단기 노무" }] } };
   const g = (work, checkId) => checkGate({ stage: 3, type: "verify_query", work, payload: { checkId } }).ok;
   assert.equal(g(map, "c1"), true);
   assert.equal(g(arr, "c1"), true);
@@ -29,7 +29,7 @@ test("3단계: 2단계에서 만든 검증 질문(지도 또는 배열)만 AI에
 });
 
 test("단계 순서: 3단계는 모둠 문제, 4단계는 핵심 원인, 5단계는 최종 대안이 먼저 있어야 한다", () => {
-  const checks = { c1: { heard: "x", question: "난민 신청자의 취업은 어떻게 제한되나?", t: 1 } };
+  const checks = { c1: { heard: "x", question: "난민 신청자의 취업은 어떻게 제한되나?", real: "자료에 없음", t: 1 } };
   const g3 = (work) => checkGate({ stage: 3, type: "verify_query", work, payload: { checkId: "c1" } });
   assert.match(g3({ s2: { checks } }).reason, /모둠이 풀 문제/);
   assert.equal(g3({ s1, s2: { checks } }).ok, true);
@@ -77,4 +77,17 @@ test("toList: 지도는 시간순으로, 배열은 그대로 항목 ID를 붙여
   assert.deepEqual(toList({ b: { text: "나", t: 2 }, a: { text: "가", t: 1 } }).map((x) => x.id), ["a", "b"]);
   assert.deepEqual(toList(["x", "y"]).map((x) => x.text), ["x", "y"]);
   assert.deepEqual(toList(undefined), []);
+});
+
+test("5단계: 최종 대안(final)은 30자 이상이어야 시뮬레이션할 수 있다", () => {
+  const preds = { p1: { text: "가".repeat(12) }, p2: { text: "나".repeat(12) } };
+  const ok = checkGate({ stage: 5, type: "scenario", work: { s4: { final: "가".repeat(30) }, s5: { predictions: preds } }, payload: { proposalId: "final", round: 3 } });
+  assert.equal(ok.ok, true);
+  const no = checkGate({ stage: 5, type: "scenario", work: { s4: { final: "짧다" }, s5: { predictions: preds } }, payload: { proposalId: "final", round: 3 } });
+  assert.match(no.reason, /최종 대안/);
+});
+
+test("3단계: 실제 자료에서 먼저 찾아본 결과를 적지 않으면 AI에게 묻지 못한다", () => {
+  const work = { s1, s2: { checks: { c1: { heard: "x", question: "난민 신청자의 취업은 어떻게 제한되나?" } } } };
+  assert.match(checkGate({ stage: 3, type: "verify_query", work, payload: { checkId: "c1" } }).reason, /실제 사건 자료/);
 });

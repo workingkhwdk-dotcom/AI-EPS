@@ -14,7 +14,7 @@ const safeUrl = (u) => (/^https?:\/\//i.test(String(u || "")) ? String(u) : "#")
 const hasKeys = (o) => o && typeof o === "object" && Object.keys(o).length > 0;
 const filled = (v) => (typeof v === "string" ? v.trim() !== "" : hasKeys(v));
 
-let picked = new Set(), assigns = {}, current = null, curTitle = "", unsubs = [], members = [], groups = [], gFilter = "all";
+let picked = new Set(), conduct = [], assigns = {}, current = null, curTitle = "", unsubs = [], members = [], groups = [], gFilter = "all";
 let logsBy = {}, cmpStage = 1, workGid = null; // 모둠별 AI 기록, 단계별 모아 보기 단계, 열어 둔 모둠 산출물
 let tickTimer = null;
 
@@ -32,14 +32,14 @@ onAuthStateChanged(auth, (u) => {
   $("#main").classList.toggle("hidden", !ok);
   $("#t-logout").classList.toggle("hidden", !ok);
   $("#who").textContent = ok ? u.email : "";
-  if (ok) { listSessions(u.uid); refreshCase("jeju2018").catch(() => {}); }
+  if (ok) { listSessions(u.uid); eventIds().forEach((id) => refreshCase(id).catch(() => {})); }
 });
 
 // ---------- 탭 ----------
 function showTab(name) {
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
   for (const t of ["classes", "check"]) $(`#tab-${t}`).classList.toggle("hidden", t !== name);
-  if (name === "check") loadCheck($("#t-event").value);
+  if (name === "check") loadCheck($("#check-event").value);
 }
 $("#tabs").onclick = (e) => { const b = e.target.closest("[data-tab]"); if (b) showTab(b.dataset.tab); };
 
@@ -52,6 +52,18 @@ function showCTab(name) {
   if (name === "settings") fillSettings();
 }
 $("#ctabs").onclick = (e) => { const b = e.target.closest("[data-ctab]"); if (b) showCTab(b.dataset.ctab); };
+
+// ---------- 사건 고르기 ----------
+// 사건 목록은 수업 만들기 칸의 <select id="t-event"> 에 있다. 점검 탭의 사건 고르기도 같은 목록을 쓴다.
+const eventIds = () => [...$("#t-event").options].map((o) => o.value);
+$("#check-event").innerHTML = $("#t-event").innerHTML;
+$("#check-event").onchange = () => loadCheck($("#check-event").value);
+// 사건을 바꾸면, 교사가 고치지 않은 수업 이름은 그 사건의 기본 이름으로 바꾼다
+const defaultTitles = new Set([...$("#t-event").options].map((o) => o.dataset.title));
+$("#t-event").onchange = () => {
+  const o = $("#t-event").selectedOptions[0];
+  if (!$("#t-title").value.trim() || defaultTitles.has($("#t-title").value)) $("#t-title").value = o.dataset.title;
+};
 
 // ---------- 수업 만들기·목록 ----------
 const toggleNew = (open) => $("#new-form").classList.toggle("hidden", !open);
@@ -97,13 +109,13 @@ function progressOf(work) {
     hasKeys(w.s4?.proposals) || filled(w.s4?.final),
     hasKeys(w.s5?.selection) || filled(w.s5?.newProblem),
     hasKeys(w.s6?.plan),
-    filled(w.s7?.reflection) || hasKeys(w.s7?.checks),
+    filled(w.s7?.reflection) || filled(w.s7?.compare) || hasKeys(w.s7?.checks),
   ];
 }
 
 function openSession(code, title) {
   title = title || sessionRows.find((r) => r.code === code)?.title || "수업";
-  current = code; curTitle = title; gFilter = "all"; logsBy = {}; workGid = null; mat.loaded = false; pe.loaded = false; assigns = {}; picked = new Set();
+  current = code; curTitle = title; gFilter = "all"; conduct = []; logsBy = {}; workGid = null; mat.loaded = false; pe.loaded = false; assigns = {}; picked = new Set();
   unsubs.forEach((u) => u()); unsubs = [];
   clearInterval(tickTimer);
   $("#class-list-view").classList.add("hidden");
@@ -114,6 +126,12 @@ function openSession(code, title) {
   $("#d-code").textContent = code;
   renderOpen();
   piiBy = {};
+  unsubs.push(onSnapshot(query(collection(db, `sessions/${code}/alerts`), orderBy("createdAt", "desc")), (s) => {
+    const before = conduct.length;
+    conduct = s.docs.map((d) => ({ id: d.id, ...d.data() }));
+    if (before && conduct.length > before) toast("⚠ 대화 규칙 위반 신호가 새로 들어왔습니다", true);
+    renderDash();
+  }));
   unsubs.push(onSnapshot(collection(db, `sessions/${code}/guardlog`), (s) => { piiBy = {}; s.docs.forEach((d) => { const x = d.data(); if ((x.pii || []).length) piiBy[x.uid] = (piiBy[x.uid] || 0) + 1; }); renderDash(); }));
   unsubs.push(onSnapshot(collection(db, `sessions/${code}/assign`), (s) => { assigns = Object.fromEntries(s.docs.map((d) => [d.id, d.data().personaId])); renderDash(); }));
   unsubs.push(onSnapshot(collection(db, `sessions/${code}/members`), (s) => { members = s.docs.map((d) => ({ uid: d.id, ...d.data() })); renderDash(); }));
@@ -154,6 +172,8 @@ const KPI_ICON = {
   people: kpiSvg('<circle cx="9" cy="8.5" r="3"/><path d="M3.5 20c0-3 2.5-5.5 5.5-5.5s5.5 2.5 5.5 5.5"/><circle cx="16.5" cy="9.5" r="2.3"/><path d="M16 14.6c2.6.3 4.5 2.5 4.5 5.1"/>'),
   ai: kpiSvg('<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H10l-4.5 3.5V16A1.5 1.5 0 0 1 4 14.5z"/><path d="M8.5 9h7M8.5 12h4.5"/>'),
   guard: kpiSvg('<path d="M12 3l7 3v5.5c0 4.3-2.9 7.8-7 9.5-4.1-1.7-7-5.2-7-9.5V6z"/><path d="M12 8.5v4M12 15.5v.01"/>'),
+  flag: kpiSvg('<path d="M5 21V4"/><path d="M5 4.5h11l-2 4 2 4H5"/>'),
+  pause: kpiSvg('<circle cx="12" cy="12" r="8.5"/><path d="M10 9v6M14 9v6"/>'),
 };
 function renderDash() {
   if (!current) return;
@@ -162,8 +182,21 @@ function renderDash() {
   const online = members.filter(isOnline).length;
   const ai = members.reduce((n, m) => n + (m.aiCount || 0), 0); // 인물 대화 + 3~5단계
   const guard = groups.reduce((n, g) => n + (g.guardCount || 0), 0);
-  $("#kpis").innerHTML = [["접속 중", `${online}명`, "online"], ["참여 학생", `${members.length}명`, "people"], ["AI 호출", `${ai}회`, "ai"], ["감독자 개입", `${guard}회`, "guard"]]
-    .map(([k, v, ic]) => `<div class="kpi">${KPI_ICON[ic]}<div><b>${v}</b><span>${k}</span></div></div>`).join("");
+  const lockedN = members.filter((m) => m.chatLocked).length;
+  $("#kpis").innerHTML = [["접속 중", `${online}명`, "", "online"], ["참여 학생", `${members.length}명`, "", "people"], ["AI 호출", `${ai}회`, "", "ai"], ["감독자 개입", `${guard}회`, "", "guard"],
+    ["규칙 위반 신호", `${conduct.length}건`, conduct.length ? "warn" : "", "flag"], ["대화 멈춤", `${lockedN}명`, lockedN ? "warn" : "", "pause"]]
+    .map(([k, v, c, ic]) => `<div class="kpi ${c || ""}">${KPI_ICON[ic]}<div><b>${v}</b><span>${k}</span></div></div>`).join("");
+
+  // 규칙 위반 신호: 최근 것부터. 대화가 멈춘 학생은 다시 열 수 있다
+  $("#conduct-card").classList.toggle("hidden", !conduct.length);
+  $("#conduct-list").innerHTML = conduct.slice(0, 30).map((a) => {
+    const m = members.find((x) => x.uid === a.uid);
+    return `<div class="alert-row"><div class="grow">
+      <div><span class="tag r">${esc(CONDUCT_LABELS[a.category] || a.category)}</span> <b>${esc(a.nickname)}</b> <span class="meta-line">· ${esc((a.groupId || "").replace("g", ""))}모둠 · ${esc(personaLabels[a.personaId] || "")} · ${fmt(a.createdAt)} · 경고 ${a.strikes}/3${a.by === "rule" ? " · 규칙 검사" : " · 감독자 판정"}</span></div>
+      <div class="alert-msg">“${esc(a.input)}”</div></div>
+      <div class="row"><button class="btn btn-tinted btn-sm" data-chat="${a.uid}">대화 보기</button>
+      ${m?.chatLocked ? `<button class="btn btn-danger btn-sm" data-unlock="${a.uid}">대화 다시 열기</button>` : ""}</div></div>`;
+  }).join("");
 
   $("#g-filter").innerHTML = [`<button class="chip sm ${gFilter === "all" ? "on" : ""}" data-g="all">전체</button>`,
     ...groups.map((g) => `<button class="chip sm ${gFilter === g.id ? "on" : ""}" data-g="${g.id}">${esc(g.name)}</button>`)].join("");
@@ -175,9 +208,10 @@ function renderDash() {
     <td><b>${esc(m.nickname)}</b></td><td>${esc(m.groupId.replace("g", ""))}모둠</td>
     <td>${esc(personaLabels[assigns[m.uid] || m.personaId] || assigns[m.uid] || m.personaId || "")}</td>
     <td><span class="pill">${m.stage || 1}. ${STAGE_NAMES[m.stage || 1]}</span></td>
-    <td><span class="dot ${isOnline(m) ? "on" : ""}"></span>${isOnline(m) ? "접속 중" : `자리 비움 · ${ago(m)}`}</td>
+    <td><span class="dot ${isOnline(m) ? "on" : ""}"></span>${isOnline(m) ? "접속 중" : `자리 비움 · ${ago(m)}`}
+      ${m.chatLocked ? ` <span class="tag r">대화 멈춤</span>` : m.conduct?.total ? ` <span class="tag y" title="누적 위반">⚠ ${m.conduct.total}</span>` : ""}</td>
     <td>${m.chatCount || 0} / ${curRow()?.chatLimit || 5}번</td>
-    <td class="row" style="flex-wrap:nowrap"><button class="btn btn-tinted btn-sm" data-chat="${m.uid}">대화 보기</button><button class="btn btn-plain btn-sm" data-reset="${m.uid}" data-nick="${esc(m.nickname)}">비번 초기화</button><button class="btn btn-plain btn-sm" data-move="${m.uid}" data-nick="${esc(m.nickname)}" data-g="${esc(m.groupId)}">모둠 이동</button></td></tr>`).join("");
+    <td class="row" style="flex-wrap:nowrap"><button class="btn btn-tinted btn-sm" data-chat="${m.uid}">대화 보기</button><button class="btn btn-plain btn-sm" data-reset="${m.uid}" data-nick="${esc(m.nickname)}">비번 초기화</button><button class="btn btn-plain btn-sm" data-move="${m.uid}" data-nick="${esc(m.nickname)}" data-g="${esc(m.groupId)}">모둠 이동</button>${assigns[m.uid] || m.personaId ? `<button class="btn btn-plain btn-sm" data-unpick="${m.uid}" data-nick="${esc(m.nickname)}">인물 풀기</button>` : ""}</td></tr>`).join("");
   renderBulk();
   $("#no-students").textContent = rows.length ? "" : "아직 입장한 학생이 없습니다. 위의 수업 코드와 모둠 번호를 학생에게 알려 주세요.";
 
@@ -188,7 +222,7 @@ function renderDash() {
     return `<tr><td><b>${esc(g.name)}</b></td><td>${ms.length}명 <span class="meta-line">(접속 ${ms.filter(isOnline).length})</span></td>
       <td><span class="dots">${pr.map((f, i) => `<i class="${f ? "on" : ""} ${cur === i + 1 ? "cur" : ""}" title="${i + 1}단계 ${STAGE_NAMES[i + 1]}"></i>`).join("")}</span></td>
       <td>${g.aiCount || 0}회${g.lastAiError ? ` <span class="tag r" title="${esc(g.lastAiError.message)}">오류</span>` : ""}</td>
-      <td>${g.guardCount || 0}회</td>
+      <td>${g.guardCount || 0}회${g.conductCount ? ` <span class="tag r">위반 ${g.conductCount}</span>` : ""}</td>
       <td class="row" style="flex-wrap:nowrap"><button class="btn btn-tinted btn-sm" data-gwork="${g.id}">산출물</button><button class="btn btn-plain btn-sm" data-glog="${g.id}">AI 기록</button></td></tr>`;
   }).join("");
 }
@@ -218,6 +252,11 @@ async function loadGuardLogs(uidFilter) {
 }
 const piiTag = (pii) => (pii || []).length ? ` <span class="tag r" title="학생이 입력에 개인정보를 적었습니다">개인정보 의심 · ${pii.map(esc).join(", ")}</span>` : "";
 
+// 검색 교차 확인 결과(원문 대조 전 참고용)
+const CROSS = { ok: ["", "교차 확인"], partial: ["y", "일부 확인"], fixed: ["b", "고쳐 씀"], todo: ["x", "확인 못 함"] };
+const crossTag = (s) => s.crossCheck ? `<div class="meta-line" style="margin-top:2px"><span class="tag ${CROSS[s.crossCheck.status]?.[0] ?? "x"}">${CROSS[s.crossCheck.status]?.[1] || esc(s.crossCheck.status)}</span> ${esc(s.crossCheck.note)}</div>` : "";
+const CONDUCT_LABELS = { mockery: "조롱·모욕", sexual: "성적 희롱" };
+
 async function loadChat(uid) {
   workGid = null;
   const m = members.find((x) => x.uid === uid);
@@ -228,7 +267,7 @@ async function loadChat(uid) {
     const gl = glogs[l.id] || {};
     const g = gl.guard || l.guard;
     return `<div class="logline">
-    <div class="q">학생 ${esc(l.input)}${piiTag(gl.pii)}</div>
+    <div class="q">학생 ${esc(l.input)}${piiTag(gl.pii)}${gl.conduct ? ` <span class="tag r">${esc(CONDUCT_LABELS[gl.conduct.category] || "규칙 위반")} · 경고 ${gl.conduct.strikes}/3 · ${gl.conduct.by === "rule" ? "규칙 검사" : "감독자 판정"}</span>` : ""}</div>
     <div class="a">${esc(m?.nickname || "")} ↔ ${esc(personaLabels[pid] || pid || "")}: ${esc(l.output)}${guardTag(g)}</div>
     ${lookupHtml(l.lookups)}
     ${g && (!g.ok || g.trimmed) ? `<details><summary class="meta-line">감독자 판정 보기</summary><div class="meta-line">사유: ${esc(g.reason)}<br>인물의 원래 응답: ${esc(g.original || "")}</div></details>` : ""}
@@ -242,6 +281,7 @@ const prettyLog = (l) => {
   try {
     const j = JSON.parse(l.output);
     if (j.reviews) body = j.reviews.map((r) => `[${r.label}]\n${r.text}`).join("\n\n");
+    else if (j.question) body = `[생각 도우미${j.kind ? ` · ${j.kind}` : ""}] ${j.question}`;
     else if (j.scenarios) body = j.scenarios.map((s) => `■ ${s.title}\n${s.story}\n작동 기제: ${s.mechanism || ""}`).join("\n\n");
   } catch {}
   return body;
@@ -251,8 +291,8 @@ async function loadGroupLogs(gid) {
   const g = groups.find((x) => x.id === gid);
   const html = (g?.lastAiError ? `<div class="notice">최근 AI 오류 (${g.lastAiError.stage}단계): ${esc(g.lastAiError.message)}</div>` : "") +
     (snap.docs.map((d) => d.data()).map((l) => `<div class="logline"><div class="meta-line">${l.stage}단계 · ${esc(l.nickname)} · ${fmt(l.createdAt)} · ${esc(l.model)}</div>
-      <div class="q">${esc(l.input)}</div><div class="a">${esc(prettyLog(l))}</div></div>`).join("") || `<div class="meta-line">3~5단계 AI 기록이 없습니다.</div>`);
-  showDetail(`${g?.name || gid} 3~5단계 AI 기록`, html);
+      <div class="q">${esc(l.input)}</div><div class="a">${esc(prettyLog(l))}</div></div>`).join("") || `<div class="meta-line">2~5단계 AI 기록이 없습니다.</div>`);
+  showDetail(`${g?.name || gid} 2~5단계 AI 기록`, html);
 }
 function renderBulk() {
   const n = picked.size;
@@ -274,6 +314,13 @@ $("#bulk-reset").onclick = async () => {
   catch (err) { toast(errMsg(err), true); }
 };
 $("#students").onclick = async (e) => {
+  const up = e.target.closest("[data-unpick]");
+  if (up) {
+    if (!(await confirmModal("고른 인물을 풀까요?", `<p><b>${esc(up.dataset.nick)}</b> 학생이 고른 인물을 풀어 다시 고르게 합니다. 이 학생의 <b>대화 기록은 지워지고</b> 질문 횟수도 처음으로 돌아갑니다.</p>`, "풀기", "취소", true))) return;
+    try { await call("resetPersonaChoice")({ code: current, uid: up.dataset.unpick }); toast(`'${up.dataset.nick}' 학생의 인물 선택을 풀었습니다.`); }
+    catch (err) { toast(errMsg(err), true); }
+    return;
+  }
   const mv = e.target.closest("[data-move]");
   if (mv) return moveDialog(mv.dataset.move, mv.dataset.nick, mv.dataset.g);
   const r = e.target.closest("[data-reset]");
@@ -284,6 +331,13 @@ $("#students").onclick = async (e) => {
     return;
   }
   const b = e.target.closest("[data-chat]"); if (b) loadChat(b.dataset.chat).catch((err) => toast(errMsg(err), true));
+};
+$("#conduct-list").onclick = async (e) => {
+  const c = e.target.closest("[data-chat]"); if (c) return loadChat(c.dataset.chat).catch((err) => toast(errMsg(err), true));
+  const u = e.target.closest("[data-unlock]"); if (!u) return;
+  u.disabled = true;
+  try { await call("unlockChat")({ code: current, uid: u.dataset.unlock }); toast("대화를 다시 열었습니다"); }
+  catch (err) { toast(errMsg(err), true); u.disabled = false; }
 };
 $("#groups").onclick = (e) => {
   const w = e.target.closest("[data-gwork]");
@@ -335,7 +389,8 @@ async function loadCheck(eventId) {
     $("#check-note").innerHTML = `<div class="notice muted">교사 메모: ${esc(data.event.teacherNote)}</div>
       <div class="notice muted"><b>모든 인물이 아는 사건 공통 배경</b> (인물은 자기 진술과 이 배경에 있는 핵심 사실만 말합니다)${(data.event.background || []).map((c) =>
         `<div style="margin-top:4px"><span class="tag ${c.kind === "주장" || c.kind === "의견" ? "y" : ""}">${esc(c.kind)}</span> ${esc(c.text)} <span class="tag ${c.verified ? "" : "x"}">${esc(c.src)}</span></div>`).join("")}</div>
-      <div class="notice muted">인물 ${data.personas.length}명은 네 축(당사자·도민·시민사회·제도)으로 나뉩니다. 학생이 입장하면 모둠 안에서 축이 겹치지 않게 무작위로 배정됩니다. 배정은 수업 현황의 '인물(교사용)' 열에서 봅니다.</div>`;
+      <div class="notice muted">인물 ${data.personas.length}명은 네 축(${esc((data.event.axes || []).join("·"))})으로 나뉩니다. 학생은 1단계에서 모든 인물의 편지를 읽고 모둠이 상의해 한 명씩 직접 고릅니다(모둠 안에서 겹치지 않고, ${esc(data.event.requiredAxis || "당사자")} 인물은 모둠에 꼭 한 명). 누가 누구를 골랐는지는 수업 현황의 '인물(교사용)' 열에서 봅니다. 잘못 골랐으면 그 줄의 '인물 풀기'로 다시 고르게 할 수 있습니다.</div>`;
+    $("#persona-count").textContent = data.personas.length;
     $("#persona-check").innerHTML = data.personas.map((p) => {
       const ok = p.sources.every((s) => s.verified);
       return `<details class="fold"><summary><span><span class="tag b">${esc(p.axis || "")}</span> ${esc(p.name)} <span class="meta-line">· ${esc(p.label)}</span></span> <span class="tag ${ok ? "" : "y"}">${ok ? "원문 대조 완료" : "대조 필요"}</span></summary><div class="inner">
@@ -345,16 +400,29 @@ async function loadCheck(eventId) {
           ${(p.story || []).map((v) => `<div class="meta-line" style="color:var(--ink);margin-top:4px">· ${esc(v)}</div>`).join("")}
           <div style="margin-top:8px"><b>기억나는 장면</b></div>${(p.episodes || []).map((v) => `<div class="meta-line" style="color:var(--ink);margin-top:4px">· ${esc(v)}</div>`).join("")}
           <div class="meta-line" style="margin-top:8px">마음속 고민: ${esc(p.inner || "")}</div><div class="meta-line">말버릇: ${esc(p.habits || "")}</div></details>
+        ${(p.beliefs || []).length ? `<div class="notice yellow" style="margin-top:10px"><b>이 인물이 사실이라고 믿는 것 (틀리거나 과장일 수 있음)</b><div class="meta-line">학생이 다른 인물의 말·자료와 견주어 3단계에서 검증하도록 넣은 장치입니다.</div>${p.beliefs.map((b) => `<div style="margin-top:6px">· ${esc(b.text)}<div class="meta-line">실제: ${esc(b.note)}</div></div>`).join("")}</div>` : ""}
         ${(p.limits || []).length ? `<div class="notice yellow" style="margin-top:10px"><b>조심할 이야기</b>${p.limits.map((v) => `<div style="margin-top:4px">· ${esc(v)}</div>`).join("")}</div>` : ""}
         <div style="margin-top:10px"><b>학생에게 보이는 편지</b><div class="ai-out">${p.letter.map(esc).join("\n\n")}</div></div>
         <div style="margin-top:10px"><b>근거 진술</b>${p.claims.map((c) => `<div class="meta-line" style="color:var(--ink);margin-top:4px"><span class="tag ${c.kind === "주장" || c.kind === "의견" ? "y" : ""}">${esc(c.kind)}</span> ${esc(c.text)} <span class="tag x">${esc(c.src)}</span></div>`).join("")}</div>
         <div style="margin-top:10px"><b>출처 (원문을 열어 진술과 대조)</b>${p.sources.map((s) => `<div style="margin-top:8px"><span class="tag ${s.verified ? "" : "x"}">${s.id}</span>
           <a href="${esc(safeUrl(s.url))}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a>${s.titleIsDescriptive ? ' <span class="meta-line">(제목은 설명 문구, 실제 제목 확인)</span>' : ""}
-          <div class="meta-line">${esc(s.outlet)} · ${esc(s.date)}</div><div class="meta-line">확인할 것: ${esc(s.check)}</div></div>`).join("")}</div></div></details>`;
+          <div class="meta-line">${esc(s.outlet)} · ${esc(s.date)}</div><div class="meta-line">확인할 것: ${esc(s.check)}</div>${crossTag(s)}</div>`).join("")}</div></div></details>`;
     }).join("");
     $("#material-check").innerHTML = data.materials.map((c) => `<details class="fold"><summary>${esc(c.title)} <span class="meta-line">· ${c.items.length}개</span></summary><div class="inner">
       ${c.items.map((it) => `<div class="logline"><span class="kind k-${esc(it.kind)}">${esc(it.kind)}</span> ${it.date ? `<b>${esc(it.date)}</b> ` : ""}${esc(it.text)}
         <div class="meta-line">${it.src.map((id) => `<span class="tag ${it.verified ? "" : "x"}">${id}</span>`).join(" ")} 학생에게 보이는 캡션: ${esc(it.caption)}${it.verified ? "" : " · 미검증"}</div></div>`).join("")}</div></details>`).join("");
+    const srcList = (sources) => sources.map((s) => `<div style="margin-top:8px"><span class="tag ${s.verified ? "" : "x"}">${s.id}</span>
+      <a href="${esc(safeUrl(s.url))}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a>${s.titleIsDescriptive ? ' <span class="meta-line">(제목은 설명 문구, 실제 제목 확인)</span>' : ""}
+      <div class="meta-line">${esc(s.outlet)} · ${esc(s.date)}</div><div class="meta-line">확인할 것: ${esc(s.check)}</div>${crossTag(s)}</div>`).join("");
+    $("#case-check").innerHTML = (data.cases || []).map((c) => `<details class="fold"><summary><span>${esc(c.country)} <span class="meta-line">· ${esc(c.title)}</span></span> <span class="tag ${c.verified ? "" : "y"}">${c.verified ? "원문 대조 완료" : "대조 필요"}</span></summary><div class="inner">
+      <div class="meta-line" style="color:var(--ink)"><b>무엇을 했나</b> ${esc(c.what)}</div>
+      <div class="meta-line" style="color:var(--ink);margin-top:4px"><b>어떻게 되었나</b> ${esc(c.result)}</div>
+      <div class="meta-line" style="margin-top:4px"><b>생각해 볼 점</b> ${esc(c.think)}</div>
+      <div style="margin-top:10px"><b>출처</b>${srcList(c.sources)}</div></div></details>`).join("");
+    $("#after-check").innerHTML = `<details class="fold"><summary>이후 전개 <span class="meta-line">· ${(data.aftermath || []).length}개</span></summary><div class="inner">
+      ${(data.aftermath || []).map((it) => `<div class="logline"><span class="kind k-${esc(it.kind)}">${esc(it.kind)}</span> ${esc(it.text)}
+        <div class="meta-line">${it.src.map((id) => `<span class="tag ${it.verified ? "" : "x"}">${id}</span>`).join(" ")} ${esc(it.caption)}${it.verified ? "" : " · 미검증"}</div></div>`).join("")}
+      <div style="margin-top:10px"><b>출처</b>${srcList([...new Map((data.aftermath || []).flatMap((a) => a.sources).map((s) => [s.id, s])).values()])}</div></div></details>`;
   } catch (e) { $("#persona-check").innerHTML = `<div class="notice">${esc(errMsg(e))}</div>`; }
 }
 
@@ -376,17 +444,21 @@ function stageSections(n, g) {
       return [
         { title: "개인 제출 (모둠원이 만난 인물)", rows: listOf(w.s1?.findings).map((f) => [
           `${f.nick || "모둠원"} → ${f.persona || "인물"}${f.submitted === false ? " (수정 중·미제출)" : ""}`,
-          joinLines(["누구", f.who], ["힘든 것", f.hard], ["바라는 것", f.want], ["기억에 남는 말", f.quote], ["확인할 말", f.doubt], ["", f.text]), f.nick]) },
+          joinLines(["대화 전 내 생각", f.prior], ["누구", f.who], ["힘든 것", f.hard], ["바라는 것", f.want], ["'어?' 했던 순간", f.surprise], ["기억에 남는 말", f.quote], ["정말 그럴까?", f.doubt], ["", f.text]), f.nick]) },
         { title: "모둠 문제 정의", rows: [
-          ["같은 점", pb.common], ["부딪히는 점", pb.conflict], ["문제 상황", pb.situation], ["우리가 풀 질문", pb.hmw],
+          ["같은 점", pb.common], ["서로 다르게 말한 것", pb.disputes], ["부딪히는 점", pb.conflict], ["문제 상황", pb.situation], ["우리가 풀 질문", pb.hmw],
           ["점검표", hasKeys(pb.checks) ? `${countTrue(pb.checks)} / ${PROBLEM_CHECK_N}` : ""]].filter(([, v]) => tx(v)) },
       ];
     }
     case 2: return [
-      { title: "나·우리와의 연결고리", rows: listOf(w.s2?.links).map((r) => [r.level, joinLines(["처지", r.situation], ["이어지는 점", r.point], ["확인 방법", r.confirm]), r.nick]) },
-      { title: "원인 가설", rows: listOf(w.s2?.causes).map((c) => [c.level || "원인", c.text, c.nick]) },
+      { title: "처음 내 생각 돌아보기", rows: listOf(w.s2?.links).map((r) => [r.angle || r.level || "연결", joinLines(
+        ["처음 생각", r.prior], ["흔들린 순간", r.surprise], ["어디서 왔을까", r.source], ["내 생활의 장면", r.scene], ["궁금해진 것", r.question],
+        ["처지", r.situation], ["이어지는 점", r.point], ["확인 방법", r.confirm],
+        ...ofStage(2).filter((l) => l.payload?.linkId === r.id).map((l) => ["생각 도우미", prettyLog(l)]), ["더 생각한 것", w.s2?.linkMore?.[r.id]]), r.nick]) },
+      { title: "원인 추측", rows: [...listOf(w.s2?.causes).map((c) => [c.level || "원인", c.text, c.nick]),
+        ...ofStage(2).filter((l) => l.payload?.focus === "cause").map((l) => ["생각 도우미", prettyLog(l), l.nickname])] },
       { title: "검증 질문", rows: listOf(w.s2?.checks).map((c) => [`확인할 말: ${c.heard || ""}`, joinLines(
-        ["관련 원인 가설", c.causeId ? listOf(w.s2?.causes).find((x) => x.id === c.causeId)?.text || "(삭제됨)" : ""],
+        ["관련 원인 추측", c.causeId ? listOf(w.s2?.causes).find((x) => x.id === c.causeId)?.text || "(삭제됨)" : ""],
         ["검증 질문", c.question], ["확인할 자료", c.srcType], ["자료 비교", c.real]), c.nick]) },
     ];
     case 3: {
@@ -404,7 +476,7 @@ function stageSections(n, g) {
     case 4: {
       const props = listOf(w.s4?.proposals);
       return [
-        { title: "모둠 대안", rows: props.map((p) => ["대안", p.text, p.nick]) },
+        { title: "모둠 대안", rows: props.map((p) => ["대안", joinLines(["", p.text], ["겨냥하는 원인", p.cause], ["참고한 사례", p.ref]), p.nick]) },
         { title: "AI 검토와 모둠 판단", rows: ofStage(4).map((l) => {
           const p = props.find((x) => x.id === l.payload?.proposalId), d = w.s4?.decisions?.[l.id] || {};
           return [`검토 대상: ${(p?.text || l.input).slice(0, 60)}`, joinLines(["판단", d.choice], ["공통 지적", d.compare], ["이유", d.reason],
@@ -427,7 +499,7 @@ function stageSections(n, g) {
       const p = w.s6?.plan || {};
       return [{ title: p.type === "patch" ? "대안 보완안" : "행동 계획", rows: [["대상", p.target], ["내용", p.content], ["방법", p.method], ["기대 효과", p.effect], ["어려움과 대응", p.difficulty]].filter(([, v]) => tx(v)) }];
     }
-    case 7: return [{ title: "공유·성찰", rows: [["발표 정리", w.s7?.share], ["AI 활용 점검", hasKeys(w.s7?.checks) ? `${countTrue(w.s7.checks)} / ${REFLECT_N}` : ""], ["성찰", w.s7?.reflection]].filter(([, v]) => tx(v)) }];
+    case 7: return [{ title: "공유·성찰", rows: [["발표 정리", w.s7?.share], ["실제 전개와 비교", w.s7?.compare], ["AI 활용 점검", hasKeys(w.s7?.checks) ? `${countTrue(w.s7.checks)} / ${REFLECT_N}` : ""], ["성찰", w.s7?.reflection]].filter(([, v]) => tx(v)) }];
   }
   return [];
 }
@@ -503,7 +575,7 @@ function catForm(c) {
   const isNew = !c;
   const v = c || { title: "", type: "list" };
   return `<div class="mform" data-form="${isNew ? "newcat" : "editcat:" + esc(c.id)}">
-    <div class="two"><div><label class="lbl" style="margin-top:0">분류 이름</label><input type="text" data-f="title" maxlength="40" placeholder="예) 제주 도민의 목소리" value="${esc(v.title)}" /></div>
+    <div class="two"><div><label class="lbl" style="margin-top:0">분류 이름</label><input type="text" data-f="title" maxlength="40" placeholder="예) 현지 주민의 목소리" value="${esc(v.title)}" /></div>
       <div><label class="lbl" style="margin-top:0">보여 주는 방식</label><select data-f="type"><option value="list" ${v.type === "list" ? "selected" : ""}>목록</option><option value="timeline" ${v.type === "timeline" ? "selected" : ""}>시간 순 흐름 (시점 입력)</option></select></div></div>
     <div class="row" style="margin-top:10px"><button class="btn btn-primary btn-sm" data-m="${isNew ? "cat-add" : "cat-save"}" ${isNew ? "" : `data-c="${esc(c.id)}"`}>${isNew ? "분류 만들기" : "저장"}</button>
       ${isNew ? "" : `<button class="btn btn-plain btn-sm" data-m="item-cancel">취소</button>`}</div></div>`;
@@ -611,6 +683,7 @@ function fillSettings() {
   $("#s-ailimit").value = r.aiLimit || 150;
   $("#s-chatlimit").value = r.chatLimit || 5;
   $("#s-web").value = r.webSearch === false ? "0" : "1";
+  $("#s-coach").value = r.coach === false ? "0" : "1";
   $("#s-auto").value = String(r.autoCloseHours || 0);
   $("#s-guide").style.whiteSpace = "pre-wrap";
   $("#s-guide").textContent = studentGuide();
@@ -619,7 +692,7 @@ $("#s-save").onclick = async () => {
   try {
     await call("updateSession")({
       code: current, title: $("#s-title").value, groupCount: Number($("#s-groups").value),
-      aiLimit: Number($("#s-ailimit").value), chatLimit: Number($("#s-chatlimit").value), webSearch: $("#s-web").value === "1", autoCloseHours: Number($("#s-auto").value),
+      aiLimit: Number($("#s-ailimit").value), chatLimit: Number($("#s-chatlimit").value), webSearch: $("#s-web").value === "1", coach: $("#s-coach").value === "1", autoCloseHours: Number($("#s-auto").value),
     });
     toast("저장했습니다");
     setTimeout(fillSettings, 400);
@@ -742,7 +815,7 @@ async function loadPersonaEdit() {
   if (pe.loaded) return renderPersonaEdit();
   $("#persona-edit").innerHTML = `<div class="card">${waitHtml({ steps: STEPS.load })}</div>`;
   try {
-    const [c, o] = await Promise.all([call("getCase")({ eventId: "jeju2018" }), call("getPersonaOverrides")({ code: current })]);
+    const [c, o] = await Promise.all([call("getCase")({ eventId: curRow()?.eventId || "jeju2018" }), call("getPersonaOverrides")({ code: current })]);
     Object.assign(pe, { personas: c.data.personas, overrides: o.data.overrides, loaded: true });
     renderPersonaEdit();
   } catch (e) { $("#persona-edit").innerHTML = `<div class="notice">${esc(errMsg(e))}</div>`; }

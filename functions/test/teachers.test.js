@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert");
-const { isTeacherEmail, parseEmails, ADMIN_EMAILS } = require("../teachers");
+const { isTeacherEmail, parseEmails, ADMIN_EMAILS, FIXED_TEACHERS } = require("../teachers");
 
 const noDoc = async () => undefined;
 
@@ -43,4 +43,9 @@ test("Firestore 읽기가 실패해도 안전하게 거부하되, 관리자·환
 test("잘못된 형식(null, 숫자)이 와도 오류 없이 빈 목록", () => {
   assert.deepEqual(parseEmails(null), []);
   assert.deepEqual(parseEmails(123), ["123"]);
+});
+
+test("코드에 고정한 교사(ccchoihy@gmail.com)는 설정 없이도 교사다", async () => {
+  assert.ok(FIXED_TEACHERS.includes("ccchoihy@gmail.com"));
+  assert.equal(await isTeacherEmail("CCChoiHY@gmail.com", { envList: "", readDoc: noDoc }), true);
 });

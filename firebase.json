@@ -1,5 +1,39 @@
 {
-  "hosting": { "public": "public", "ignore": ["firebase.json", "**/.*"] },
-  "firestore": { "rules": "firestore.rules", "indexes": "firestore.indexes.json" },
-  "functions": [{ "source": "functions", "codebase": "default" }]
+  "hosting": {
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      "**/.*"
+    ],
+    "headers": [
+      {
+        "source": "**/*.webmanifest",
+        "headers": [
+          {
+            "key": "Content-Type",
+            "value": "application/manifest+json; charset=utf-8"
+          }
+        ]
+      },
+      {
+        "source": "icons/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=86400"
+          }
+        ]
+      }
+    ]
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default"
+    }
+  ]
 }
