@@ -706,12 +706,13 @@ test("학생 모바일: 머리글·아래 막대가 얇고, 1단계 대화창이
 test("학생 모바일: 대화 전에는 예시 질문이 보이고, PC 화면에는 '알아낼 것' 칩이 없다", async () => {
   const m = await openStudent(studentFixture(), { ctxOpts: phone, chat: [] });
   await login(m.pg);
+  // 입장 직후에는 화면을 몇 번 다시 그리므로(인물·대화 기록 도착), 그 순간에 바로 확인하지 않고 보일 때까지 기다린다
   await m.pg.waitForSelector("#msgs");
-  assert.ok(await m.pg.locator(".starters").isVisible());
+  await m.pg.waitForSelector(".starters", { state: "visible" });
   const d = await openStudent(studentFixture(), { chat: [] });
   await login(d.pg, "#msgs");
+  await d.pg.waitForSelector(".notice.pc-only", { state: "visible" });
   assert.ok(await d.pg.locator(".goal-chips").isHidden());
-  assert.ok(await d.pg.locator(".notice.pc-only").isVisible());
 });
 
 test("학생 모바일: 아래로 스크롤하면 머리글·아래 막대가 숨고, 위로 스크롤하면 다시 나타난다", async () => {
