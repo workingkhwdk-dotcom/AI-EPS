@@ -736,6 +736,61 @@ test("학생 모바일: 2·3·4단계에서 학습 내용이 화면 첫머리부
   }
 });
 
+test("학생: 인물과 처음 이야기하기 전에 '처음 내 생각'을 한 줄 적어야 하고, 정리 화면에 그 생각이 함께 보인다", async () => {
+  const st = studentFixture(), { pg } = await openStudent(st, { chat: [] });
+  await login(pg, "#msgs");
+  assert.match(await pg.locator(".card.prior").innerText(), /이야기를 듣기 전에/);
+  await pg.fill("#msg", "어디서 오셨어요?");
+  await pg.press("#msg", "Enter");
+  await pg.waitForSelector(".toast");
+  assert.match(await pg.locator(".toast").last().innerText(), /내 생각을 한 줄/);
+  assert.equal(st.chatCalls.length, 0, "처음 생각을 적기 전에는 보내지 않는다");
+  await pg.fill("#prior-in", "돈 벌러 온 사람들 같았다");
+  await pg.fill("#msg", "어디서 오셨어요?");
+  await pg.press("#msg", "Enter");
+  await pg.waitForFunction(() => window.__log.includes("aiRequest"));
+  assert.equal(st.chatCalls.length, 1);
+  st.releaseChat();
+  await pg.click('.subnav button[data-sub="note"]');
+  await pg.waitForSelector("text=대화 전 내 생각");
+  assert.match(await pg.locator(".notice.muted").first().innerText(), /돈 벌러 온 사람들/);
+  assert.match(await pg.content(), /내 생각과 다르네/);
+});
+
+test("학생: 2단계 ①은 처음 내 생각에서 출발하고, 생각 도우미의 질문을 보고 더 쓸 수 있으며, 선생님이 끄면 도우미가 사라진다", async () => {
+  const work = {
+    s1: { findings: { anonX: { prior: "돈 벌러 온 사람들 같았다", surprise: "징집을 피해 왔다는 말을 들었다" } }, problem: { hmw: "어떻게 하면 주민의 불안을 줄이면서도 신청자의 생계를 지킬 수 있을까?", disputes: "주민은 범죄가 늘었다고 했는데, 활동가는 아니라고 했다" } },
+    s2: { links: { L1: { by: "anonX", nick: "가람", prior: "돈 벌러 온 사람들 같았다", source: "뉴스 제목만 봤다", angle: "내가 그 사람 쪽에 서 봤던 때", scene: "전학 간 첫날 아무도 말을 안 걸었다", question: "사람들은 왜 낯선 사람을 먼저 의심할까?", t: 1 },
+      L2: { by: "other", nick: "나래", source: "주변 어른들 말", scene: "우리 동네에도 외국인 노동자가 많다", t: 2 } } },
+  };
+  const st = studentFixture();
+  const s = await openStudent(st, { work });
+  await s.pg.evaluate(() => { window.__cols["sessions/ABC234/groups/g1/logs"] = [{ id: "g1log", stage: 2, type: "coach", output: JSON.stringify({ kind: "멀리 둠", question: "'뉴스 제목만 봤다'고 했는데, 그 제목은 어떤 말이었나요?" }), payload: { focus: "link", linkId: "L1", kind: "멀리 둠" }, createdAt: 1 }]; });
+  await login(s.pg);
+  await s.pg.click('#tabs .stage-tab[data-stage="2"]');
+  await s.pg.waitForSelector("text=처음 내 생각 돌아보기");
+  const body = await s.pg.locator("#panel").innerText();
+  assert.match(body, /돈 벌러 온 사람들 같았다/);
+  assert.match(body, /징집을 피해 왔다/);
+  assert.match(body, /그 제목은 어떤 말이었나요/, "생각 도우미의 질문이 내 카드 아래에 보인다");
+  assert.match(body, /질문을 받고 더 생각한 것/);
+  assert.match(body, /나래/, "모둠원의 생각도 보인다");
+  assert.match(body, /엇갈림/, "인물들이 다르게 말한 것이 확인할 질문 후보로 나온다");
+  assert.doesNotMatch(body, /층위|가설|이해관계자|연결고리/);
+  if (process.env.SHOT_DIR) await s.pg.locator(".card", { hasText: "처음 내 생각 돌아보기" }).screenshot({ path: path.join(process.env.SHOT_DIR, "stage2-link.png") });
+  await s.pg.click('[data-act="ask-coach"][data-focus="link"]');
+  await s.pg.waitForFunction(() => window.__log.includes("aiRequest"));
+  assert.deepEqual(st.chatCalls.at(-1), { code: "ABC234", stage: 2, type: "coach", payload: { focus: "link", linkId: "L1" } });
+  st.releaseChat();
+  // 새 연결: 1·2번이 짧으면 막는다
+  await s.pg.fill("#lk-src", "몰라");
+  await s.pg.click('[data-act="add-link"]');
+  await s.pg.waitForSelector(".toast");
+  await s.pg.evaluate(() => window.__push("sessions/ABC234", { chatLimit: 5, coach: false }));
+  await s.pg.waitForFunction(() => !document.querySelector('[data-act="ask-coach"]'));
+  assert.match(await s.pg.locator("#panel").innerText(), /AI 사용 안 함/);
+});
+
 // ---------- 브라우저·홈 화면 아이콘 ----------
 const pngSize = (f) => { const b = fs.readFileSync(f); assert.equal(b.slice(1, 4).toString(), "PNG", `${f} 는 PNG 여야 한다`); return [b.readUInt32BE(16), b.readUInt32BE(20), b[25]]; }; // [가로, 세로, 색 종류(2=RGB, 6=RGBA)]
 const headOf = (file) => fs.readFileSync(path.join(ROOT, file), "utf8").split("</head>")[0];

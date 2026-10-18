@@ -89,6 +89,7 @@ const kindOf = (sys) =>
     : sys.includes("시뮬레이션 도우미") ? "scenario"
     : sys.includes("독립 검토자") ? "review"
     : sys.includes("검색 보조자") ? "verify"
+    : sys.includes("생각 도우미") ? "coach"
     : sys.includes("메신저 대화") ? "persona" : "other";
 let searchReply = "NOT_FOUND"; // 웹 검색 가짜의 답
 let searchSources = [];
@@ -113,6 +114,7 @@ global.fetch = async (url, init) => {
     : kind === "scenario" ? '{"scenarios":[{"title":"A","story":"s","mechanism":"m","unintended":["u"],"newProblems":["p"]},{"title":"B","story":"s","mechanism":"m","unintended":["u"],"newProblems":["p"]}]}'
     : kind === "persona" ? personaReply
     : kind === "review" ? "강점: 좋다\n약점: 비싸다\n질문: 누가 반대할까?"
+    : kind === "coach" ? '{"kind":"잘 이어짐","question":"\'전학 갔을 때\'라고 썼는데, 그때 학교에는 새로 온 사람을 맞는 어떤 규칙이 있었나요?"}'
     : "일반적인 설명입니다.";
   return { ok: true, json: async () => ({ choices: [{ message: { content } }] }) };
 };
@@ -474,10 +476,48 @@ test("5단계 시뮬레이션: 두 번 다 실패하면 오류를 돌려주고 �
   scenarioEmptyFirst = 0;
 });
 
-test("선행 사고가 없으면 4·5단계 AI는 열리지 않고, 2·6·7단계는 항상 닫혀 있다", async () => {
+test("선행 사고가 없으면 4·5단계 AI는 열리지 않고, 6·7단계는 항상 닫혀 있으며, 2단계는 생각 도우미만 열린다", async () => {
   setWork({ s3: s3Work });
   await assert.rejects(api.aiRequest({ ...student("S3"), data: { code, stage: 4, type: "proposal_feedback", payload: { proposalId: "a1" } } }), /대안/);
-  await assert.rejects(api.aiRequest({ ...student("S3"), data: { code, stage: 2, type: "persona_chat", payload: { message: "x" } } }), /스스로/);
+  await assert.rejects(api.aiRequest({ ...student("S3"), data: { code, stage: 6, type: "persona_chat", payload: { message: "x" } } }), /스스로/);
+  await assert.rejects(api.aiRequest({ ...student("S3"), data: { code, stage: 2, type: "persona_chat", payload: { message: "x" } } }), /허용되지 않는/);
+});
+
+test("2단계 생각 도우미: 내가 먼저 쓴 연결을 보고 유형에 맞는 질문 하나만 돌려주고, 남의 글·빈 글·꺼진 수업에서는 막힌다", async () => {
+  const links = { L1: { by: "S3", nick: "별", prior: "난민은 돈 벌러 온 사람", surprise: "징집을 피해 왔다는 말", source: "뉴스에서 본 것 같다", angle: "내가 그 사람 처지였던 적", scene: "전학 갔을 때 아무도 말을 안 걸었다", question: "왜 낯선 사람을 먼저 의심할까", t: 1 },
+    L2: { by: "S4", nick: "달", source: "어릴 때부터 들은 말", scene: "", t: 2 }, L3: { by: "S3", source: "", scene: "짧", t: 3 } };
+  setWork({ s2: { links } });
+  calls.length = 0;
+  const g0 = store.get(`sessions/${code}/groups/g1`).aiCount || 0, m0 = store.get(`sessions/${code}/members/S3`);
+  const r = await api.aiRequest({ ...student("S3"), data: { code, stage: 2, type: "coach", payload: { focus: "link", linkId: "L1" } } });
+  assert.equal(r.result.kind, "잘 이어짐");
+  assert.match(r.result.question, /\?/);
+  const call = calls.find((c) => c.kind === "coach").body;
+  assert.match(call.messages[0].content, /질문 하나만/);
+  assert.match(call.messages[0].content, /멀리 둠/);
+  assert.match(call.messages[1].content, /전학 갔을 때/);
+  assert.match(call.messages[1].content, /난민은 돈 벌러 온 사람/);
+  assert.equal(store.get(`sessions/${code}/groups/g1`).aiCount || 0, g0, "생각 도우미는 모둠의 3~5단계 한도를 쓰지 않는다");
+  assert.equal(store.get(`sessions/${code}/members/S3`).aiCount || 0, m0.aiCount || 0);
+  assert.equal(store.get(`sessions/${code}/members/S3`).coachCount, (m0.coachCount || 0) + 1);
+  // 한 사람이 부를 수 있는 횟수에는 끝이 있다
+  store.set(`sessions/${code}/members/S3`, { ...store.get(`sessions/${code}/members/S3`), coachCount: 8 });
+  await assert.rejects(api.aiRequest({ ...student("S3"), data: { code, stage: 2, type: "coach", payload: { focus: "link", linkId: "L1" } } }), /8번까지/);
+  store.set(`sessions/${code}/members/S3`, { ...store.get(`sessions/${code}/members/S3`), coachCount: 1 });
+  await assert.rejects(api.aiRequest({ ...student("S3"), data: { code, stage: 2, type: "coach", payload: { focus: "link", linkId: "L2" } } }), /내가 쓴 생각만/);
+  await assert.rejects(api.aiRequest({ ...student("S3"), data: { code, stage: 2, type: "coach", payload: { focus: "link", linkId: "L3" } } }), /조금 더/);
+  await assert.rejects(api.aiRequest({ ...student("S3"), data: { code, stage: 2, type: "coach", payload: { focus: "nope" } } }), /고르세요/);
+  // 원인 도우미는 모둠 문제와 원인 두 개 이상이 있어야 열린다
+  await assert.rejects(api.aiRequest({ ...student("S3"), data: { code, stage: 2, type: "coach", payload: { focus: "cause" } } }), /문제/);
+  setWork({ s1: { problem: { hmw: "어떻게 하면 일자리를 얻으면서도 도민이 안심할 수 있을까?" } }, s2: { links, causes: { c1: { text: "말이 안 통해서 일을 못 구함", level: "사람들의 생각·선택", t: 1 }, c2: { text: "출도 제한으로 일자리가 적음", level: "법·제도·규칙", t: 2 } } } });
+  const r2 = await api.aiRequest({ ...student("S3"), data: { code, stage: 2, type: "coach", payload: { focus: "cause" } } });
+  assert.ok(r2.result.question);
+  const log = groupLogs().find((l) => l.stage === 2 && l.payload.focus === "cause");
+  assert.ok(log && log.payload.kind !== undefined);
+  // 선생님이 끄면 막힌다
+  await api.updateSession({ ...teacher, data: { code, coach: false } });
+  await assert.rejects(api.aiRequest({ ...student("S3"), data: { code, stage: 2, type: "coach", payload: { focus: "cause" } } }), /껐어요/);
+  await api.updateSession({ ...teacher, data: { code, coach: true } });
 });
 
 // ---------- 학생 비밀번호 ----------

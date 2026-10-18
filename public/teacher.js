@@ -271,6 +271,7 @@ const prettyLog = (l) => {
   try {
     const j = JSON.parse(l.output);
     if (j.reviews) body = j.reviews.map((r) => `[${r.label}]\n${r.text}`).join("\n\n");
+    else if (j.question) body = `[생각 도우미${j.kind ? ` · ${j.kind}` : ""}] ${j.question}`;
     else if (j.scenarios) body = j.scenarios.map((s) => `■ ${s.title}\n${s.story}\n작동 기제: ${s.mechanism || ""}`).join("\n\n");
   } catch {}
   return body;
@@ -280,8 +281,8 @@ async function loadGroupLogs(gid) {
   const g = groups.find((x) => x.id === gid);
   const html = (g?.lastAiError ? `<div class="notice">최근 AI 오류 (${g.lastAiError.stage}단계): ${esc(g.lastAiError.message)}</div>` : "") +
     (snap.docs.map((d) => d.data()).map((l) => `<div class="logline"><div class="meta-line">${l.stage}단계 · ${esc(l.nickname)} · ${fmt(l.createdAt)} · ${esc(l.model)}</div>
-      <div class="q">${esc(l.input)}</div><div class="a">${esc(prettyLog(l))}</div></div>`).join("") || `<div class="meta-line">3~5단계 AI 기록이 없습니다.</div>`);
-  showDetail(`${g?.name || gid} 3~5단계 AI 기록`, html);
+      <div class="q">${esc(l.input)}</div><div class="a">${esc(prettyLog(l))}</div></div>`).join("") || `<div class="meta-line">2~5단계 AI 기록이 없습니다.</div>`);
+  showDetail(`${g?.name || gid} 2~5단계 AI 기록`, html);
 }
 function renderBulk() {
   const n = picked.size;
@@ -389,6 +390,7 @@ async function loadCheck(eventId) {
           ${(p.story || []).map((v) => `<div class="meta-line" style="color:var(--ink);margin-top:4px">· ${esc(v)}</div>`).join("")}
           <div style="margin-top:8px"><b>기억나는 장면</b></div>${(p.episodes || []).map((v) => `<div class="meta-line" style="color:var(--ink);margin-top:4px">· ${esc(v)}</div>`).join("")}
           <div class="meta-line" style="margin-top:8px">마음속 고민: ${esc(p.inner || "")}</div><div class="meta-line">말버릇: ${esc(p.habits || "")}</div></details>
+        ${(p.beliefs || []).length ? `<div class="notice yellow" style="margin-top:10px"><b>이 인물이 사실이라고 믿는 것 (틀리거나 과장일 수 있음)</b><div class="meta-line">학생이 다른 인물의 말·자료와 견주어 3단계에서 검증하도록 넣은 장치입니다.</div>${p.beliefs.map((b) => `<div style="margin-top:6px">· ${esc(b.text)}<div class="meta-line">실제: ${esc(b.note)}</div></div>`).join("")}</div>` : ""}
         ${(p.limits || []).length ? `<div class="notice yellow" style="margin-top:10px"><b>조심할 이야기</b>${p.limits.map((v) => `<div style="margin-top:4px">· ${esc(v)}</div>`).join("")}</div>` : ""}
         <div style="margin-top:10px"><b>학생에게 보이는 편지</b><div class="ai-out">${p.letter.map(esc).join("\n\n")}</div></div>
         <div style="margin-top:10px"><b>근거 진술</b>${p.claims.map((c) => `<div class="meta-line" style="color:var(--ink);margin-top:4px"><span class="tag ${c.kind === "주장" || c.kind === "의견" ? "y" : ""}">${esc(c.kind)}</span> ${esc(c.text)} <span class="tag x">${esc(c.src)}</span></div>`).join("")}</div>
@@ -432,17 +434,21 @@ function stageSections(n, g) {
       return [
         { title: "개인 제출 (모둠원이 만난 인물)", rows: listOf(w.s1?.findings).map((f) => [
           `${f.nick || "모둠원"} → ${f.persona || "인물"}${f.submitted === false ? " (수정 중·미제출)" : ""}`,
-          joinLines(["누구", f.who], ["힘든 것", f.hard], ["바라는 것", f.want], ["기억에 남는 말", f.quote], ["확인할 말", f.doubt], ["", f.text]), f.nick]) },
+          joinLines(["대화 전 내 생각", f.prior], ["누구", f.who], ["힘든 것", f.hard], ["바라는 것", f.want], ["'어?' 했던 순간", f.surprise], ["기억에 남는 말", f.quote], ["정말 그럴까?", f.doubt], ["", f.text]), f.nick]) },
         { title: "모둠 문제 정의", rows: [
-          ["같은 점", pb.common], ["부딪히는 점", pb.conflict], ["문제 상황", pb.situation], ["우리가 풀 질문", pb.hmw],
+          ["같은 점", pb.common], ["서로 다르게 말한 것", pb.disputes], ["부딪히는 점", pb.conflict], ["문제 상황", pb.situation], ["우리가 풀 질문", pb.hmw],
           ["점검표", hasKeys(pb.checks) ? `${countTrue(pb.checks)} / ${PROBLEM_CHECK_N}` : ""]].filter(([, v]) => tx(v)) },
       ];
     }
     case 2: return [
-      { title: "나·우리와의 연결고리", rows: listOf(w.s2?.links).map((r) => [r.level, joinLines(["처지", r.situation], ["이어지는 점", r.point], ["확인 방법", r.confirm]), r.nick]) },
-      { title: "원인 가설", rows: listOf(w.s2?.causes).map((c) => [c.level || "원인", c.text, c.nick]) },
+      { title: "처음 내 생각 돌아보기", rows: listOf(w.s2?.links).map((r) => [r.angle || r.level || "연결", joinLines(
+        ["처음 생각", r.prior], ["흔들린 순간", r.surprise], ["어디서 왔을까", r.source], ["내 생활의 장면", r.scene], ["궁금해진 것", r.question],
+        ["처지", r.situation], ["이어지는 점", r.point], ["확인 방법", r.confirm],
+        ...ofStage(2).filter((l) => l.payload?.linkId === r.id).map((l) => ["생각 도우미", prettyLog(l)]), ["더 생각한 것", w.s2?.linkMore?.[r.id]]), r.nick]) },
+      { title: "원인 추측", rows: [...listOf(w.s2?.causes).map((c) => [c.level || "원인", c.text, c.nick]),
+        ...ofStage(2).filter((l) => l.payload?.focus === "cause").map((l) => ["생각 도우미", prettyLog(l), l.nickname])] },
       { title: "검증 질문", rows: listOf(w.s2?.checks).map((c) => [`확인할 말: ${c.heard || ""}`, joinLines(
-        ["관련 원인 가설", c.causeId ? listOf(w.s2?.causes).find((x) => x.id === c.causeId)?.text || "(삭제됨)" : ""],
+        ["관련 원인 추측", c.causeId ? listOf(w.s2?.causes).find((x) => x.id === c.causeId)?.text || "(삭제됨)" : ""],
         ["검증 질문", c.question], ["확인할 자료", c.srcType], ["자료 비교", c.real]), c.nick]) },
     ];
     case 3: {
@@ -667,6 +673,7 @@ function fillSettings() {
   $("#s-ailimit").value = r.aiLimit || 150;
   $("#s-chatlimit").value = r.chatLimit || 5;
   $("#s-web").value = r.webSearch === false ? "0" : "1";
+  $("#s-coach").value = r.coach === false ? "0" : "1";
   $("#s-auto").value = String(r.autoCloseHours || 0);
   $("#s-guide").style.whiteSpace = "pre-wrap";
   $("#s-guide").textContent = studentGuide();
@@ -675,7 +682,7 @@ $("#s-save").onclick = async () => {
   try {
     await call("updateSession")({
       code: current, title: $("#s-title").value, groupCount: Number($("#s-groups").value),
-      aiLimit: Number($("#s-ailimit").value), chatLimit: Number($("#s-chatlimit").value), webSearch: $("#s-web").value === "1", autoCloseHours: Number($("#s-auto").value),
+      aiLimit: Number($("#s-ailimit").value), chatLimit: Number($("#s-chatlimit").value), webSearch: $("#s-web").value === "1", coach: $("#s-coach").value === "1", autoCloseHours: Number($("#s-auto").value),
     });
     toast("저장했습니다");
     setTimeout(fillSettings, 400);
