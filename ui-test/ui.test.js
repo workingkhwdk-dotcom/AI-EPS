@@ -67,7 +67,7 @@ async function newPage(init, handler, arg, ctxOpts = {}) {
   const errors = [];
   pg.on("pageerror", (e) => errors.push(e.message));
   await pg.route(/gstatic\.com\/firebasejs/, (r) => r.fulfill({ contentType: "text/javascript", body: stubs[r.request().url().split("/").pop()] || "" }));
-  await pg.route(/fonts\.(googleapis|gstatic)/, (r) => r.abort());
+  await pg.route(/fonts\.(googleapis|gstatic)|cdn\.jsdelivr/, (r) => r.abort());
   await pg.addInitScript(init, arg);
   await pg.addInitScript(() => { window.__fn = (n, d) => window.__node(n, d); window.__log = []; window.__writes = []; });
   await pg.exposeFunction("__node", handler);

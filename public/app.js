@@ -399,8 +399,7 @@ function stageHero() {
   return `<div class="hero"><div class="hero-ic">${stageIcon(S.stage)}</div>
     <div class="hero-l"><div class="hero-k">${S.stage}단계 · ${esc(st.name)}</div>
       <div class="hero-t">${esc(h.title.replace(/^\d단계\s*/, ""))}</div><p class="hero-w">${esc(fill(h.what, n))}</p></div>
-    <div class="hero-r"><div class="hero-prog" role="img" aria-label="전체 7단계 중 ${S.stage}단계"><i style="width:${Math.round((S.stage / 7) * 100)}%"></i></div>
-      <small>${S.stage} / 7단계</small><button class="link" type="button" data-act="help">자세한 안내 보기</button></div></div>`;
+    <div class="hero-r"><button class="btn btn-tinted btn-sm" type="button" data-act="help">안내 다시 보기</button></div></div>`;
 }
 function problemBar() {
   const p = w("s1.problem") || {};
