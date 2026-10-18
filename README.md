@@ -116,6 +116,12 @@ firebase deploy
 
 `config` 컬렉션은 보안 규칙으로 클라이언트 접근이 모두 막혀 있어, 학생이나 교사 화면에서는 읽거나 쓸 수 없고 콘솔과 서버만 다룰 수 있습니다. 수업은 만든 교사 계정 하나에만 연결됩니다. 교사 판정은 **인증된 이메일**(Google 로그인)만 인정하므로, 나중에 이메일/비밀번호 가입을 켜더라도 남의 교사 이메일로 가입해 교사가 될 수 없습니다.
 
+**이메일·비밀번호 교사 계정**(구글 계정이 아닌 경우, 예: `teacher@knue.com`)
+1. Firebase 콘솔 → Authentication → 로그인 방법에서 **이메일/비밀번호**를 켜고, 사용자 탭에서 계정을 만듭니다.
+2. 그 이메일을 `functions/teachers.js`의 `PASSWORD_TEACHERS`에 넣고 functions를 배포합니다. 콘솔에서 만든 계정은 이메일 인증 표시가 없어서, 이 목록에 있는 이메일·비밀번호 계정만 예외로 교사로 인정합니다.
+3. 교사 화면 로그인 카드 아래쪽 **이메일로 로그인**에서 들어갑니다.
+4. 계정을 콘솔에서 지우면 `PASSWORD_TEACHERS`에서도 지우고 재배포하세요(지운 뒤 다른 사람이 같은 이메일로 가입해 교사가 되지 않게).
+
 ### 모델 선택 (OpenAI)
 `functions/.env`의 `OPENAI_MODEL`로 정합니다. 기본값은 **`gpt-5-mini`**(GPT-5 계열의 균형 모델)입니다.
 - GPT-5 계열은 추론 모델이라 `max_tokens`와 `temperature`를 받지 않습니다. 코드(`functions/openai.js`)가 모델 계열에 맞춰 `max_completion_tokens`와 `reasoning_effort`로 자동 변환하며, GPT-4 계열도 그대로 쓸 수 있습니다.

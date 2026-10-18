@@ -19,6 +19,7 @@ const stubs = {
     export const signOut = async () => { cur = null; };
     export class GoogleAuthProvider {}
     export const signInWithPopup = async () => {};
+    export const signInWithEmailAndPassword = async (a, email) => { window.__pwLogin = email; };
     export const signInWithRedirect = async () => {};`,
   "firebase-firestore.js": `
     const isDoc = (p) => p.split("/").length % 2 === 0;
@@ -118,6 +119,21 @@ async function openTeacher(st, { page = "teacher.html", ctxOpts, session = {} } 
   await t.pg.waitForSelector("#students tr");
   return t;
 }
+
+test("교사: 로그인 화면에서 구글 말고 이메일·비밀번호(학교에서 받은 교사 계정)로도 로그인할 수 있다", async () => {
+  const t = await newPage(() => { window.__user = null; window.__docs = {}; window.__cols = {}; }, async () => ({}));
+  await t.pg.goto(`${base}/teacher.html`);
+  await t.pg.waitForSelector("#pw-form");
+  await t.pg.click("#pw-btn");
+  await t.pg.waitForSelector(".toast");
+  assert.equal(await t.pg.evaluate(() => window.__pwLogin), undefined, "빈 칸이면 로그인하지 않는다");
+  await t.pg.fill("#pw-email", "teacher@knue.com"); await t.pg.fill("#pw-pass", "secret");
+  await t.pg.click("#pw-btn");
+  await t.pg.waitForFunction(() => window.__pwLogin === "teacher@knue.com");
+  assert.equal(await t.pg.inputValue("#pw-pass"), "", "로그인 뒤 비밀번호 칸을 비운다");
+  assert.deepEqual(t.errors, []);
+  await t.ctx.close();
+});
 
 test("교사: 수업 목록 → 수업 열기 → 알림·학생 표", async () => {
   const st = teacherFixture(), { pg, errors } = await openTeacher(st);

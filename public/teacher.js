@@ -2,7 +2,7 @@ import { auth, db, call, esc, toast, errMsg } from "./fb.js";
 import { waitHtml, startWaitTicker, STEPS } from "./wait.js";
 import { showModal, confirmModal } from "./modal.js";
 startWaitTicker();
-import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { collection, query, where, orderBy, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const $ = (s) => document.querySelector(s);
@@ -24,6 +24,18 @@ $("#login-btn").onclick = () => signInWithPopup(auth, new GoogleAuthProvider()).
   if (["auth/popup-blocked", "auth/operation-not-supported-in-this-environment", "auth/cancelled-popup-request"].includes(e?.code)) return signInWithRedirect(auth, new GoogleAuthProvider());
   toast(errMsg(e), true);
 });
+// 이메일·비밀번호 교사 계정(관리자가 Firebase 콘솔에서 만든 계정)
+$("#pw-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const email = $("#pw-email").value.trim(), pass = $("#pw-pass").value;
+  if (!email || !pass) { toast("이메일과 비밀번호를 입력하세요.", true); return; }
+  const b = $("#pw-btn"); b.disabled = true;
+  try { await signInWithEmailAndPassword(auth, email, pass); $("#pw-pass").value = ""; }
+  catch (err) {
+    const bad = ["auth/invalid-credential", "auth/wrong-password", "auth/user-not-found", "auth/invalid-email"].includes(err?.code);
+    toast(bad ? "이메일 또는 비밀번호가 맞지 않습니다." : err?.code === "auth/too-many-requests" ? "여러 번 틀려 잠시 막혔습니다. 조금 뒤에 다시 시도하세요." : errMsg(err), true);
+  } finally { b.disabled = false; }
+};
 $("#t-logout").onclick = () => signOut(auth).then(() => location.reload());
 let listUnsub = null;
 onAuthStateChanged(auth, (u) => {
