@@ -52,7 +52,6 @@ body.m.typing{ padding-bottom:16px; }
 .m .m-nav .stage-tab span{ font-size:10px; font-weight:700; line-height:1.2; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .m .m-nav .stage-tab.on{ background:transparent; color:var(--accent); }
 .m .m-nav .stage-tab.on b{ background:var(--grad); color:#fff; box-shadow:0 4px 10px -4px rgba(6,34,107,0.7); }
-@media (prefers-color-scheme: dark){ .m .m-nav .stage-tab.on, .m .m-nav .stage-tab.on b{ color:#fff; } .m .m-nav .stage-tab.on span{ color:var(--accent); } }
 
 /* 학생: 1단계 대화 — 입력창은 아래 막대 바로 위에 붙는다 */
 .m .letter{ padding:14px 16px; }
