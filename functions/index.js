@@ -12,7 +12,7 @@ const { isPersonal } = require("./charter");
 const prompts = require("./prompts");
 const { chat, extractJson } = require("./openai");
 const { guardMessages, parseVerdict, resolveOutput, piiFlags } = require("./guard");
-const { isTeacherEmail } = require("./teachers");
+const { isTeacherEmail, trustedLogin } = require("./teachers");
 const { validatePassword, hashPassword, verifyPassword, normNick, credKey, lockedSeconds, afterFail, afterTotalFail } = require("./password");
 const { defaultMaterials, sanitizeMaterials, toStudentMaterials, materialsText } = require("./materials");
 const { chatWithLookup, webSearch } = require("./lookup");
@@ -66,8 +66,9 @@ function requireAuth(req) {
 
 async function requireTeacher(req) {
   const auth = requireAuth(req);
-  // 인증된 이메일만 인정한다(이메일/비밀번호 가입을 켜더라도 남의 교사 이메일로 가입해 교사가 될 수 없게)
-  if (auth.token?.email_verified !== true) throw new HttpsError("permission-denied", "교사 계정이 아닙니다.");
+  // 인증된 이메일만 인정한다(이메일/비밀번호 가입을 켜더라도 남의 교사 이메일로 가입해 교사가 될 수 없게).
+  // 예외: 관리자가 콘솔에서 만든 이메일·비밀번호 교사 계정(teachers.js PASSWORD_TEACHERS)
+  if (!trustedLogin(auth.token)) throw new HttpsError("permission-denied", "교사 계정이 아닙니다.");
   const ok = await isTeacherEmail(auth.token.email, {
     envList: TEACHER_EMAILS.value(),
     readDoc: async () => (await db.doc("config/teachers").get()).data(),

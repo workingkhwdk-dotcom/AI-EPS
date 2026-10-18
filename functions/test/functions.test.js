@@ -157,6 +157,15 @@ test("교사가 아니면 수업을 만들 수 없다", async () => {
 test("교사 이메일이어도 인증되지 않은 이메일이면 교사가 아니다(관리자 이메일 포함)", async () => {
   await assert.rejects(api.createSession({ auth: { uid: "X1", token: { email: "t@school.kr" } }, data: {} }), /교사/);
   await assert.rejects(api.createSession({ auth: { uid: "X2", token: { email: "working.khwdk@gmail.com", email_verified: false } }, data: {} }), /교사/);
+  // 이메일·비밀번호로 남의 교사 이메일에 가입해도 교사가 아니다
+  await assert.rejects(api.createSession({ auth: { uid: "X3", token: { email: "t@school.kr", email_verified: false, firebase: { sign_in_provider: "password" } } }, data: {} }), /교사/);
+});
+
+test("관리자가 콘솔에서 만든 이메일·비밀번호 교사 계정(teacher@knue.com)은 이메일 인증 없이도 교사다", async () => {
+  const pw = { auth: { uid: "P1", token: { email: "Teacher@KNUE.com", email_verified: false, firebase: { sign_in_provider: "password" } } } };
+  assert.match((await api.createSession({ ...pw, data: { groupCount: 1 } })).code, /^[A-Z2-9]{6}$/);
+  // 같은 이메일이라도 비밀번호 로그인이 아니면(다른 방식) 인증 표시가 있어야 한다
+  await assert.rejects(api.createSession({ auth: { uid: "P2", token: { email: "teacher@knue.com", firebase: { sign_in_provider: "anonymous" } } }, data: {} }), /교사/);
 });
 
 const PICKS = ["j_applicant", "j_resident", "j_supporter", "j_officer", "j_applicant2"];
