@@ -67,10 +67,6 @@ body.m.typing{ padding-bottom:16px; }
 .m .composer{ bottom:var(--navh); padding:8px 10px; border-radius:0 0 18px 18px; }
 .m.typing .composer{ bottom:0; padding-bottom:calc(8px + env(safe-area-inset-bottom)); }
 .m .subnav{ position:sticky; top:52px; z-index:6; padding:6px 0; margin:-6px 0 8px; background:var(--bg); }
-.m .role{ padding:10px 12px; font-size:13px; }
-.m .role-g{ gap:2px; margin-top:6px; }
-.m .role-g > div{ background:transparent; padding:2px 0; }
-.m .role-g .me{ box-shadow:none; font-weight:700; }
 .m .problem-bar{ padding:11px 14px; }
 .m .nav-foot{ flex-direction:column-reverse; align-items:stretch; }
 .m .nav-foot .btn-primary{ margin-left:0; }
@@ -136,19 +132,13 @@ body.m.typing{ padding-bottom:16px; }
 
 /* ---------- 좁은 화면: 활동과 직접 관련 없는 글은 줄여서 활동 칸을 먼저 보여 준다 ----------
    - 설명(.desc), 안내(.tip), 도움말(p.meta-line)은 한 줄로 줄이고 끝에 '…'. 누르면 펼쳐진다(device.js)
-   - AI 역할 상자는 한 줄 요약, 실제 사건 자료는 접어 둔 채로 시작, 활동과 무관한 줄(.m-hide)은 숨긴다 */
+   - 실제 사건 자료는 접어 둔 채로 시작, 활동과 무관한 줄(.m-hide)은 숨긴다 */
 .m .desc, .m .tip, .m p.meta-line{ display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:1; line-clamp:1; overflow:hidden; cursor:pointer; }
 .m .desc{ margin-bottom:8px; }
 .m .desc.open, .m .tip.open, .m p.meta-line.open{ display:block; -webkit-line-clamp:unset; line-clamp:none; overflow:visible; }
 /* 줄인 상자는 위아래 여백을 투명 테두리로 줘서 둘째 줄이 여백 사이로 비치지 않게 한다 */
 .m .notice.tip, .m .example.tip{ padding:0 12px; border-block:8px solid transparent; }
 .m .m-hide{ display:none !important; }
-.m .m-role{ padding:8px 12px; margin-bottom:10px; }
-.m .m-role summary{ list-style:none; cursor:pointer; display:flex; align-items:center; gap:6px; white-space:nowrap; overflow:hidden; }
-.m .m-role summary::-webkit-details-marker{ display:none; }
-.m .m-role summary b{ overflow:hidden; text-overflow:ellipsis; font-size:13.5px; }
-.m .m-role summary::after{ content:"자세히"; margin-left:auto; font-size:11.5px; font-weight:700; color:var(--ink-3); }
-.m .m-role[open] summary::after{ content:"접기"; }
 .m .problem-bar{ padding:9px 13px; margin-bottom:10px; }
 .m .problem-bar .pb-s{ display:none; }
 .m .problem-bar .pb-q{ font-size:14.5px; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
@@ -197,7 +187,6 @@ body.m{ --navh:calc(54px + env(safe-area-inset-bottom)); --hdrh:calc(41px + env(
 .m .subnav{ top:var(--hdrh); gap:5px; padding:4px 0; margin:-4px 0 6px; transition:top .22s var(--ease); }
 .m .subnav button{ padding:8px 4px; font-size:12.5px; border-radius:10px; }
 .m .subnav button small{ display:inline; margin-left:3px; font-size:10.5px; }
-.m .role{ margin-bottom:8px; }
 .m .letter{ padding:11px 14px; margin-bottom:8px; border-radius:6px 16px 16px 6px; }
 .m .letter summary{ font-size:14.5px; }
 
@@ -218,4 +207,3 @@ body.m{ --navh:calc(54px + env(safe-area-inset-bottom)); --hdrh:calc(41px + env(
 .m .problem-bar{ padding:8px 12px; margin-bottom:8px; border-radius:14px; }
 .m .problem-bar .pb-k{ font-size:11px; }
 .m .problem-bar .pb-q{ font-size:14px; line-height:1.4; margin-top:1px; }
-.m .role.m-role{ margin-bottom:8px; }

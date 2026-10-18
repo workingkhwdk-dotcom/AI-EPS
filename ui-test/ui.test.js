@@ -470,11 +470,11 @@ test("교사 모바일: 학생·모둠 표가 카드로 보이고, 아래 메뉴
   assert.deepEqual(errors, []);
 });
 
-test("학생 모바일: 안내 글은 한 줄로 줄이고(누르면 펼침, 다시 그려도 유지), AI 역할은 한 줄 요약, 사건 자료(학습 내용)는 펼친 채로 시작한다", async () => {
+test("학생 모바일: 안내 글은 한 줄로 줄이고(누르면 펼침, 다시 그려도 유지), AI 역할 상자(개발자용 설명)는 보이지 않고, 사건 자료(학습 내용)는 펼친 채로 시작한다", async () => {
   const s = await openStudent(studentFixture(), { ctxOpts: phone });
   await login(s.pg);
-  await s.pg.waitForSelector(".m-role");
-  assert.equal(await s.pg.locator("details.m-role").getAttribute("open"), null, "AI 역할 설명은 접혀 있다");
+  await s.pg.waitForSelector(".subnav");
+  assert.equal(await s.pg.locator(".role").count(), 0, "AI 역할 상자는 학생 화면에 없다");
   await s.pg.tap('#tabs .stage-tab[data-stage="2"]');
   await s.pg.waitForSelector("details.fold");
   // 설명 글은 한 줄로 줄어 있고, 누르면 펼쳐지며, 화면을 다시 그려도 펼친 채로 있다
