@@ -1,6 +1,7 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { defineSecret, defineString, defineInt } = require("firebase-functions/params");
 const admin = require("firebase-admin");
+const crypto = require("crypto");
 
 const {
   EVENTS, PERSONAS, DEFAULT_EVENT, availablePersonas, personaSourceIds, toPublicSource, materialsFor, materialsAdmin,
@@ -36,6 +37,9 @@ const PERSONA_WEB_SEARCH = defineString("PERSONA_WEB_SEARCH", { default: "true" 
 const SEARCH_ALLOWED_DOMAINS = defineString("SEARCH_ALLOWED_DOMAINS", { default: "" });
 const SEARCH_MODEL = defineString("SEARCH_MODEL", { default: "" }); // 웹 검색 호출 전용 모델(비우면 OPENAI_MODEL)
 const TEACHER_EMAILS = defineString("TEACHER_EMAILS", { default: "" });
+// 교사 가입 인증 문구. 코드·저장소에는 두지 않고 functions/.env(git 에 올라가지 않음)의 TEACHER_SIGNUP_CODE 로만 정한다.
+// 비어 있으면 교사 가입이 꺼진다(관리자·TEACHER_EMAILS·config/teachers 로만 교사 지정).
+const TEACHER_SIGNUP_CODE = defineString("TEACHER_SIGNUP_CODE", { default: "" });
 // true 이면 출처 원문 대조 전(verified:false) 페르소나·자료도 사용 가능. 리허설 전용, 실제 수업에서는 false 로 둔다.
 const ALLOW_UNVERIFIED = defineString("ALLOW_UNVERIFIED_PERSONAS", { default: "false" });
 const allowUnverified = () => ALLOW_UNVERIFIED.value() === "true";
@@ -67,16 +71,27 @@ function requireAuth(req) {
   return req.auth;
 }
 
+// 교사인지: ① 인증된 이메일(구글 로그인)이 교사 목록에 있거나 ② 관리자가 콘솔에서 만든 이메일·비밀번호 교사 계정이거나
+// ③ 교사용 계정 만들기에서 인증 문구로 승인받은 이메일·비밀번호 계정(teacherAccounts/{uid}).
+// 이메일·비밀번호 계정은 이메일 인증 표시가 없으므로 이메일이 아니라 계정(uid)으로 승인한다.
+// 그래서 남의 교사 이메일로 새 비밀번호 계정을 만들어도 인증 문구 없이는 교사가 될 수 없다.
+const provider = (auth) => auth?.token?.firebase?.sign_in_provider;
+async function teacherOk(auth) {
+  if (!auth || provider(auth) === "anonymous") return false;
+  if (trustedLogin(auth.token)) {
+    const ok = await isTeacherEmail(auth.token.email, {
+      envList: TEACHER_EMAILS.value(),
+      readDoc: async () => (await db.doc("config/teachers").get()).data(),
+    });
+    if (ok) return true;
+  }
+  if (provider(auth) !== "password") return false;
+  const acc = await db.doc(`teacherAccounts/${auth.uid}`).get();
+  return acc.exists && acc.data().disabled !== true;
+}
 async function requireTeacher(req) {
   const auth = requireAuth(req);
-  // 인증된 이메일만 인정한다(이메일/비밀번호 가입을 켜더라도 남의 교사 이메일로 가입해 교사가 될 수 없게).
-  // 예외: 관리자가 콘솔에서 만든 이메일·비밀번호 교사 계정(teachers.js PASSWORD_TEACHERS)
-  if (!trustedLogin(auth.token)) throw new HttpsError("permission-denied", "교사 계정이 아닙니다.");
-  const ok = await isTeacherEmail(auth.token.email, {
-    envList: TEACHER_EMAILS.value(),
-    readDoc: async () => (await db.doc("config/teachers").get()).data(),
-  });
-  if (!ok) throw new HttpsError("permission-denied", "교사 계정이 아닙니다.");
+  if (!(await teacherOk(auth))) throw new HttpsError("permission-denied", "교사 계정이 아닙니다.");
   return auth;
 }
 
@@ -138,6 +153,66 @@ async function newCode() {
 }
 
 // 교사: 수업 만들기 (모둠 문서 함께 생성)
+// ---------- 교사용 계정 만들기 ----------
+// 로그인한 계정이 교사인지 알려 준다(교사 화면 첫 화면이 교사 화면을 보여 줄지 인증 문구 입력을 보여 줄지 정한다).
+exports.teacherStatus = onCall(fastOpts, async (req) => {
+  const auth = requireAuth(req);
+  if (provider(auth) === "anonymous") throw new HttpsError("permission-denied", "교사 계정으로 로그인하세요.");
+  return { teacher: await teacherOk(auth), email: auth.token?.email || "", signupOpen: !!String(TEACHER_SIGNUP_CODE.value() || "").trim() };
+});
+
+// 인증 문구 비교: 대소문자·앞뒤 빈칸은 무시하고, 해시끼리 같은 시간에 비교한다
+function signupCodeOk(code) {
+  const want = String(TEACHER_SIGNUP_CODE.value() || "").trim().toLowerCase();
+  if (!want) return false;
+  const h = (x) => crypto.createHash("sha256").update(x).digest();
+  return crypto.timingSafeEqual(h(String(code || "").trim().toLowerCase()), h(want));
+}
+const SIGNUP_MAX_FAILS = 5, SIGNUP_LOCK_MS = 10 * 60 * 1000; // 계정마다: 5번 틀리면 10분 잠금
+const SIGNUP_GLOBAL_FAILS = 30, SIGNUP_WINDOW_MS = 60 * 60 * 1000; // 전체: 한 시간에 30번 넘게 틀리면 그 시간 동안 가입을 막는다(새 계정을 계속 만들어 맞히는 것 방지)
+
+// 구글 계정이나 새로 만든 이메일·비밀번호 계정으로 로그인한 뒤 교사 인증 문구를 맞히면 교사로 승인한다.
+exports.registerTeacher = onCall(opts, async (req) => {
+  const auth = requireAuth(req);
+  const email = String(auth.token?.email || "").trim().toLowerCase();
+  const prov = provider(auth);
+  if (prov === "anonymous" || !email) throw new HttpsError("permission-denied", "구글 계정이나 이메일 계정으로 로그인해야 합니다.");
+  const google = auth.token?.email_verified === true;
+  if (!google && prov !== "password") throw new HttpsError("permission-denied", "구글 계정이나 이메일 계정으로 로그인해야 합니다.");
+  if (await teacherOk(auth)) return { teacher: true, email };
+  if (!String(TEACHER_SIGNUP_CODE.value() || "").trim()) throw new HttpsError("failed-precondition", "지금은 교사 가입을 받지 않습니다. 관리자에게 문의하세요.");
+
+  const now = Date.now();
+  const attRef = db.doc(`teacherAttempts/${auth.uid}`), gRef = db.doc("teacherAttempts/_all");
+  const att = (await attRef.get()).data() || {}, g = (await gRef.get()).data() || {};
+  if (att.lockedUntil > now) throw new HttpsError("resource-exhausted", `인증 문구를 여러 번 틀렸습니다. ${Math.ceil((att.lockedUntil - now) / 60000)}분 뒤에 다시 시도하세요.`);
+  const gFails = g.windowStart > now - SIGNUP_WINDOW_MS ? g.fails || 0 : 0;
+  if (gFails >= SIGNUP_GLOBAL_FAILS) throw new HttpsError("resource-exhausted", "지금은 가입 시도가 너무 많습니다. 한 시간 뒤에 다시 시도하세요.");
+
+  if (!signupCodeOk(req.data?.code)) {
+    const fails = (att.lockedUntil && att.lockedUntil <= now ? 0 : att.fails || 0) + 1;
+    await attRef.set(fails >= SIGNUP_MAX_FAILS ? { fails: 0, lockedUntil: now + SIGNUP_LOCK_MS } : { fails, lockedUntil: 0 });
+    await gRef.set(gFails ? { windowStart: g.windowStart, fails: gFails + 1 } : { windowStart: now, fails: 1 });
+    throw new HttpsError("permission-denied", "교사 인증 문구가 맞지 않습니다.");
+  }
+
+  if (google) {
+    // 구글 계정: 이메일을 교사 목록(config/teachers 의 emails)에 넣는다
+    const ref = db.doc("config/teachers");
+    await db.runTransaction(async (t) => {
+      const doc = (await t.get(ref)).data() || {};
+      const emails = Array.isArray(doc.emails) ? doc.emails : String(doc.emails || "").split(",").map((x) => x.trim()).filter(Boolean);
+      if (!emails.map((x) => String(x).toLowerCase()).includes(email)) t.set(ref, { ...doc, emails: [...emails, email] });
+    });
+  } else {
+    // 이메일·비밀번호 계정: 이 계정(uid)을 승인한다
+    await db.doc(`teacherAccounts/${auth.uid}`).set({ email, at: FieldValue().serverTimestamp() });
+  }
+  await db.doc(`teacherSignups/${auth.uid}`).set({ email, method: google ? "google" : "password", at: FieldValue().serverTimestamp() });
+  await attRef.delete().catch(() => {});
+  return { teacher: true, email };
+});
+
 exports.createSession = onCall(opts, async (req) => {
   const auth = await requireTeacher(req);
   const groupCount = Math.min(Math.max(parseInt(req.data?.groupCount, 10) || 6, 1), MAX_GROUPS);

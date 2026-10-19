@@ -73,7 +73,7 @@ const fakes = {
   "firebase-functions/params": {
     defineSecret: () => ({ value: () => "sk-test" }),
     defineInt: (name, o) => ({ value: () => o?.default ?? 0 }),
-    defineString: (name, o) => ({ value: () => ({ TEACHER_EMAILS: "t@school.kr", ALLOW_UNVERIFIED_PERSONAS: "true", OPENAI_MODEL: "gpt-5-test" }[name] ?? o?.default ?? "") }),
+    defineString: (name, o) => ({ value: () => ({ TEACHER_EMAILS: "t@school.kr", ALLOW_UNVERIFIED_PERSONAS: "true", OPENAI_MODEL: "gpt-5-test", TEACHER_SIGNUP_CODE: "Knue-2026" }[name] ?? o?.default ?? "") }),
   },
 };
 const origLoad = Module._load;
@@ -166,6 +166,41 @@ test("관리자가 콘솔에서 만든 이메일·비밀번호 교사 계정(tea
   assert.match((await api.createSession({ ...pw, data: { groupCount: 1 } })).code, /^[A-Z2-9]{6}$/);
   // 같은 이메일이라도 비밀번호 로그인이 아니면(다른 방식) 인증 표시가 있어야 한다
   await assert.rejects(api.createSession({ auth: { uid: "P2", token: { email: "teacher@knue.com", firebase: { sign_in_provider: "anonymous" } } }, data: {} }), /교사/);
+});
+
+test("교사용 계정 만들기(구글): 인증 문구가 맞으면 이메일이 교사 목록에 들어가고, 5번 틀리면 10분 잠긴다", async () => {
+  const g = { auth: { uid: "G1", token: { email: "Signup.Teacher@School.kr", email_verified: true, firebase: { sign_in_provider: "google.com" } } } };
+  assert.deepEqual(await api.teacherStatus(g), { teacher: false, email: "Signup.Teacher@School.kr", signupOpen: true });
+  await assert.rejects(api.registerTeacher({ ...g, data: { code: "틀림" } }), /맞지 않습니다/);
+  // 대소문자·앞뒤 빈칸은 무시한다
+  assert.deepEqual(await api.registerTeacher({ ...g, data: { code: "  knue-2026 " } }), { teacher: true, email: "signup.teacher@school.kr" });
+  assert.ok(store.get("config/teachers").emails.includes("signup.teacher@school.kr"));
+  assert.equal((await api.teacherStatus(g)).teacher, true);
+  assert.match((await api.createSession({ ...g, data: { groupCount: 1 } })).code, /^[A-Z2-9]{6}$/);
+  store.delete("config/teachers");
+
+  const g2 = { auth: { uid: "G2", token: { email: "x@school.kr", email_verified: true } } };
+  for (let i = 0; i < 5; i++) await assert.rejects(api.registerTeacher({ ...g2, data: { code: "아님" + i } }), /맞지 않습니다/);
+  await assert.rejects(api.registerTeacher({ ...g2, data: { code: "Knue-2026" } }), /분 뒤에 다시/);
+  for (const k of [...store.keys()]) if (k.startsWith("teacherAttempts/")) store.delete(k);
+});
+
+test("교사용 계정 만들기(이메일·비밀번호): 인증 문구로 그 계정(uid)만 교사가 되고, 같은 이메일의 다른 계정은 교사가 아니다", async () => {
+  const pw = { auth: { uid: "E1", token: { email: "mine@school.kr", email_verified: false, firebase: { sign_in_provider: "password" } } } };
+  await assert.rejects(api.createSession({ ...pw, data: {} }), /교사/);
+  await assert.rejects(api.registerTeacher({ ...pw, data: { code: "" } }), /맞지 않습니다/);
+  assert.equal((await api.registerTeacher({ ...pw, data: { code: "KNUE-2026" } })).teacher, true);
+  assert.equal(store.get("teacherAccounts/E1").email, "mine@school.kr");
+  assert.equal(store.get("config/teachers"), undefined, "인증되지 않은 이메일은 교사 이메일 목록에 넣지 않는다");
+  assert.match((await api.createSession({ ...pw, data: { groupCount: 1 } })).code, /^[A-Z2-9]{6}$/);
+  const other = { auth: { uid: "E2", token: { email: "mine@school.kr", email_verified: false, firebase: { sign_in_provider: "password" } } } };
+  await assert.rejects(api.createSession({ ...other, data: {} }), /교사/);
+  // 콘솔에서 승인을 끄면(disabled) 다시 교사가 아니다
+  store.set("teacherAccounts/E1", { email: "mine@school.kr", disabled: true });
+  await assert.rejects(api.createSession({ ...pw, data: {} }), /교사/);
+  // 익명(학생) 계정은 가입할 수 없다
+  await assert.rejects(api.registerTeacher({ ...student("S7"), data: { code: "Knue-2026" } }), /로그인해야/);
+  for (const k of [...store.keys()]) if (k.startsWith("teacher")) store.delete(k);
 });
 
 const PICKS = ["j_applicant", "j_resident", "j_supporter", "j_officer", "j_applicant2"];

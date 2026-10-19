@@ -20,6 +20,10 @@ const stubs = {
     export class GoogleAuthProvider {}
     export const signInWithPopup = async () => {};
     export const signInWithEmailAndPassword = async (a, email) => { window.__pwLogin = email; };
+    export const createUserWithEmailAndPassword = async (a, email) => {
+      const user = { uid: "N1", email, isAnonymous: false, delete: async () => { window.__deleted = email; cur = null; notify(null); } };
+      cur = user; notify(user); return { user };
+    };
     export const signInWithRedirect = async () => {};`,
   "firebase-firestore.js": `
     const isDoc = (p) => p.split("/").length % 2 === 0;
@@ -119,6 +123,52 @@ async function openTeacher(st, { page = "teacher.html", ctxOpts, session = {} } 
   await t.pg.waitForSelector("#students tr");
   return t;
 }
+
+test("교사용 계정 만들기: 이메일·비밀번호 + 인증 문구로 가입, 문구가 틀리면 만든 계정을 지우고, 승인 안 된 계정은 문구 입력 칸을 본다", async () => {
+  const t = await newPage(() => { window.__user = null; window.__docs = {}; window.__cols = {}; }, async (name, data) => {
+    if (name === "teacherStatus") return { teacher: false, signupOpen: true };
+    if (name === "registerTeacher") { if (data.code !== "knue") throw new Error("permission-denied: 교사 인증 문구가 맞지 않습니다."); return { teacher: true }; }
+    return {};
+  });
+  await t.pg.goto(`${base}/teacher.html`);
+  await t.pg.click("#to-signup");
+  await t.pg.locator("#su-form").waitFor({ state: "visible" });
+  assert.ok(await t.pg.locator("#login").isHidden());
+  await t.pg.fill("#su-email", "new@school.kr"); await t.pg.fill("#su-pass", "abcd1234"); await t.pg.fill("#su-pass2", "abcd1239"); await t.pg.fill("#su-code", "knue");
+  await t.pg.click("#su-btn");
+  await t.pg.waitForSelector(".toast");
+  assert.ok(!(await t.pg.evaluate(() => window.__log.includes("registerTeacher"))), "비밀번호 확인이 다르면 만들지 않는다");
+  // 문구가 틀리면 방금 만든 계정을 지우고 가입 화면에 남는다
+  await t.pg.fill("#su-pass2", "abcd1234"); await t.pg.fill("#su-code", "wrong");
+  await t.pg.click("#su-btn");
+  await t.pg.waitForFunction(() => window.__deleted === "new@school.kr");
+  assert.ok(await t.pg.locator("#su-form").isVisible());
+  assert.ok(await t.pg.locator("#main").isHidden());
+  // 맞으면 바로 교사 화면
+  await t.pg.fill("#su-code", "knue");
+  await t.pg.click("#su-btn");
+  await t.pg.locator("#main").waitFor({ state: "visible" });
+  assert.ok(await t.pg.locator("#signup").isHidden());
+  assert.deepEqual(t.errors, []);
+  await t.ctx.close();
+
+  // 이미 로그인했지만 교사가 아닌 계정(처음 쓰는 구글 계정): 인증 문구 칸만 보인다
+  const t2 = await newPage(() => { window.__user = { uid: "G9", email: "g@school.kr", isAnonymous: false }; window.__docs = {}; window.__cols = {}; }, async (name, data) => {
+    if (name === "teacherStatus") return { teacher: false, signupOpen: true };
+    if (name === "registerTeacher") return data.code === "knue" ? { teacher: true } : Promise.reject(new Error("x: 교사 인증 문구가 맞지 않습니다."));
+    return {};
+  });
+  await t2.pg.goto(`${base}/teacher.html`);
+  await t2.pg.locator("#su-approve").waitFor({ state: "visible" });
+  assert.ok(await t2.pg.locator("#su-new").isHidden());
+  assert.match(await t2.pg.textContent("#su-who"), /g@school\.kr/);
+  assert.ok(await t2.pg.locator("#main").isHidden(), "교사로 승인되기 전에는 교사 화면을 보여 주지 않는다");
+  await t2.pg.fill("#su-code2", "knue");
+  await t2.pg.click("#su-approve-btn");
+  await t2.pg.locator("#main").waitFor({ state: "visible" });
+  assert.deepEqual(t2.errors, []);
+  await t2.ctx.close();
+});
 
 test("교사: 로그인 화면에서 구글 말고 이메일·비밀번호(학교에서 받은 교사 계정)로도 로그인할 수 있다", async () => {
   const t = await newPage(() => { window.__user = null; window.__docs = {}; window.__cols = {}; }, async () => ({}));
