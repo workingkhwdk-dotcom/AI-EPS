@@ -49,13 +49,16 @@ const CHAT_LIMIT = 5;
 const CHAT_LIMIT_RANGE = [1, 50];
 const MAX_GROUPS = 12;
 
-const opts = { region: REGION, cors: true };
+// 함수마다 늘어날 수 있는 인스턴스 수(maxInstances)를 정해 둔다. 정하지 않으면 함수마다 최대 100개(각 CPU 1개)까지
+// 잡혀서, 새 프로젝트의 지역별 CPU 한도를 넘어 배포가 거절된다("Quota exceeded for total allowable CPU").
+// 인스턴스 하나가 동시에 80개 요청을 받으므로, 아래 값이면 한 반은 물론 여러 반이 함께 써도 충분하다.
+const opts = { region: REGION, cors: true, maxInstances: 5 };
 // 입장·시작처럼 학생이 기다리는 호출은 첫 호출이 느리지 않도록(콜드 스타트) CPU 를 넉넉히 주고,
 // MIN_INSTANCES 가 1 이상이면 항상 켜 둔다(수업 시간에만 1로 올리면 비용이 거의 들지 않는다).
 const MIN_INSTANCES = defineInt("MIN_INSTANCES", { default: 0 });
-const fastOpts = { ...opts, cpu: 1, memory: "512MiB", minInstances: MIN_INSTANCES };
+const fastOpts = { ...opts, cpu: 1, memory: "512MiB", minInstances: MIN_INSTANCES, maxInstances: 10 };
 // 추론 모델(특히 5단계 시뮬레이션)은 응답에 1분 넘게 걸릴 수 있어 넉넉히 둔다.
-const aiOpts = { ...opts, secrets: [OPENAI_API_KEY], timeoutSeconds: 300 };
+const aiOpts = { ...opts, secrets: [OPENAI_API_KEY], timeoutSeconds: 300, maxInstances: 10 };
 
 const FieldValue = () => admin.firestore.FieldValue;
 
@@ -915,7 +918,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
 
 // ---------- 정기 작업 ----------
 // 마지막 접속 후 정한 시간이 지난 수업을 자동으로 닫는다(수업이 끝나고 누가 접속하는 것을 막기 위해). 30분마다.
-exports.autoCloseSessions = onSchedule({ region: REGION, schedule: "every 30 minutes", timeZone: "Asia/Seoul" }, async () => {
+exports.autoCloseSessions = onSchedule({ region: REGION, schedule: "every 30 minutes", timeZone: "Asia/Seoul", maxInstances: 1 }, async () => {
   const open = await db.collection("sessions").where("closed", "==", false).get();
   for (const d of open.docs) {
     if (!(d.data().autoCloseHours > 0)) continue;
@@ -925,7 +928,7 @@ exports.autoCloseSessions = onSchedule({ region: REGION, schedule: "every 30 min
 });
 
 // 학생이 로그아웃·재입장하며 쌓인 익명 계정 중 30일 넘게 쓰지 않은 것을 지운다(교사의 구글 계정은 건드리지 않는다). 매주 일요일 새벽.
-exports.cleanAnonymousUsers = onSchedule({ region: REGION, schedule: "every sunday 04:00", timeZone: "Asia/Seoul" }, async () => {
+exports.cleanAnonymousUsers = onSchedule({ region: REGION, schedule: "every sunday 04:00", timeZone: "Asia/Seoul", maxInstances: 1 }, async () => {
   let token, removed = 0;
   do {
     const page = await admin.auth().listUsers(1000, token);
