@@ -174,8 +174,8 @@ body.m{ --navh:calc(54px + env(safe-area-inset-bottom)); --hdrh:calc(41px + env(
 .m .m-nav .stage-tab b{ width:24px; height:24px; font-size:12.5px; }
 .m .m-nav .stage-tab span{ font-size:9.5px; }
 .m .toast{ bottom:calc(var(--navh) + 10px); }
-.m .wrap{ padding:8px 10px 4px; }
-.m .card{ padding:14px 13px; margin-bottom:10px; }
+.m .wrap{ padding:12px 12px 8px; }
+.m .card{ padding:16px 15px; margin-bottom:18px; }
 .m.chrome-hidden .hdr{ transform:translateY(-100%); }
 .m.chrome-hidden .m-nav{ transform:translateY(100%); }
 .m.chrome-hidden .subnav{ top:0; }
@@ -183,10 +183,10 @@ body.m{ --navh:calc(54px + env(safe-area-inset-bottom)); --hdrh:calc(41px + env(
 .m.chrome-hidden .toast{ bottom:16px; }
 
 /* 1단계: 작은 단계 막대는 한 줄로 */
-.m .subnav{ top:var(--hdrh); gap:5px; padding:4px 0; margin:-4px 0 6px; transition:top .22s var(--ease); }
+.m .subnav{ top:var(--hdrh); gap:5px; padding:4px 0; margin:-4px 0 12px; transition:top .22s var(--ease); }
 .m .subnav button{ padding:8px 4px; font-size:12.5px; border-radius:10px; }
 .m .subnav button small{ display:inline; margin-left:3px; font-size:10.5px; }
-.m .letter{ padding:11px 14px; margin-bottom:8px; border-radius:6px 16px 16px 6px; }
+.m .letter{ padding:11px 14px; margin-bottom:14px; border-radius:6px 16px 16px 6px; }
 .m .letter summary{ font-size:14.5px; }
 
 /* 1단계 대화: 대화창이 남는 화면을 채운다 */
@@ -203,32 +203,19 @@ body.m{ --navh:calc(54px + env(safe-area-inset-bottom)); --hdrh:calc(41px + env(
 .m .composer{ gap:5px 8px; }
 .m .composer .chat-left{ padding:0 6px; font-size:12px; }
 /* 우리 모둠의 문제 띠: 질문은 그대로 읽히되 높이는 줄인다 */
-.m .problem-bar{ padding:8px 12px; margin-bottom:8px; border-radius:14px; }
+.m .problem-bar{ padding:8px 12px; margin-bottom:14px; border-radius:14px; }
 .m .problem-bar .pb-k{ font-size:11px; }
 .m .problem-bar .pb-q{ font-size:14px; line-height:1.4; margin-top:1px; }
-/* ---------- 휴대폰 인물 대화(body.chat-mode): 화면 전체는 고정하고 대화창 안에서만 스크롤 ----------
-   --vvh / --vvt 는 device.js 가 '키보드를 뺀 보이는 화면' 크기로 계속 맞춘다. 입력창이 항상 키보드 바로 위에 있다.
-   입력 중(.typing)에는 머리글·단계 막대·안내를 접어 대화 공간을 넓힌다. */
-body.m.chat-mode{ position:fixed; left:0; right:0; top:var(--vvt,0px); height:var(--vvh,100dvh); min-height:0; padding:0; overflow:hidden; display:flex; flex-direction:column; }
-.m.chat-mode .hdr{ position:relative; flex:none; }
-.m.chat-mode #main{ flex:1; min-height:0; display:flex; flex-direction:column; padding:6px 10px 0; max-width:none; width:100%; min-width:0; box-sizing:border-box; } /* width 를 정하지 않으면 margin:auto 때문에 내용 폭(옆으로 늘어선 예시 질문)만큼 넓어진다 */
-.m.chat-mode #app{ flex:1; min-height:0; display:flex; flex-direction:column; }
-.m.chat-mode #panel{ flex:1; min-height:0; display:flex; flex-direction:column; }
-.m.chat-mode .subnav{ position:static; flex:none; }
-.m.chat-mode .chat-card{ flex:1; min-height:0 !important; margin-bottom:0; overflow:hidden; border-bottom-left-radius:0; border-bottom-right-radius:0; }
-.m.chat-mode .msgs{ flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; scroll-behavior:auto; }
-.m.chat-mode .composer{ position:static; flex:none; padding-bottom:8px; border-radius:0; }
+/* ---------- 휴대폰 인물 대화(body.chat-mode) ----------
+   대화창 높이를 고정하지 않는다: 말풍선이 쌓일수록 대화 상자가 길어지고, 학생은 화면 전체를 자유롭게 스크롤해 앞의 대화를 본다.
+   입력창은 화면 아래(단계 막대 바로 위)에 붙어 있어 어디까지 스크롤했든 바로 쓸 수 있다. */
+.m.chat-mode .msgs{ overflow:visible; }
 .m.chat-mode .composer input{ font-size:16px; } /* 16px 미만이면 iOS 가 입력할 때 화면을 확대한다 */
-.m.chat-mode .m-nav{ position:static; flex:none; }
 .m.chat-mode .chat-head .chat-tools{ margin-left:auto; display:flex; gap:6px; }
 .m.chat-mode .chat-head [data-act="dl-chat"]{ display:none; }
 /* 대화에 방해되는 것은 숨긴다: 편지는 머리의 '편지' 버튼, 이동은 아래 막대와 위 작은 단계 막대 */
 .m.chat-mode .role, .m.chat-mode .m-role, .m.chat-mode .letter, .m.chat-mode .nav-foot,
 .m.chat-mode .m-switch, .m.chat-mode #panel > .meta-line, .m.chat-mode .chat-rule { display:none !important; }
-.m.chat-mode.typing .hdr, .m.chat-mode.typing .subnav, .m.chat-mode.typing .starters, .m.chat-mode.typing .goal-chips { display:none; }
-.m.chat-mode.typing #main{ padding-top:0; }
-.m.chat-mode.typing .chat-card{ border-radius:0; }
-.m.chat-mode.typing .composer{ padding-bottom:calc(8px + env(safe-area-inset-bottom)); }
 .m .chat-tools{ display:flex; gap:6px; margin-left:auto; }
 .m .composer input, .m .composer input#msg{ font-size:16px; }
 .m .msgs{ scroll-behavior:auto; }
@@ -240,6 +227,11 @@ body.m.chat-mode{ position:fixed; left:0; right:0; top:var(--vvt,0px); height:va
 
 /* 글을 쓰는 동안(대화 화면 밖): 머리글과 1단계 작은 단계 막대도 접어, 키보드 위에 쓰는 칸이 넉넉히 보이게 한다.
    길게 쓰는 칸은 보이는 화면의 40%까지만 늘어나게 해서 칸 이름과 위아래 맥락이 가려지지 않게 한다. */
-.m.typing:not(.chat-mode) .hdr{ transform:translateY(-100%); }
-.m.typing:not(.chat-mode) .subnav{ display:none; }
+.m.typing .hdr{ transform:translateY(-100%); }
+.m.typing .subnav, .m.chat-mode.typing .goal-chips, .m.chat-mode.typing .starters{ display:none; }
 .m.typing:not(.chat-mode) textarea:focus{ max-height:calc(var(--vvh, 100dvh) * .4); }
+
+/* 섹션 사이 여백: 카드·접는 상자·안내 사이가 붙어 보이지 않게 */
+.m details.fold, .m .notice, .m .goal-chips{ margin-bottom:14px; }
+.m .card > h3, .m .card > h2{ margin-bottom:10px; }
+.m .card .lbl{ margin-top:12px; }

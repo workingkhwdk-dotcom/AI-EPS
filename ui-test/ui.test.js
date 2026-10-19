@@ -1073,32 +1073,28 @@ test("학생: 인물 고르기 규칙 위반(겹침 등)은 서버 메시지를 
   assert.equal(await pg.locator(".pcard.mine").count(), 0);
 });
 
-test("학생(휴대폰): 대화 화면은 고정되고 대화창 안에서만 스크롤하며, 키보드가 올라오면(보이는 화면이 줄면) 입력창이 그 위에 붙는다", async () => {
+test("학생(휴대폰): 대화창은 높이를 고정하지 않고 말풍선만큼 길어져 화면 전체로 스크롤하며, 입력창은 화면 아래에 붙어 있다", async () => {
   const st = studentFixture(), { pg, errors } = await openStudent(st, { page: "m.html", ctxOpts: phone, chat: Array.from({ length: 12 }, (_, i) => ({ id: "c" + i, input: "질문 " + i, output: "대답 ".repeat(20) + i })) });
   await login(pg);
   await pg.waitForSelector("body.chat-mode #msgs .msg");
   const lay = await pg.evaluate(() => {
-    const r = (s) => document.querySelector(s).getBoundingClientRect();
     const m = document.querySelector("#msgs");
-    return { bodyH: document.documentElement.scrollHeight, vh: innerHeight, scrolls: m.scrollHeight > m.clientHeight, form: r("#chat-form"), msgs: r("#msgs"), letter: getComputedStyle(document.querySelector(".letter")).display };
+    return { pageH: document.documentElement.scrollHeight, vh: innerHeight, inner: m.scrollHeight > m.clientHeight + 2, letter: getComputedStyle(document.querySelector(".letter")).display };
   });
-  assert.ok(lay.bodyH <= lay.vh + 1, "화면 전체는 스크롤되지 않는다");
-  assert.ok(lay.scrolls, "대화창 안에서 스크롤된다");
+  assert.ok(lay.pageH > lay.vh * 1.5, `대화가 길면 화면이 길어진다(${lay.pageH} > ${lay.vh})`);
+  assert.equal(lay.inner, false, "대화창 안에 따로 스크롤이 생기지 않는다");
   assert.equal(lay.letter, "none");
-  assert.ok(lay.form.bottom <= 844 && lay.form.top > lay.msgs.top);
-  // 가장 최근 말풍선이 보이게 맨 아래로 간다
-  await pg.waitForFunction(() => { const m = document.querySelector("#msgs"); return m.scrollHeight - m.scrollTop - m.clientHeight < 6; });
-  // 입력하면 머리글·작은 단계 막대·예시를 접고, 키보드로 보이는 화면이 줄어도 입력창이 보이는 화면 안에 있다
+  // 가장 최근 말풍선이 보이게 화면이 내려가 있다
+  await pg.waitForFunction(() => { const r = document.querySelector("#msgs .msg:last-child").getBoundingClientRect(); return r.top < innerHeight && r.bottom > 0; });
+  // 맨 위로 올려도 입력창은 화면 아래(단계 막대 위)에 그대로 보인다
+  await pg.evaluate(() => window.scrollTo(0, 0));
+  await pg.waitForTimeout(150);
+  const f = await pg.evaluate(() => { const r = document.querySelector("#chat-form").getBoundingClientRect(); return { top: r.top, bottom: r.bottom }; });
+  assert.ok(f.bottom <= 844 + 1 && f.top > 844 / 2, "입력창이 화면 아래쪽에 붙어 보인다: " + JSON.stringify(f));
+  // 입력하는 동안 아래 단계 막대는 숨는다
   await pg.click("#msg");
-  await pg.waitForTimeout(200); // 초점 직후 화면 위치를 맨 위로 되돌리는 동작이 끝난 뒤
-  await pg.evaluate(() => { document.documentElement.style.setProperty("--vvh", "420px"); });
-  const typing = await pg.evaluate(() => {
-    const vis = (s) => { const e = document.querySelector(s); return !!e && getComputedStyle(e).display !== "none"; };
-    return { hdr: vis(".hdr"), subnav: vis(".subnav"), nav: vis(".m-nav"), form: document.querySelector("#chat-form").getBoundingClientRect().bottom, h: document.body.getBoundingClientRect().height };
-  });
-  assert.equal(typing.hdr, false); assert.equal(typing.subnav, false); assert.equal(typing.nav, false);
-  assert.ok(typing.form <= 421, "입력창이 보이는 화면(420px) 안에 있다: " + typing.form);
-  assert.ok(Math.abs(typing.h - 420) < 2);
+  await pg.waitForTimeout(150);
+  assert.equal(await pg.evaluate(() => getComputedStyle(document.querySelector(".m-nav")).display), "none");
   // 보내도 입력칸의 초점이 유지된다(키보드가 닫히지 않는다)
   await pg.fill("#msg", "다음 질문");
   await pg.click("#send-btn");
