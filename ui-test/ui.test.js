@@ -1108,6 +1108,26 @@ test("학생(휴대폰): 대화 화면은 고정되고 대화창 안에서만 �
   assert.deepEqual(errors, []);
 });
 
+test("학생(휴대폰): 대화 시작 전(처음 내 생각·예시 질문이 보일 때)에도, 다른 단계에서도 화면이 휴대폰 폭보다 넓어지지 않는다", async () => {
+  const st = studentFixture();
+  st.caseExtra = { ui: { letterSign: "x", requiredWho: "x", requiredTag: "x", compareWith: "x", afterSince: "x", casesKinds: "x",
+    priorQuestion: "우리가 분리배출한 플라스틱 병이나 비닐은 그 뒤에 어디로 가서 어떻게 된다고 생각했나요?", priorHint: "예) 공장에서 다 녹여서 새 물건이 되는 줄 알았다 / 생각해 본 적 없다" } };
+  const { pg, errors } = await openStudent(st, { page: "m.html", ctxOpts: phone, chat: [] });
+  await login(pg);
+  await pg.waitForSelector(".card.prior");
+  const width = () => pg.evaluate(() => ({ page: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), main: Math.round(document.querySelector("#main").getBoundingClientRect().width), vw: innerWidth }));
+  let w = await width();
+  assert.ok(w.page <= w.vw + 1 && w.main <= w.vw, `대화 시작 전 화면 폭 ${JSON.stringify(w)}`);
+  assert.ok(await pg.locator(".starters").isVisible(), "예시 질문 줄은 그대로 보인다(그 줄 안에서만 옆으로 넘긴다)");
+  for (const n of [2, 3, 4, 5, 6, 7]) {
+    await pg.click(`.m-nav .stage-tab:nth-child(${n})`).catch(() => {});
+    await pg.waitForTimeout(150);
+    w = await width();
+    assert.ok(w.page <= w.vw + 1, `${n}단계 화면 폭 ${JSON.stringify(w)}`);
+  }
+  assert.deepEqual(errors, []);
+});
+
 test("학생(휴대폰): 말풍선은 바뀐 곳부터만 다시 그린다(앞쪽 말풍선 DOM 은 그대로)", async () => {
   const st = studentFixture(), { pg } = await openStudent(st, { page: "m.html", ctxOpts: phone, chat: [{ id: "c1", input: "안녕", output: "네" }] });
   await login(pg);

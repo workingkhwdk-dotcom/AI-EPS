@@ -211,7 +211,7 @@ body.m{ --navh:calc(54px + env(safe-area-inset-bottom)); --hdrh:calc(41px + env(
    입력 중(.typing)에는 머리글·단계 막대·안내를 접어 대화 공간을 넓힌다. */
 body.m.chat-mode{ position:fixed; left:0; right:0; top:var(--vvt,0px); height:var(--vvh,100dvh); min-height:0; padding:0; overflow:hidden; display:flex; flex-direction:column; }
 .m.chat-mode .hdr{ position:relative; flex:none; }
-.m.chat-mode #main{ flex:1; min-height:0; display:flex; flex-direction:column; padding:6px 10px 0; max-width:none; }
+.m.chat-mode #main{ flex:1; min-height:0; display:flex; flex-direction:column; padding:6px 10px 0; max-width:none; width:100%; min-width:0; box-sizing:border-box; } /* width 를 정하지 않으면 margin:auto 때문에 내용 폭(옆으로 늘어선 예시 질문)만큼 넓어진다 */
 .m.chat-mode #app{ flex:1; min-height:0; display:flex; flex-direction:column; }
 .m.chat-mode #panel{ flex:1; min-height:0; display:flex; flex-direction:column; }
 .m.chat-mode .subnav{ position:static; flex:none; }
