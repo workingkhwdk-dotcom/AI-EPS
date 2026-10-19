@@ -117,4 +117,9 @@ test("수업 문서는 학생이 쓸 수 없고, 교사는 자기 수업만 읽�
   await assertSucceeds(getDoc(doc(as("T1"), `sessions/${C}`)));
   await assertFails(getDoc(doc(as("T2"), `sessions/${C}`)));
   await assertFails(getDoc(doc(as("S1"), "config/teachers")));
+  // 교사 가입 기록·승인·시도 횟수는 본인도 읽거나 쓸 수 없다(서버만)
+  for (const p of ["teacherAccounts/T1", "teacherSignups/T1", "teacherAttempts/T1"]) {
+    await assertFails(getDoc(doc(as("T1"), p)));
+    await assertFails(setDoc(doc(as("T1"), p), { email: "x@y.kr" }));
+  }
 });

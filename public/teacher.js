@@ -2,7 +2,7 @@ import { auth, db, call, esc, toast, errMsg } from "./fb.js";
 import { waitHtml, startWaitTicker, STEPS } from "./wait.js";
 import { showModal, confirmModal } from "./modal.js";
 startWaitTicker();
-import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { collection, query, where, orderBy, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const $ = (s) => document.querySelector(s);
@@ -20,11 +20,12 @@ let tickTimer = null;
 
 // ---------- 로그인 ----------
 // 휴대폰 브라우저가 팝업을 막으면 같은 창에서 구글 로그인으로 넘어갔다가 돌아온다
-$("#login-btn").onclick = () => signInWithPopup(auth, new GoogleAuthProvider()).catch((e) => {
+const googleLogin = () => signInWithPopup(auth, new GoogleAuthProvider()).catch((e) => {
   if (["auth/popup-blocked", "auth/operation-not-supported-in-this-environment", "auth/cancelled-popup-request"].includes(e?.code)) return signInWithRedirect(auth, new GoogleAuthProvider());
   toast(errMsg(e), true);
 });
-// 이메일·비밀번호 교사 계정(관리자가 Firebase 콘솔에서 만든 계정)
+$("#login-btn").onclick = googleLogin;
+// 이메일·비밀번호 교사 계정(관리자가 만든 계정이나 교사용 계정 만들기에서 만든 계정)
 $("#pw-form").onsubmit = async (e) => {
   e.preventDefault();
   const email = $("#pw-email").value.trim(), pass = $("#pw-pass").value;
@@ -37,14 +38,92 @@ $("#pw-form").onsubmit = async (e) => {
   } finally { b.disabled = false; }
 };
 $("#t-logout").onclick = () => signOut(auth).then(() => location.reload());
-let listUnsub = null;
-onAuthStateChanged(auth, (u) => {
+
+// 로그인 화면 ↔ 교사용 계정 만들기 화면. 주소에 #signup 이 있으면 계정 만들기부터 보여 준다.
+// u 가 있으면(로그인했지만 아직 교사가 아닌 계정) 인증 문구 입력 칸만 보여 준다.
+let wantSignup = location.hash === "#signup", signupOpen = true, busySignup = false;
+function showAuth(view, u) {
+  $("#main").classList.add("hidden");
+  $("#login").classList.toggle("hidden", view !== "login");
+  $("#signup").classList.toggle("hidden", view !== "signup");
+  $("#su-new").classList.toggle("hidden", !!u);
+  $("#su-approve").classList.toggle("hidden", !u);
+  $("#to-login").classList.toggle("hidden", !!u);
+  $("#su-who").textContent = u?.email || "";
+  if (u && !signupOpen) $("#su-approve .desc").textContent = `${u.email} 계정은 교사로 등록되어 있지 않아요. 지금은 교사 가입을 받지 않으니 관리자에게 문의하세요.`;
+}
+const setHash = (h) => history.replaceState(null, "", h ? "#" + h : location.pathname + location.search);
+$("#to-signup").onclick = () => { wantSignup = true; setHash("signup"); showAuth("signup", null); };
+$("#to-login").onclick = () => { wantSignup = false; setHash(""); showAuth("login", null); };
+$("#su-google").onclick = googleLogin;
+$("#su-switch").onclick = () => { wantSignup = true; signOut(auth).then(() => showAuth("signup", null)); };
+
+const signupError = (err) => ({
+  "auth/email-already-in-use": "이미 있는 이메일이에요. 로그인 화면에서 그 계정으로 로그인한 뒤 인증 문구를 넣으세요.",
+  "auth/invalid-email": "이메일 주소를 다시 확인하세요.",
+  "auth/weak-password": "비밀번호가 너무 쉬워요. 8자 이상으로 더 길게 만들어 주세요.",
+  "auth/operation-not-allowed": "이메일 가입이 꺼져 있어요. 구글 계정으로 가입하거나 관리자에게 문의하세요.",
+}[err?.code] || errMsg(err));
+// 이메일·비밀번호로 가입: 계정을 만들고 바로 인증 문구로 승인받는다. 문구가 틀리면 방금 만든 계정을 지운다.
+$("#su-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const email = $("#su-email").value.trim(), p1 = $("#su-pass").value, p2 = $("#su-pass2").value, code = $("#su-code").value.trim();
+  if (!email) return toast("이메일을 입력하세요.", true);
+  if (p1.length < 8) return toast("비밀번호는 8자 이상으로 만들어 주세요.", true);
+  if (p1 !== p2) return toast("비밀번호 확인이 맞지 않아요.", true);
+  if (!code) return toast("교사 인증 문구를 입력하세요.", true);
+  const b = $("#su-btn"); b.disabled = true; busySignup = true;
+  try {
+    const cred = await createUserWithEmailAndPassword(auth, email, p1);
+    try { await call("registerTeacher")({ code }); }
+    catch (err) { await cred.user.delete().catch(() => signOut(auth)); throw err; }
+    $("#su-pass").value = $("#su-pass2").value = $("#su-code").value = "";
+    busySignup = false; setHash("");
+    toast("교사 계정이 만들어졌어요. 다음부터는 이 이메일과 비밀번호로 로그인하세요.");
+    enterMain(auth.currentUser);
+  } catch (err) {
+    busySignup = false;
+    toast(signupError(err), true);
+    showAuth("signup", null);
+  } finally { b.disabled = false; }
+};
+// 로그인은 했지만 교사가 아닌 계정(처음 쓰는 구글 계정 등): 인증 문구로 승인
+$("#su-approve-btn").onclick = async () => {
+  const code = $("#su-code2").value.trim();
+  if (!code) return toast("교사 인증 문구를 입력하세요.", true);
+  const b = $("#su-approve-btn"); b.disabled = true;
+  try {
+    await call("registerTeacher")({ code });
+    $("#su-code2").value = ""; setHash("");
+    toast("교사로 승인됐어요.");
+    enterMain(auth.currentUser);
+  } catch (err) { toast(errMsg(err), true); }
+  finally { b.disabled = false; }
+};
+
+let listUnsub = null, entered = false;
+function enterMain(u) {
+  $("#login").classList.add("hidden"); $("#signup").classList.add("hidden");
+  $("#main").classList.remove("hidden");
+  $("#t-logout").classList.remove("hidden");
+  $("#who").textContent = u.email || "";
+  if (entered) return;
+  entered = true;
+  listSessions(u.uid); eventIds().forEach((id) => refreshCase(id).catch(() => {}));
+}
+onAuthStateChanged(auth, async (u) => {
+  if (busySignup) return; // 이메일 가입 중에는 가입 처리가 화면을 정한다
   const ok = u && !u.isAnonymous;
-  $("#login").classList.toggle("hidden", !!ok);
-  $("#main").classList.toggle("hidden", !ok);
   $("#t-logout").classList.toggle("hidden", !ok);
   $("#who").textContent = ok ? u.email : "";
-  if (ok) { listSessions(u.uid); eventIds().forEach((id) => refreshCase(id).catch(() => {})); }
+  if (!ok) return showAuth(wantSignup ? "signup" : "login", null);
+  // 로그인했어도 교사로 승인된 계정인지 서버에 묻는다. 아니면 인증 문구 입력으로.
+  // 확인 자체가 안 되면(네트워크 등) 교사 화면을 보여 주고, 권한은 서버가 호출마다 다시 확인한다.
+  let teacher = true;
+  try { const r = (await call("teacherStatus")()).data || {}; teacher = r.teacher !== false; signupOpen = r.signupOpen !== false; } catch {}
+  if (auth.currentUser?.uid !== u.uid) return; // 확인하는 사이 계정이 바뀌었다
+  if (!teacher) return showAuth("signup", u);
+  enterMain(u);
 });
 
 // ---------- 탭 ----------
