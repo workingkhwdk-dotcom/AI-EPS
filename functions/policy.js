@@ -68,7 +68,7 @@ function checkGate({ stage, type, work = {}, payload = {} }) {
       if (payload.focus === "link") {
         const l = toList(work.s2?.links).find((x) => x.id === payload.linkId);
         if (!l) return blocked("먼저 내 생각을 적고 저장해야 생각 도우미에게 보여 줄 수 있어요.");
-        if ((str(l.source) + str(l.scene)).length < MIN_LINK_LEN) return blocked("'그 생각은 어디서 왔을까'나 '내 생활의 장면'을 조금 더 써 주세요.");
+        if ((str(l.source) + str(l.scene)).length < MIN_LINK_LEN) return blocked("'처음 그렇게 생각한 이유'나 '내 생활에서 비슷했던 순간'을 조금 더 써 주세요.");
         return allowed();
       }
       if (groupProblem(work).length < MIN_PROBLEM_LEN) return blocked("1단계 ③에서 모둠이 풀 문제(질문)를 먼저 정하세요.");

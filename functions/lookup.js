@@ -36,6 +36,20 @@ function searchInstructions(ev) {
 
 const cleanQuery = (q) => String(q ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
 
+// 인사·맞장구처럼 바로 답할 수 있는 말인지. 이런 말에는 웹 검색 도구를 주지 않고 짧게 생각해 바로 답한다
+// ('안녕하세요'에도 자료를 찾느라 오래 걸리지 않게). 사실을 묻는 말이 섞여 있으면 작은 대화로 보지 않는다.
+const SMALL_TALK = /^(안녕|반가|처음 뵙|만나서|고마|감사|수고|잘 지내|넵|네|응|아하|아~|오호|헐|와|ㅋ|ㅎ|ㅠ|그렇구나|그렇군요|알겠|좋아요|괜찮|저는|제 이름)/;
+const ASKS = /(얼마|몇|언제|왜|어떻게|무엇|뭐|누가|누구|어디|있나요|인가요|했나요|되나요|\?)/;
+function isSmallTalk(text) {
+  const t = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!t || t.length <= 3) return true;
+  if (/\d/.test(t) || t.length > 40) return false;
+  if (!SMALL_TALK.test(t)) return false;
+  // '안녕하세요? 어떤 일을 하세요?'처럼 인사 뒤에 질문이 붙으면 질문 부분을 본다
+  const rest = t.replace(/^[^.!?~]*[.!?~]+\s*/, "");
+  return !rest || rest === t ? !ASKS.test(t.replace(/\?$/, "")) : !ASKS.test(rest);
+}
+
 // 실제 검색. 실패해도 대화가 끊기지 않도록 found:false 로 돌려준다.
 async function webSearch({ apiKey, model, event, query, effort = "low", domains = [] }) {
   try {
@@ -79,4 +93,4 @@ async function chatWithLookup({ apiKey, model, event, messages, maxTokens, effor
   return { content: "", lookups };
 }
 
-module.exports = { chatWithLookup, webSearch, toolResultText, cleanQuery, lookupTool, searchInstructions, MAX_LOOKUPS, NOT_FOUND };
+module.exports = { isSmallTalk, chatWithLookup, webSearch, toolResultText, cleanQuery, lookupTool, searchInstructions, MAX_LOOKUPS, NOT_FOUND };

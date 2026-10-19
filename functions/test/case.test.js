@@ -155,7 +155,7 @@ test("페르소나 프롬프트: 공통 배경·자기 생각 포함, 생각을 
   assert.match(prompt, /'미경'/);
   assert.match(prompt, /\[상위 규범\]/);
   assert.match(prompt, /메신저 대화/);
-  assert.match(prompt, /1~4문장/);
+  assert.match(prompt, /1~5문장/);
   assert.match(prompt, /\[모두가 아는 배경\]/);
   assert.match(prompt, /\[네 생각\]/);
   assert.ok(p.views.every((v) => prompt.includes(v)));

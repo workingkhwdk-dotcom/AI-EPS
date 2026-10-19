@@ -16,7 +16,7 @@ const { guardMessages, parseVerdict, resolveOutput, piiFlags } = require("./guar
 const { isTeacherEmail, trustedLogin } = require("./teachers");
 const { validatePassword, hashPassword, verifyPassword, normNick, credKey, lockedSeconds, afterFail, afterTotalFail } = require("./password");
 const { defaultMaterials, sanitizeMaterials, toStudentMaterials, materialsText } = require("./materials");
-const { chatWithLookup, webSearch } = require("./lookup");
+const { chatWithLookup, webSearch, isSmallTalk } = require("./lookup");
 const { sanitizeOverride, applyOverride } = require("./personaEdit");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { AUTO_CLOSE_CHOICES, autoCloseDue, staleAnonymousUids } = require("./maintenance");
@@ -821,7 +821,10 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
       // 최근 대화만 시간순으로 가져온다(전체를 읽지 않는다)
       const past = (await chatCol.orderBy("createdAt", "desc").limit(16).get()).docs.map((d) => d.data()).reverse();
       const input = String(payload.message).trim();
-      const messages = [{ role: "system", content: prompts.personaPrompt(ev, persona, { lookup: searchOn }) }];
+      // 인사·맞장구에는 검색 도구를 주지 않고 짧게 생각해 바로 답한다(첫 인사에 오래 기다리지 않게)
+      const smallTalk = isSmallTalk(input);
+      const useLookup = searchOn && !smallTalk;
+      const messages = [{ role: "system", content: prompts.personaPrompt(ev, persona, { lookup: useLookup }) }];
       past.forEach((l) => {
         messages.push({ role: "user", content: l.input });
         messages.push({ role: "assistant", content: l.output });
@@ -837,19 +840,19 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
         verdict = { ok: false, category: "conduct", reason: `학생 메시지 규칙 검사: ${conduct.LABELS[pre.category]}`, fixed: "", conduct: pre.category };
       } else {
         // 인물이 자기 자료로 답할 수 없는 사실을 물으면 웹에서 찾아 본다. 못 찾으면 모른다고 답한다.
-        if (searchOn) {
-          const r = await chatWithLookup({ apiKey, model: personaModel, event: ev, messages, maxTokens: 400, effort, search });
+        if (useLookup) {
+          const r = await chatWithLookup({ apiKey, model: personaModel, event: ev, messages, maxTokens: 600, effort, search });
           reply = r.content; lookups = r.lookups;
           if (!String(reply).trim()) throw new Error("인물 응답이 비어 있음");
         } else {
-          reply = await callModel({ apiKey, model: personaModel, messages, maxTokens: 400, efforts: [effort] });
+          reply = await callModel({ apiKey, model: personaModel, messages, maxTokens: smallTalk ? 300 : 600, efforts: smallTalk ? ["minimal", effort] : [effort] });
         }
 
         // 상위 AI(규범 감독자): 학생에게 보내기 전에 검사. 가벼운 위반은 고쳐 쓰고, 무거운 위반·검사 실패는 안내로 대체.
         // 학생 메시지의 태도(conduct)도 함께 판정한다.
         try {
           const verdictText = await callModel({
-            apiKey, model: GUARD_MODEL.value() || baseModel, json: true, maxTokens: 900, efforts: ["low"],
+            apiKey, model: GUARD_MODEL.value() || baseModel, json: true, maxTokens: 900, efforts: smallTalk ? ["minimal", "low"] : ["low"],
             messages: guardMessages({ event: ev, persona, claims: persona.claims, history: past.slice(-3), studentMessage: input, reply, lookups }),
           });
           verdict = parseVerdict(verdictText);
