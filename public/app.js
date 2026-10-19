@@ -42,7 +42,7 @@ const COMPARE = ["자료와 같다", "자료와 다르다", "자료에 없다"];
 const VERDICTS = ["사실이다", "일부만 사실이다", "사실이 아니다", "확인할 수 없다"];
 const CAUSE_LEVELS = ["사람들의 생각·선택", "동네·사회 분위기", "법·제도·규칙"];
 // 2단계 '내 생활에서 비슷한 장면'의 세 갈래
-const ANGLES = ["내가 그 사람 쪽에 서 봤던 때", "내가 걱정하는 쪽에 서 봤던 때", "나도 모르게 이 일과 이어져 있는 것"];
+const ANGLES = ["그 사람과 비슷한 처지였던 때", "걱정하는 쪽의 마음이었던 때", "나도 모르게 이 일과 이어져 있는 것"];
 // 4단계: AI 검토를 어떻게 받아들일지(예전 수업 기록은 OLD_DECISIONS로 남아 있다)
 const DECISIONS = ["받아들인다", "고쳐서 반영한다", "받아들이지 않는다"];
 const OLD_DECISIONS = ["수용", "수정해서 반영", "기각"];
@@ -495,8 +495,9 @@ function problemBar() {
 const shared = `<span class="tag b">모둠이 함께 써요</span>`;
 const liveWho = (path) => `<div class="live-who" data-live="${esc(path)}"></div>`;
 // 저장 칸(data-save): 입력하면 자동 저장되고, 모둠원 화면에도 바로 반영된다
-const fld = (path, label, ph = "", area = false) => `${label ? `<label class="lbl">${label}</label>` : ""}${area
-  ? `<textarea data-save="${path}" maxlength="${MAX_AREA}" placeholder="${esc(ph)}">${esc(w(path) || "")}</textarea>`
+// 휴대폰에서는 한 줄 칸에 긴 예시가 잘리므로, 예시가 길면 두 줄 칸(textarea.short)으로 보여 준다
+const fld = (path, label, ph = "", area = false) => `${label ? `<label class="lbl">${label}</label>` : ""}${area || (IS_M && ph.length > 16)
+  ? `<textarea data-save="${path}" maxlength="${area ? MAX_AREA : MAX_INPUT}" ${area ? "" : `class="short"`} placeholder="${esc(ph)}">${esc(w(path) || "")}</textarea>`
   : `<input type="text" data-save="${path}" maxlength="${MAX_INPUT}" value="${esc(w(path) || "")}" placeholder="${esc(ph)}" />`}${liveWho(path)}`;
 const pick = (path, label, opts) => {
   const cur = w(path) || "";
@@ -753,12 +754,14 @@ function linkCard() {
   const prior = txt(f.prior), surprise = txt(f.surprise);
   const hints = ui().sceneHints || UI_FALLBACK.sceneHints;
   const angle = S.linkAngle ?? 0;
+  // 한 번 쓰고 나면 입력칸은 접고, 모둠원의 생각을 먼저 보여 준다('하나 더 쓰기'로 다시 연다)
+  const showForm = !mine.length || S.linkFormOpen;
   const view = (l, own) => `<div class="card flat link-card" style="margin-bottom:10px">
       ${l.prior ? `<div class="meta-line">처음 생각: ${esc(l.prior)}</div>` : ""}
       ${l.surprise ? `<div class="meta-line">흔들린 순간: ${esc(l.surprise)}</div>` : ""}
-      <div style="margin-top:6px"><span class="tag">어디서 왔을까</span> ${esc(l.source)}</div>
+      <div style="margin-top:6px"><span class="tag">처음 생각의 이유</span> ${esc(l.source)}</div>
       <div style="margin-top:4px"><span class="tag b">${esc(l.angle || "내 생활의 장면")}</span> ${esc(l.scene)}</div>
-      ${l.question ? `<div style="margin-top:4px"><span class="tag y">궁금해진 것</span> <b>${esc(l.question)}</b></div>` : ""}
+      ${l.question ? `<div style="margin-top:4px"><span class="tag y">더 알고 싶은 것</span> <b>${esc(l.question)}</b></div>` : ""}
       ${own ? coachBox("link", l.id, true, "", stageLogs(2).some((g) => g.payload?.linkId === l.id) ? fld(`s2.linkMore.${l.id}`, "질문을 받고 더 생각한 것", "질문에 대한 내 생각, 고치고 싶은 부분", true) : "")
         : txt(w(`s2.linkMore.${l.id}`)) ? `<div class="meta-line" style="margin-top:6px">더 생각한 것: ${esc(w(`s2.linkMore.${l.id}`))}</div>` : ""}
       <div class="row" style="margin-top:8px;justify-content:space-between">${who(l)}${own ? `<button class="btn btn-plain btn-sm" data-act="del" data-path="s2.links" data-id="${l.id}">삭제</button>` : ""}</div></div>`;
@@ -766,16 +769,21 @@ function linkCard() {
     <p class="desc">원인을 찾기 전에, 이 일을 처음 들었을 때의 내 생각부터 돌아봐요. 내가 왜 그렇게 생각했는지 알면, 다른 사람들이 왜 그렇게 생각하는지도 보여요.</p>
     <div class="notice muted"><b>대화 전 내 생각</b><br>${prior ? esc(prior) : `아직 적지 않았어요. <button class="link" data-go="1" data-sub="chat">1단계 ①에서 적기</button>`}
       ${surprise ? `<br><br><b>대화하며 '어?' 했던 순간</b><br>${esc(surprise)}` : ""}</div>
-    ${mine.map((l) => view(l, true)).join("")}
-    <label class="lbl" for="lk-src">1. 처음에 그렇게 생각한 건 어디서 왔을까요?</label>
-    <input type="text" id="lk-src" maxlength="${MAX_INPUT}" placeholder="예) 뉴스 제목만 봤다 / 주변 어른들이 하는 말을 들었다 / 직접 본 적은 없다" />
-    <label class="lbl">2. 내 생활에서 이 일과 닿아 있는 장면은? (하나 골라서 써요)</label>
+    ${showForm ? `
+    <label class="lbl" for="lk-src">1. 처음에 그렇게 생각한 이유는 뭐였나요?</label>
+    <p class="meta-line">그 생각을 어디서 보고 들었는지 떠올려 보세요. 정답은 없어요.</p>
+    <textarea id="lk-src" class="short" maxlength="${MAX_INPUT}" placeholder="예) 뉴스 제목만 봤어요 / 부모님이나 주변 어른들이 하는 말을 들었어요 / 그냥 그런 느낌이 들었어요"></textarea>
+    <label class="lbl">2. 내 생활에서 이 이야기와 비슷한 순간이 있었나요?</label>
+    <p class="meta-line">셋 중 떠오르는 것 하나를 골라, 그때 무슨 일이 있었는지 짧게 써요.</p>
     <div class="chipbar">${ANGLES.map((a, i) => `<button class="chip ${angle === i ? "on" : ""}" data-act="lk-angle" data-i="${i}">${esc(a)}</button>`).join("")}</div>
     <textarea id="lk-scene" maxlength="${MAX_AREA}" placeholder="예) ${esc(hints[angle] || "")}"></textarea>
-    <label class="lbl" for="lk-q">3. 그래서 지금 궁금해진 것은?</label>
-    <input type="text" id="lk-q" maxlength="${MAX_INPUT}" placeholder="예) 사람들은 왜 그렇게 쉽게 ~라고 믿게 될까?" />
-    <div style="margin-top:10px"><button class="btn btn-tinted" data-act="add-link">모둠에 보이기</button></div>
-    ${others.length ? `<label class="lbl" style="margin-top:14px">모둠원들의 생각</label>${others.map((l) => view(l, false)).join("")}` : ""}</div>`;
+    <label class="lbl" for="lk-q">3. 이야기를 듣고 나서 더 알고 싶어진 것은?</label>
+    <p class="meta-line">다음 단계(원인 찾기)에서 모둠이 함께 알아볼 질문이 돼요.</p>
+    <textarea id="lk-q" class="short" maxlength="${MAX_INPUT}" placeholder="예) 사람들은 왜 그렇게 쉽게 ~라고 믿게 될까?"></textarea>
+    <div class="row" style="margin-top:10px"><button class="btn btn-tinted" data-act="add-link">모둠에 보이기</button>${mine.length ? `<button class="btn btn-plain" data-act="link-form" data-open="0">취소</button>` : ""}</div>` : ""}
+    ${others.length ? `<label class="lbl" style="margin-top:14px">모둠원들의 생각</label>${others.map((l) => view(l, false)).join("")}` : mine.length ? `<div class="meta-line" style="margin-top:12px">모둠원들이 쓰면 여기에 보여요.</div>` : ""}
+    ${mine.length ? `<details class="fold mine-fold" data-keep="mylinks" style="margin-top:14px" ${mine.some((l) => stageLogs(2).some((g) => g.payload?.linkId === l.id)) || S.busy?.startsWith("coach:link") ? "open" : ""}><summary>내가 쓴 것 (${mine.length}개) 보기·지우기</summary><div class="inner">${mine.map((l) => view(l, true)).join("")}</div></details>
+      ${showForm ? "" : `<button class="btn btn-plain btn-sm" style="margin-top:10px" data-act="link-form" data-open="1">하나 더 쓰기</button>`}` : ""}</div>`;
 }
 
 // 생각 도우미: 답을 주지 않고 질문 하나만 돌려준다. 받은 질문은 모둠 로그에 남아 모두가 본다.
@@ -1097,11 +1105,17 @@ const sub1 = {
         <div class="row" style="margin-top:14px;justify-content:space-between">${status}<button class="btn btn-primary" data-act="submit-note">제출하기</button></div></div>
         <div class="notice muted tip">제출하면 모둠원이 제출한 내용도 볼 수 있어요. (지금 ${done}명 제출)</div>`;
     }
-    return `<div class="card"><h3>② 내가 제출한 내용</h3>${findingCard({ ...mine, nick: S.nick }, true)}
-      <div class="row" style="margin-top:10px;justify-content:space-between">${status}<button class="btn btn-plain btn-sm" data-act="edit-note">수정하기</button></div></div>
-    <div class="card"><h3>모둠원이 제출한 내용</h3>
-      ${others.map((f) => findingCard(f)).join("") || `<div class="meta-line">아직 제출한 모둠원이 없어요.</div>`}
-      ${done < total ? `<div class="meta-line" style="margin-top:8px">모두 제출하면 ③ 모둠 문제 정하기로 넘어가세요.</div>` : ""}</div>`;
+    // 제출한 뒤에는 내 쓰기 칸을 접고, 모둠원 제출 현황과 모둠원이 쓴 내용을 먼저 보여 준다(내 글은 접힌 상자에서 보고 고친다)
+    const allIn = done >= total;
+    return `<div class="card wait-card ${allIn ? "done" : ""}"><h3>${allIn ? "모두 제출했어요!" : "제출했어요. 모둠원을 기다리는 중이에요"}</h3>
+      <div class="sub-dots">${submitted().map((f) => `<span class="dot on">${esc(f.nick || "")}</span>`).join("")}${Array.from({ length: Math.max(0, total - done) }, () => `<span class="dot">…</span>`).join("")}</div>
+      ${status}
+      ${allIn ? `<button class="btn btn-primary" style="margin-top:12px" data-go="1" data-sub="group">③ 모둠 문제 정하러 가기 →</button>` : `<p class="meta-line" style="margin-top:8px">기다리는 동안 아래에서 먼저 제출한 모둠원의 이야기를 읽어 보세요.</p>`}</div>
+    <div class="card"><h3>모둠원이 만난 사람들</h3>
+      ${others.map((f) => findingCard(f)).join("") || `<div class="meta-line">아직 제출한 모둠원이 없어요.</div>`}</div>
+    <details class="fold mine-fold" data-keep="mynote"><summary>내가 제출한 내용 보기·고치기</summary><div class="inner">
+      ${findingCard({ ...mine, nick: S.nick }, true)}
+      <div style="margin-top:10px"><button class="btn btn-plain btn-sm" data-act="edit-note">수정하기</button></div></div></details>`;
   },
 
   group() {
@@ -1189,12 +1203,13 @@ panel.addEventListener("click", async (e) => {
       if (val("ch-heard").length < 3 || val("ch-q").length < 5) return toast("확인할 말과 확인 질문을 구체적으로 쓰세요.", true);
       await addItem("s2.checks", { heard: val("ch-heard"), question: val("ch-q"), srcType: val("ch-src"), causeId: val("ch-cause") }); render(true); break;
     }
-    case "lk-angle": S.linkAngle = +d.i; { const sc = $("#lk-scene"), keep = sc?.value || ""; render(true); const n = $("#lk-scene"); if (n) n.value = keep; } break;
+    case "link-form": S.linkFormOpen = d.open === "1"; render(true); break;
+    case "lk-angle": S.linkAngle = +d.i; { const ids = ["lk-src", "lk-scene", "lk-q"], keep = ids.map((id) => $("#" + id)?.value || ""); render(true); ids.forEach((id, i) => { const n = $("#" + id); if (n) n.value = keep[i]; }); } break;
     case "add-link": {
       if (val("lk-src").length < 4 || val("lk-scene").length < 8) return toast("1번과 2번을 조금 더 구체적으로 써 주세요.", true);
       const f = w(`s1.findings.${S.uid}`) || {};
       await addItem("s2.links", { prior: txt(f.prior), surprise: txt(f.surprise), source: val("lk-src"), angle: ANGLES[S.linkAngle ?? 0], scene: val("lk-scene"), question: val("lk-q") });
-      render(true); break;
+      S.linkFormOpen = false; render(true); break;
     }
     case "add-cause": { if (val("cz").length < 4) return toast("원인을 한 문장으로 쓰세요.", true); await addItem("s2.causes", { level: val("cz-lv"), text: val("cz") }); render(true); break; }
     case "ask-check": await aiGroup(3, "verify_query", { checkId: d.id }, "check:" + d.id); break;

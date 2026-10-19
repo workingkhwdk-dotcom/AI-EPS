@@ -771,3 +771,11 @@ body.modal-open{ overflow:hidden; }
 .login-or{ display:flex; align-items:center; gap:10px; margin:18px 0 2px; font-size:12.5px; color:var(--ink-3); }
 .login-or::before, .login-or::after{ content:""; flex:1; height:1px; background:var(--sep); }
 input[type=email]{ font:inherit; font-size:16px; width:100%; padding:11px 13px; border-radius:12px; border:none; background:var(--fill); color:var(--ink); outline:none; }
+
+/* 제출 뒤 기다리는 카드: 누가 제출했는지 점으로 보여 준다 */
+.wait-card{ border:1px dashed var(--blue); }
+.wait-card.done{ border:1px solid var(--green); }
+.sub-dots{ display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 8px; }
+.sub-dots .dot{ font-size:12.5px; padding:4px 10px; border-radius:999px; background:var(--fill); color:var(--ink-3); }
+.sub-dots .dot.on{ background:var(--accent); color:#fff; font-weight:700; }
+.mine-fold summary{ font-weight:700; }

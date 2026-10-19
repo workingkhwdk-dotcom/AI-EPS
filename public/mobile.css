@@ -129,18 +129,14 @@ body.m.typing{ padding-bottom:16px; }
 .m-teacher .tbl.grp td:nth-child(6){ grid-area:act; display:grid !important; grid-template-columns:1fr 1fr; gap:6px; }
 .m-teacher .dots i{ width:14px; height:14px; }
 
-/* ---------- 좁은 화면: 활동과 직접 관련 없는 글은 줄여서 활동 칸을 먼저 보여 준다 ----------
-   - 설명(.desc), 안내(.tip), 도움말(p.meta-line)은 한 줄로 줄이고 끝에 '…'. 누르면 펼쳐진다(device.js)
-   - 실제 사건 자료는 접어 둔 채로 시작, 활동과 무관한 줄(.m-hide)은 숨긴다 */
-.m .desc, .m .tip, .m p.meta-line{ display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:1; line-clamp:1; overflow:hidden; cursor:pointer; }
-.m .desc{ margin-bottom:8px; }
-.m .desc.open, .m .tip.open, .m p.meta-line.open{ display:block; -webkit-line-clamp:unset; line-clamp:none; overflow:visible; }
-/* 줄인 상자는 위아래 여백을 투명 테두리로 줘서 둘째 줄이 여백 사이로 비치지 않게 한다 */
-.m .notice.tip, .m .example.tip{ padding:0 12px; border-block:8px solid transparent; }
+/* ---------- 좁은 화면 ----------
+   설명·안내·질문 글은 자르지 않고 끝까지 보여 준다(한 줄로 줄이면 질문이 '…'로 잘려 무엇을 묻는지 알 수 없다).
+   활동과 무관한 줄(.m-hide)만 숨긴다. */
+.m .desc{ margin-bottom:10px; }
 .m .m-hide{ display:none !important; }
 .m .problem-bar{ padding:9px 13px; margin-bottom:10px; }
 .m .problem-bar .pb-s{ display:none; }
-.m .problem-bar .pb-q{ font-size:14.5px; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
+.m .problem-bar .pb-q{ font-size:14.5px; }
 .m .card h3{ font-size:15.5px; }
 .m details.fold{ padding:12px 14px; }
 /* 교사: 수업 상태 줄의 설명은 숨기고 '진행 중/닫힘' 표시만 */
@@ -151,8 +147,6 @@ body.m.typing{ padding-bottom:16px; }
 .m .journey{ gap:9px; } .m .journey li{ gap:10px; } .m .journey .jn{ width:24px; height:24px; font-size:12px; }
 .m .journey b{ font-size:14px; } .m .journey small{ font-size:12.5px; }
 .m .help-btn{ width:26px; height:26px; }
-/* 알림 창 안의 글은 줄이지 않는다 */
-.m .modal .desc, .m .modal .tip, .m .modal p.meta-line{ display:block; -webkit-line-clamp:unset; line-clamp:none; overflow:visible; cursor:auto; }
 
 /* ---------- 학습 활동 공간 극대화 ----------
    머리글·아래 막대를 얇게 하고, 아래로 스크롤하면 둘 다 숨겨 활동 내용이 화면을 거의 다 쓰게 한다(위로 스크롤하면 다시 나온다, device.js).
@@ -235,3 +229,6 @@ body.m{ --navh:calc(54px + env(safe-area-inset-bottom)); --hdrh:calc(41px + env(
 .m details.fold, .m .notice, .m .goal-chips{ margin-bottom:14px; }
 .m .card > h3, .m .card > h2{ margin-bottom:10px; }
 .m .card .lbl{ margin-top:12px; }
+
+/* 휴대폰에서 예시가 긴 칸은 두 줄 칸으로 보여 예시 글이 잘리지 않게 한다(app.js fld) */
+.m textarea.short{ min-height:64px; }

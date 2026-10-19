@@ -80,16 +80,5 @@
         else if (d < -12) { b.classList.remove("chrome-hidden"); lastY = y; }
       });
     }, { passive: true });
-    // 한 줄로 줄여 둔 설명·안내는 누르면 펼치고 다시 누르면 접는다. 화면을 다시 그려도 펼친 것은 펼친 채로 둔다.
-    var FOLD = ".desc, .tip, p.meta-line", opened = {};
-    document.addEventListener("click", function (e) {
-      if (e.target.closest("a, button, input, select, textarea, label")) return;
-      var el = e.target.closest(FOLD); if (!el) return;
-      var on = el.classList.toggle("open");
-      opened[el.textContent] = on;
-    });
-    new MutationObserver(function () {
-      document.querySelectorAll(FOLD).forEach(function (el) { if (opened[el.textContent] && !el.classList.contains("open")) el.classList.add("open"); });
-    }).observe(document.body, { childList: true, subtree: true });
   });
 })();

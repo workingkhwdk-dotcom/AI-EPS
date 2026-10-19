@@ -562,21 +562,16 @@ test("교사 모바일: 학생·모둠 표가 카드로 보이고, 아래 메뉴
   assert.deepEqual(errors, []);
 });
 
-test("학생 모바일: 안내 글은 한 줄로 줄이고(누르면 펼침, 다시 그려도 유지), AI 역할 상자(개발자용 설명)는 보이지 않고, 사건 자료(학습 내용)는 펼친 채로 시작한다", async () => {
+test("학생 모바일: 안내·질문 글은 자르지 않고 끝까지 보이고, AI 역할 상자(개발자용 설명)는 보이지 않고, 사건 자료(학습 내용)는 펼친 채로 시작한다", async () => {
   const s = await openStudent(studentFixture(), { ctxOpts: phone });
   await login(s.pg);
   await s.pg.waitForSelector(".subnav");
   assert.equal(await s.pg.locator(".role").count(), 0, "AI 역할 상자는 학생 화면에 없다");
   await s.pg.tap('#tabs .stage-tab[data-stage="2"]');
   await s.pg.waitForSelector("details.fold");
-  // 설명 글은 한 줄로 줄어 있고, 누르면 펼쳐지며, 화면을 다시 그려도 펼친 채로 있다
-  const desc = s.pg.locator(".card .desc >> visible=true").first();
-  const h1 = (await desc.boundingBox()).height;
-  await desc.tap();
-  await s.pg.waitForFunction(() => [...document.querySelectorAll(".card .desc")].some((e) => e.classList.contains("open")));
-  assert.ok((await s.pg.locator(".card .desc.open").first().boundingBox()).height > h1 + 10, "누르면 펼쳐진다");
-  await s.pg.evaluate(() => { const d = document.querySelector("#panel"); d.innerHTML = d.innerHTML; });
-  await s.pg.waitForFunction(() => [...document.querySelectorAll(".card .desc")].some((e) => e.classList.contains("open")));
+  // 설명 글은 한 줄로 자르지 않는다(질문이 '…'로 잘리면 무엇을 묻는지 알 수 없다)
+  const clipped = await s.pg.evaluate(() => [...document.querySelectorAll(".desc, .tip, p.meta-line, .lbl")].filter((e) => e.offsetParent && e.scrollHeight > e.clientHeight + 2).map((e) => e.textContent.slice(0, 30)));
+  assert.deepEqual(clipped, [], "잘린 글이 없다");
   assert.notEqual(await s.pg.locator("details.fold").getAttribute("open"), null, "사건 자료는 학습 내용이므로 펼쳐서 시작한다");
   await s.pg.locator("details.fold summary").tap();
   await s.pg.evaluate(() => window.scrollTo(0, 0));
@@ -824,6 +819,24 @@ test("학생: 인물과 처음 이야기하기 전에 '처음 내 생각'을 한
   assert.match(await pg.content(), /내 생각과 다르네/);
 });
 
+test("학생: 1단계 ②를 제출하면 내 쓰기 칸은 접히고, 모둠원 제출 현황과 모둠원이 쓴 내용이 먼저 보이며, 접힌 상자에서 고칠 수 있다", async () => {
+  const work = { s1: { findings: {
+    anonX: { who: "제주 식당 주인", hard: "손님이 줄었다", want: "안전", submitted: true, nick: "가람", persona: "김씨" },
+    other: { who: "예멘 청년", hard: "일자리", want: "일하기", submitted: true, nick: "나래", persona: "이씨" } } } };
+  const st = studentFixture();
+  const s = await openStudent(st, { work });
+  await login(s.pg);
+  await s.pg.click('.subnav [data-sub="note"]');
+  await s.pg.waitForSelector(".wait-card");
+  const first = await s.pg.locator("#panel .card").first().innerText();
+  assert.match(first, /모둠원을 기다리는 중|모두 제출했어요/, "기다리는 카드가 맨 위에 있다");
+  assert.match(await s.pg.locator("#panel").innerText(), /나래/, "모둠원이 쓴 내용이 보인다");
+  assert.equal(await s.pg.locator("details.mine-fold").getAttribute("open"), null, "내 글은 접혀 있다");
+  await s.pg.locator("details.mine-fold summary").click();
+  await s.pg.click('[data-act="edit-note"]');
+  await s.pg.waitForFunction(() => window.__writes.length > 0);
+});
+
 test("학생: 2단계 ①은 처음 내 생각에서 출발하고, 생각 도우미의 질문을 보고 더 쓸 수 있으며, 선생님이 끄면 도우미가 사라진다", async () => {
   const work = {
     s1: { findings: { anonX: { prior: "돈 벌러 온 사람들 같았다", surprise: "징집을 피해 왔다는 말을 들었다" } }, problem: { hmw: "어떻게 하면 주민의 불안을 줄이면서도 신청자의 생계를 지킬 수 있을까?", disputes: "주민은 범죄가 늘었다고 했는데, 활동가는 아니라고 했다" } },
@@ -849,7 +862,10 @@ test("학생: 2단계 ①은 처음 내 생각에서 출발하고, 생각 도우
   await s.pg.waitForFunction(() => window.__log.includes("aiRequest"));
   assert.deepEqual(st.chatCalls.at(-1), { code: "ABC234", stage: 2, type: "coach", payload: { focus: "link", linkId: "L1" } });
   st.releaseChat();
-  // 새 연결: 1·2번이 짧으면 막는다
+  // 한 번 쓰고 나면 쓰기 칸은 접혀 있고, '하나 더 쓰기'로 연다
+  assert.equal(await s.pg.locator("#lk-src").count(), 0, "이미 쓴 학생에게는 쓰기 칸 대신 모둠원 생각이 먼저 보인다");
+  await s.pg.click('[data-act="link-form"][data-open="1"]');
+  // 새로 쓰기: 1·2번이 짧으면 막는다
   await s.pg.fill("#lk-src", "몰라");
   await s.pg.click('[data-act="add-link"]');
   await s.pg.waitForSelector(".toast");

@@ -64,7 +64,7 @@ function guardMessages({ event, persona, claims, background, history = [], stude
     "- sexual: 성적인 질문이나 농담, 신체에 대한 성적 평가, 성적 행동 요구.",
     "- 학생 태도는 확실할 때만 mockery·sexual 로 판정하고, 애매하면 ok 로 둔다.",
     "- 애매하면 ok 로 판정한다.",
-    "- category 가 fabrication, kind, overshare, meta, advice 이면 fixed 에 고친 응답을 쓴다. 고칠 때 지킬 것: 같은 인물의 말투와 이모지 습관을 유지한다. 위반한 부분만 빼거나 고치고, 학생의 질문에 대한 답과 인물의 생각은 남긴다. '잘 모르겠다'는 지어낸 사실을 대신할 때만 짧게 쓰고, 이어서 인물이 아는 것이나 생각을 말한다. '직접 생각해 보세요', '제가 정할 일이 아니에요' 같은 회피 문장을 쓰지 않는다. 1~4문장. 사건과 무관한 사적 질문이었다면 한 문장으로 가볍게 넘기고 한 문장으로 사건 쪽 이야기로 돌린다. 고친 응답은 학생에게 되묻는 질문으로 끝내지 않는다. 다른 category 이면 fixed 는 빈 문자열이다.",
+    "- category 가 fabrication, kind, overshare, meta, advice 이면 fixed 에 고친 응답을 쓴다. 고칠 때 지킬 것: 같은 인물의 말투와 이모지 습관을 유지한다. 위반한 부분만 빼거나 고치고, 학생의 질문에 대한 답과 인물의 생각은 남긴다. '잘 모르겠다'는 지어낸 사실을 대신할 때만 짧게 쓰고, 이어서 인물이 아는 것이나 생각을 말한다. '직접 생각해 보세요', '제가 정할 일이 아니에요' 같은 회피 문장을 쓰지 않는다. 1~5문장. 사건과 무관한 사적 질문이었다면 한 문장으로 가볍게 넘기고 한 문장으로 사건 쪽 이야기로 돌린다. 고친 응답은 학생에게 되묻는 질문으로 끝내지 않는다. 다른 category 이면 fixed 는 빈 문자열이다.",
     '출력 형식: {"ok":true|false,"category":"ok|scope|fabrication|kind|overshare|meta|hate|advice|personal_info","reason":"한 문장","fixed":"","conduct":"ok|mockery|sexual"}',
   ].filter(Boolean).join("\n");
   const ctx = history.length

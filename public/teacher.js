@@ -543,7 +543,7 @@ function stageSections(n, g) {
     }
     case 2: return [
       { title: "처음 내 생각 돌아보기", rows: listOf(w.s2?.links).map((r) => [r.angle || r.level || "연결", joinLines(
-        ["처음 생각", r.prior], ["흔들린 순간", r.surprise], ["어디서 왔을까", r.source], ["내 생활의 장면", r.scene], ["궁금해진 것", r.question],
+        ["처음 생각", r.prior], ["흔들린 순간", r.surprise], ["처음 생각의 이유", r.source], ["내 생활의 비슷한 순간", r.scene], ["더 알고 싶은 것", r.question],
         ["처지", r.situation], ["이어지는 점", r.point], ["확인 방법", r.confirm],
         ...ofStage(2).filter((l) => l.payload?.linkId === r.id).map((l) => ["생각 도우미", prettyLog(l)]), ["더 생각한 것", w.s2?.linkMore?.[r.id]]), r.nick]) },
       { title: "원인 추측", rows: [...listOf(w.s2?.causes).map((c) => [c.level || "원인", c.text, c.nick]),
