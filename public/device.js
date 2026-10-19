@@ -47,8 +47,8 @@
     document.addEventListener("focusin", function (e) {
       if (!isText(e.target)) return;
       document.body.classList.add("typing");
-      // 대화 화면에서는 키보드가 올라올 때 브라우저가 화면을 밀어 올리지 않도록 맨 위로 되돌린다
-      if (document.body.classList.contains("chat-mode")) { setTimeout(function () { window.scrollTo(0, 0); }, 50); return; }
+      // 대화 입력창은 화면 아래에 붙어 있어 따로 끌어올리지 않는다
+      if (document.body.classList.contains("chat-mode")) return;
       // 다른 화면: 키보드가 다 올라온 뒤, 쓰고 있는 칸(위의 칸 이름까지)을 보이는 화면 위쪽으로 끌어올린다
       setTimeout(function () { showField(e.target); }, 320);
     });

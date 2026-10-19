@@ -350,7 +350,7 @@ function startStartPoll(code) {
 }
 
 // 대기실과 활동 화면 중 맞는 쪽만 보인다
-// 휴대폰에서 인물과 대화하는 동안은 화면 전체가 움직이지 않고 대화창 안에서만 스크롤한다(키보드가 올라와도 입력창이 보이게, device.js 가 화면 크기를 맞춘다).
+// 휴대폰에서 인물과 대화하는 동안(chat-mode): 대화에 방해되는 안내를 숨긴다. 대화창은 고정하지 않고 화면 전체를 스크롤한다.
 const chatModeNow = () => IS_M && S.started && S.stage === 1 && S.sub1 === "chat" && !!S.me;
 function updateChatMode() { document.body.classList.toggle("chat-mode", chatModeNow()); }
 function showArea() {
@@ -609,7 +609,7 @@ function pinMsgs(el) {
   if (el._pinned || typeof ResizeObserver === "undefined") return;
   el._pinned = true; el._stick = true;
   el.addEventListener("scroll", () => { el._stick = el.scrollHeight - el.scrollTop - el.clientHeight < 40; }, { passive: true });
-  new ResizeObserver(() => { if (el._stick && document.body.classList.contains("chat-mode")) el.scrollTop = el.scrollHeight; }).observe(el);
+  new ResizeObserver(() => { if (el.scrollHeight > el.clientHeight && el._stick) el.scrollTop = el.scrollHeight; }).observe(el);
 }
 let lastSig = "";
 function renderMsgs() {
@@ -650,8 +650,6 @@ function renderChatLeft() {
 }
 // 마지막 말풍선이 머리글과 입력창 사이에 보이게 한다. 이미 보이면 움직이지 않고, 길면 말풍선의 첫 줄에 맞춘다.
 function scrollToLatest() {
-  // 휴대폰 대화 화면은 대화창 안에서만 스크롤한다(화면 전체가 움직이지 않는다)
-  if (document.body.classList.contains("chat-mode")) { const m = $("#msgs"); if (m) { m._stick = true; m.scrollTop = m.scrollHeight; } return; }
   const last = document.querySelector("#msgs .msg:last-child"); if (!last) return;
   const top = ($(".hdr")?.offsetHeight || 0) + 8;
   // 모바일 화면에서는 입력창 아래에 단계 막대가 있다(입력 중에는 숨겨져 높이 0)
