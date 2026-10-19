@@ -53,18 +53,23 @@ const CHAT_LIMIT = 5;
 const CHAT_LIMIT_RANGE = [1, 50];
 const MAX_GROUPS = 12;
 
-// 함수마다 늘어날 수 있는 인스턴스 수(maxInstances)를 정해 둔다. 정하지 않으면 함수마다 최대 100개(각 CPU 1개)까지
-// 잡혀서, 새 프로젝트의 지역별 CPU 한도를 넘어 배포가 거절된다("Quota exceeded for total allowable CPU").
-// 인스턴스 하나가 동시에 80개 요청을 받으므로, 아래 값이면 한 반은 물론 여러 반이 함께 써도 충분하다.
-const opts = { region: REGION, cors: true, maxInstances: 5 };
+// 지역 CPU 한도: Cloud Run 은 함수마다 "CPU × 최대 인스턴스 수"를 미리 잡아 두고, 그 합이 프로젝트의 지역별 한도를 넘으면
+// 배포를 거절한다("Quota exceeded for total allowable CPU per project per region"). 2세대 함수는 기본이 CPU 1개라
+// 함수가 20개를 넘으면 금방 넘친다. 그래서 함수를 세 가지로 나눠 잡는 CPU 합을 30개 아래로 둔다.
+//  - opts: 교사가 가끔 부르는 함수(수업 만들기·자료 편집·설정 등). CPU 1/6 개(gcf_gen1), 인스턴스 하나가 요청 하나씩.
+//          한 함수에 최대 5개 = 동시에 5건까지라 교사 몇 명이 함께 써도 충분하다. 합계 약 0.8 CPU × 함수 수.
+//  - fastOpts: 학생이 한꺼번에 부르는 입장·인물 고르기·사건 불러오기. CPU 1개, 인스턴스 하나가 동시에 80건.
+//  - aiOpts: AI 호출. 대부분 OpenAI 응답을 기다리는 시간이라 CPU 1개 인스턴스 하나가 동시에 80건을 받는다.
+// 함수를 새로 만들 때는 이 셋 중 하나를 쓰고, 값을 키우기 전에 합계를 다시 계산할 것.
+const opts = { region: REGION, cors: true, cpu: "gcf_gen1", maxInstances: 5 };
 // 입장·시작처럼 학생이 기다리는 호출은 첫 호출이 느리지 않도록(콜드 스타트) CPU 를 넉넉히 주고,
 // MIN_INSTANCES 가 1 이상이면 항상 켜 둔다(수업 시간에만 1로 올리면 비용이 거의 들지 않는다).
 const MIN_INSTANCES = defineInt("MIN_INSTANCES", { default: 0 });
-// CPU 1개짜리라 함수마다 maxInstances 만큼 지역 CPU 한도를 차지한다. 이런 함수를 늘리거나 값을 키우면 배포가
-// "Quota exceeded for total allowable CPU" 로 거절될 수 있으니, 꼭 빨라야 하는 입장·인물 고르기·사건 불러오기에만 쓴다.
-const fastOpts = { ...opts, cpu: 1, memory: "512MiB", minInstances: MIN_INSTANCES, maxInstances: 6 };
+const fastOpts = { region: REGION, cors: true, cpu: 1, memory: "512MiB", minInstances: MIN_INSTANCES, maxInstances: 3 }; // 3 × 80 = 동시에 240건
 // 추론 모델(특히 5단계 시뮬레이션)은 응답에 1분 넘게 걸릴 수 있어 넉넉히 둔다.
-const aiOpts = { ...opts, secrets: [OPENAI_API_KEY], timeoutSeconds: 300, maxInstances: 10 };
+const aiOpts = { region: REGION, cors: true, cpu: 1, secrets: [OPENAI_API_KEY], timeoutSeconds: 300, maxInstances: 4 }; // 4 × 80 = 동시에 320건
+// 교사 점검용 연결 확인: 가끔 한 번만 부른다
+const checkOpts = { ...aiOpts, maxInstances: 1 };
 
 const FieldValue = () => admin.firestore.FieldValue;
 
@@ -617,7 +622,7 @@ exports.moveStudent = onCall(opts, async (req) => {
 });
 
 // 수업 전 점검: Firestore, 각 AI 모델, 웹 검색이 실제로 되는지 짧게 시험한다(교사 전용, 비용은 아주 적음)
-exports.healthCheck = onCall(aiOpts, async (req) => {
+exports.healthCheck = onCall(checkOpts, async (req) => {
   await requireTeacher(req);
   const apiKey = OPENAI_API_KEY.value();
   const timed = async (fn) => { const t = Date.now(); try { return { ok: true, ms: Date.now() - t, ...(await fn()) }; } catch (e) { return { ok: false, ms: Date.now() - t, error: String(e.message).slice(0, 200) }; } };
@@ -995,7 +1000,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
 
 // ---------- 정기 작업 ----------
 // 마지막 접속 후 정한 시간이 지난 수업을 자동으로 닫는다(수업이 끝나고 누가 접속하는 것을 막기 위해). 30분마다.
-exports.autoCloseSessions = onSchedule({ region: REGION, schedule: "every 30 minutes", timeZone: "Asia/Seoul", maxInstances: 1 }, async () => {
+exports.autoCloseSessions = onSchedule({ region: REGION, schedule: "every 30 minutes", timeZone: "Asia/Seoul", cpu: "gcf_gen1", maxInstances: 1 }, async () => {
   const open = await db.collection("sessions").where("closed", "==", false).get();
   for (const d of open.docs) {
     if (!(d.data().autoCloseHours > 0)) continue;
@@ -1005,7 +1010,7 @@ exports.autoCloseSessions = onSchedule({ region: REGION, schedule: "every 30 min
 });
 
 // 학생이 로그아웃·재입장하며 쌓인 익명 계정 중 30일 넘게 쓰지 않은 것을 지운다(교사의 구글 계정은 건드리지 않는다). 매주 일요일 새벽.
-exports.cleanAnonymousUsers = onSchedule({ region: REGION, schedule: "every sunday 04:00", timeZone: "Asia/Seoul", maxInstances: 1 }, async () => {
+exports.cleanAnonymousUsers = onSchedule({ region: REGION, schedule: "every sunday 04:00", timeZone: "Asia/Seoul", cpu: "gcf_gen1", maxInstances: 1 }, async () => {
   let token, removed = 0;
   do {
     const page = await admin.auth().listUsers(1000, token);
