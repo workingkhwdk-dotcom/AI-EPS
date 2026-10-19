@@ -6,8 +6,8 @@ const { personaPrompt } = require("../prompts");
 const KINDS = ["증언", "사실", "주장", "의견"];
 const s0 = (id) => SOURCES[id];
 
-test("사건은 제주 예멘·쓰레기 수출·강서 특수학교 세 가지이고, 사건마다 인물 9명이 네 축에 나뉘며 축마다 2명 이상이다", () => {
-  assert.deepEqual(Object.keys(EVENTS), ["jeju2018", "waste2019", "school2018"]);
+test("사건은 제주 예멘·쓰레기 수출·강서 특수학교·주남저수지·창원 인구 다섯 가지이고, 사건마다 인물 9명이 네 축에 나뉘며 축마다 2명 이상이다", () => {
+  assert.deepEqual(Object.keys(EVENTS), ["jeju2018", "waste2019", "school2018", "junam2025", "changwon2025"]);
   assert.equal(DEFAULT_EVENT, "jeju2018");
   assert.equal(new Set(PERSONAS.map((p) => p.id)).size, PERSONAS.length);
   assert.ok(PERSONAS.every((p) => p.events.length === 1 && EVENTS[p.events[0]]));
@@ -103,17 +103,15 @@ test("검증되지 않은 주장은 '주장' 종류로 표시된다 (집회 발�
   assert.equal(locals.find((i) => i.text.includes("500여 명")).kind, "주장");
 });
 
-test("세 사건 모두 출처 대조를 마쳐 검증됨이고, 대조 기록이 남아 있으며, 인물과 자료가 학생에게 노출된다", () => {
+test("모든 사건이 출처 대조를 마쳐 검증됨이고, 대조 기록이 남아 있으며, 인물과 자료가 학생에게 노출된다", () => {
   const ids = (re) => Object.keys(SOURCES).filter((id) => re.test(id));
   assert.ok(Object.values(SOURCES).every((s) => s.verified === true));
   assert.ok(ids(/^[JCAN]\d/).every((id) => s0(id).crossCheck), "제주 출처는 교차 확인 기록(CROSS_CHECK)");
-  assert.ok(ids(/^[WS]/).every((id) => /대조함/.test(SOURCES[id].check)), "쓰레기·특수학교 출처는 check 에 [대조함]");
-  assert.equal(availablePersonas("jeju2018", false).length, 9);
-  assert.equal(availablePersonas("waste2019", false).length, 9);
-  assert.equal(availablePersonas("school2018", false).length, 9);
-  assert.deepEqual(materialsFor("jeju2018", false).map((c) => c.id), MATERIALS.jeju2018.map((c) => c.id));
-  assert.deepEqual(materialsFor("waste2019", false).map((c) => c.id), MATERIALS.waste2019.map((c) => c.id));
-  assert.deepEqual(materialsFor("school2018", false).map((c) => c.id), MATERIALS.school2018.map((c) => c.id));
+  assert.ok(ids(/^([WS]|JN|P)/).every((id) => /대조함/.test(SOURCES[id].check)), "쓰레기·특수학교·주남저수지·창원 인구 출처는 check 에 [대조함]");
+  for (const ev of Object.keys(EVENTS)) {
+    assert.equal(availablePersonas(ev, false).length, 9, ev);
+    assert.deepEqual(materialsFor(ev, false).map((c) => c.id), MATERIALS[ev].map((c) => c.id), ev);
+  }
 });
 
 test("학생용 자료에는 출처 ID·URL 없이 매체·날짜 캡션만 있다", () => {
@@ -253,6 +251,33 @@ test("강서 특수학교 사건: 그 사건의 시점·범위만 담고, 실존
   assert.match(life("s_parent_group"), /장학사에게 전화/); assert.match(life("s_officer"), /부모 단체 활동가가 전화/); // 임현주 ↔ 백승민
 });
 
+test("창원 두 사건: 2020년대 사건이고, 그 사건의 시점·범위만 담으며, 실존 인물 이름은 나오지 않고, 인물들의 삶은 서로 스친다", () => {
+  assert.match(EVENTS.junam2025.now, /2025년 4월/);
+  assert.match(EVENTS.changwon2025.now, /2025년 2월/);
+  for (const id of ["junam2025", "changwon2025"]) {
+    const ev = EVENTS[id];
+    assert.ok(ev.scope.outOfScope.some((x) => /실존 인물/.test(x)), id);
+    for (const p of PERSONAS.filter((x) => x.events.includes(id))) {
+      const prompt = personaPrompt(ev, p);
+      assert.ok(prompt.includes(ev.now) && ev.background.every((c) => prompt.includes(c[0])), p.id);
+      assert.doesNotMatch(prompt, /예멘|필리핀|공진초/, p.id);
+      // 시장·국회의원·단체 대표 같은 실존 인물 이름은 쓰지 않는다
+      assert.doesNotMatch([...p.letter, ...p.story, ...p.episodes, ...p.views, ...p.claims.map((c) => c[0])].join(" "), /홍남표|장금용|박완수|허성무|윤한홍|이종욱/, p.id);
+    }
+  }
+  const life = (id) => { const p = PERSONAS.find((x) => x.id === id); return [...p.story, ...p.episodes].join(" "); };
+  assert.match(life("jn_chief"), /활동가의 팔을 붙잡고/); assert.match(life("jn_activist"), /이장이 팔을 붙잡으며/);   // 박상규 ↔ 서미란
+  assert.match(life("jn_farmer"), /쌍안경을 든 대학원생/); assert.match(life("jn_birder"), /논 주인 아저씨/);          // 황만수 ↔ 이준서
+  assert.match(life("jn_grandma"), /카페 공사장에 떡/); assert.match(life("jn_returnee"), /이웃 할머니가 떡/);          // 옥순자 ↔ 윤다솜
+  assert.match(life("jn_landowner"), /시청 담당자에게 몇 번이나 전화/); assert.match(life("jn_officer"), /몇 번이나 전화를 건 땅 주인/); // 정태식 ↔ 김혜진
+  assert.match(life("jn_farmer"), /농어촌공사에 전화/); assert.match(life("jn_water"), /한 농민이 전화/);                // 황만수 ↔ 강동훈
+  assert.match(life("cw_leaver"), /엄마의 분식집/); assert.match(life("cw_merchant"), /서울로 간 딸/);                  // 최유진 ↔ 이정숙
+  assert.match(life("cw_stayer"), /사장님/); assert.match(life("cw_ceo"), /3년 차 직원/);                               // 김도윤 ↔ 윤상철
+  assert.match(life("cw_stayer"), /베트남에서 온 동료/); assert.match(life("cw_worker"), /한국인 선배/);                // 김도윤 ↔ 투안
+  assert.match(life("cw_student"), /청년 간담회/); assert.match(life("cw_researcher"), /한 대학생이 손을 들고/);          // 박서연 ↔ 오세라
+  assert.match(life("cw_elder"), /시청 직원이 경로당/); assert.match(life("cw_officer"), /경로당 설명회/);                // 정병철 ↔ 한지훈
+});
+
 test("4단계 해외 사례 카드: 여는 정책과 막는 정책이 섞여 있고, 출처 링크가 있으며 검증된 것만 학생에게 나간다", () => {
   const all = Object.values(CASES).flat();
   for (const [ev, list] of Object.entries(CASES)) assert.ok(list.length >= 3, ev);
@@ -264,7 +289,7 @@ test("4단계 해외 사례 카드: 여는 정책과 막는 정책이 섞여 있
   assert.equal(casesFor("jeju2018", false).length, CASES.jeju2018.length);
   // 출처 대조를 마친 사건의 카드는 학생에게 나간다
   assert.equal(casesFor("waste2019", false).length, CASES.waste2019.length);
-  assert.equal(casesFor("school2018", false).length, CASES.school2018.length);
+  for (const ev of ["school2018", "junam2025", "changwon2025"]) assert.equal(casesFor(ev, false).length, CASES[ev].length, ev);
   const shown = casesFor("jeju2018", true);
   assert.ok(shown.every((c) => c.links.length && !("src" in c) && c.links.every((l) => l.url && !("verified" in l))));
 });
@@ -273,7 +298,7 @@ test("7단계 이후 전개 자료: 종류와 출처가 있고 검증된 것만 
   for (const [ev, list] of Object.entries(AFTERMATH)) assert.ok(list.length >= 4, ev);
   for (const a of Object.values(AFTERMATH).flat()) { assert.ok(KINDS.includes(a.kind)); assert.ok(a.src.every((id) => SOURCES[id])); }
   assert.equal(aftermathFor("jeju2018", false).length, AFTERMATH.jeju2018.length);
-  assert.equal(aftermathFor("school2018", false).length, AFTERMATH.school2018.length);
+  for (const ev of ["school2018", "junam2025", "changwon2025"]) assert.equal(aftermathFor(ev, false).length, AFTERMATH[ev].length, ev);
   assert.ok(aftermathFor("jeju2018", true).every((a) => a.caption && a.links.length));
 });
 
