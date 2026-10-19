@@ -60,7 +60,9 @@ const opts = { region: REGION, cors: true, maxInstances: 5 };
 // 입장·시작처럼 학생이 기다리는 호출은 첫 호출이 느리지 않도록(콜드 스타트) CPU 를 넉넉히 주고,
 // MIN_INSTANCES 가 1 이상이면 항상 켜 둔다(수업 시간에만 1로 올리면 비용이 거의 들지 않는다).
 const MIN_INSTANCES = defineInt("MIN_INSTANCES", { default: 0 });
-const fastOpts = { ...opts, cpu: 1, memory: "512MiB", minInstances: MIN_INSTANCES, maxInstances: 10 };
+// CPU 1개짜리라 함수마다 maxInstances 만큼 지역 CPU 한도를 차지한다. 이런 함수를 늘리거나 값을 키우면 배포가
+// "Quota exceeded for total allowable CPU" 로 거절될 수 있으니, 꼭 빨라야 하는 입장·인물 고르기·사건 불러오기에만 쓴다.
+const fastOpts = { ...opts, cpu: 1, memory: "512MiB", minInstances: MIN_INSTANCES, maxInstances: 6 };
 // 추론 모델(특히 5단계 시뮬레이션)은 응답에 1분 넘게 걸릴 수 있어 넉넉히 둔다.
 const aiOpts = { ...opts, secrets: [OPENAI_API_KEY], timeoutSeconds: 300, maxInstances: 10 };
 
@@ -155,7 +157,7 @@ async function newCode() {
 // 교사: 수업 만들기 (모둠 문서 함께 생성)
 // ---------- 교사용 계정 만들기 ----------
 // 로그인한 계정이 교사인지 알려 준다(교사 화면 첫 화면이 교사 화면을 보여 줄지 인증 문구 입력을 보여 줄지 정한다).
-exports.teacherStatus = onCall(fastOpts, async (req) => {
+exports.teacherStatus = onCall(opts, async (req) => {
   const auth = requireAuth(req);
   if (provider(auth) === "anonymous") throw new HttpsError("permission-denied", "교사 계정으로 로그인하세요.");
   return { teacher: await teacherOk(auth), email: auth.token?.email || "", signupOpen: !!String(TEACHER_SIGNUP_CODE.value() || "").trim() };
