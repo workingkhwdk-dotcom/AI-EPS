@@ -1,4 +1,4 @@
-import { auth, db, call, esc, toast, errMsg } from "./fb.js";
+import { auth, db, call, esc, toast, toastAction, errMsg } from "./fb.js";
 import { waitHtml, startWaitTicker, STEPS } from "./wait.js";
 import { showModal, confirmModal } from "./modal.js";
 startWaitTicker();
@@ -180,7 +180,7 @@ function listSessions(uid) {
     sessionRows = s.docs.map((d) => ({ code: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
     $("#sessions").innerHTML = sessionRows.map((r) =>
       `<div class="cell cls"><div class="grow"><b>${esc(r.title)}</b>${r.closed ? ` <span class="tag r">닫힘</span>` : r.started === false ? ` <span class="tag y">대기 중</span>` : ` <span class="tag">진행 중</span>`}<br><span class="meta-line"><span class="code">${r.code}</span> · ${r.groupCount}모둠 · ${fmt(r.createdAt)}</span></div><button class="btn btn-tinted btn-sm" data-code="${r.code}">열기</button></div>`
-    ).join("") || `<div class="cell meta-line">아직 만든 수업이 없습니다. 위의 '＋ 새 수업 만들기'로 시작하세요.</div>`;
+    ).join("") || `<div class="cell meta-line">아직 수업이 없어요. '＋ 새 수업 만들기'로 시작하세요.</div>`;
     if (current) {
       const cur = sessionRows.find((r) => r.code === current);
       if (cur) { curTitle = cur.title; $("#d-title").textContent = cur.title; renderOpen(); }
@@ -215,6 +215,8 @@ function openSession(code, title) {
   $("#detail").classList.add("hidden");
   $("#d-title").textContent = title;
   $("#d-code").textContent = code;
+  for (const k of Object.keys(changedAt)) delete changedAt[k];
+  renderQr();
   renderOpen();
   piiBy = {};
   unsubs.push(onSnapshot(query(collection(db, `sessions/${code}/alerts`), orderBy("createdAt", "desc")), (s) => {
@@ -244,6 +246,7 @@ function openSession(code, title) {
 }
 
 function closeSession() {
+  closePresent();
   unsubs.forEach((u) => u()); unsubs = [];
   clearInterval(tickTimer);
   current = null; members = []; groups = []; logsBy = {};
@@ -268,8 +271,11 @@ const KPI_ICON = {
 };
 function renderDash() {
   if (!current) return;
+  trackChanges();
   renderLobby();
   renderAlerts();
+  renderPresent();
+  renderNoticeCard();
   const online = members.filter(isOnline).length;
   const ai = members.reduce((n, m) => n + (m.aiCount || 0), 0); // 인물 대화 + 3~5단계
   const guard = groups.reduce((n, g) => n + (g.guardCount || 0), 0);
@@ -304,13 +310,14 @@ function renderDash() {
     <td>${m.chatCount || 0} / ${curRow()?.chatLimit || 5}번</td>
     <td class="row" style="flex-wrap:nowrap"><button class="btn btn-tinted btn-sm" data-chat="${m.uid}">대화 보기</button><button class="btn btn-plain btn-sm" data-reset="${m.uid}" data-nick="${esc(m.nickname)}">비번 초기화</button><button class="btn btn-plain btn-sm" data-move="${m.uid}" data-nick="${esc(m.nickname)}" data-g="${esc(m.groupId)}">모둠 이동</button>${assigns[m.uid] || m.personaId ? `<button class="btn btn-plain btn-sm" data-unpick="${m.uid}" data-nick="${esc(m.nickname)}">인물 풀기</button>` : ""}</td></tr>`).join("");
   renderBulk();
-  $("#no-students").textContent = rows.length ? "" : "아직 입장한 학생이 없습니다. 위의 수업 코드와 모둠 번호를 학생에게 알려 주세요.";
+  $("#no-students").textContent = rows.length ? "" : "아직 입장한 학생이 없어요. 위 수업 코드를 알려 주세요.";
 
   $("#groups").innerHTML = groups.map((g) => {
     const ms = members.filter((m) => m.groupId === g.id);
     const pr = progressOf(g.work);
     const cur = ms.length ? Math.max(...ms.map((m) => m.stage || 1)) : 0;
-    return `<tr><td><b>${esc(g.name)}</b></td><td>${ms.length}명 <span class="meta-line">(접속 ${ms.filter(isOnline).length})</span></td>
+    const st = stuckMin(g);
+    return `<tr><td><b>${esc(g.name)}</b>${st ? ` <span class="tag y" title="산출물·대화가 ${st}분째 그대로예요">${st}분째 그대로</span>` : ""}</td><td>${ms.length}명 <span class="meta-line">(접속 ${ms.filter(isOnline).length})</span></td>
       <td><span class="dots">${pr.map((f, i) => `<i class="${f ? "on" : ""} ${cur === i + 1 ? "cur" : ""}" title="${i + 1}단계 ${STAGE_NAMES[i + 1]}"></i>`).join("")}</span></td>
       <td>${g.aiCount || 0}회${g.lastAiError ? ` <span class="tag r" title="${esc(g.lastAiError.message)}">오류</span>` : ""}</td>
       <td>${g.guardCount || 0}회${g.conductCount ? ` <span class="tag r">위반 ${g.conductCount}</span>` : ""}</td>
@@ -399,8 +406,9 @@ $("#stu-all").onchange = (e) => {
   document.querySelectorAll("#students [data-pick]").forEach((c) => { c.checked = e.target.checked; e.target.checked ? picked.add(c.dataset.pick) : picked.delete(c.dataset.pick); });
   renderBulk();
 };
+const PW_RESET_BODY = "<p>학생이 같은 별명으로 다시 입장하면서 새 비밀번호를 정해요. 하던 내용은 그대로 이어져요.</p>";
 $("#bulk-reset").onclick = async () => {
-  if (!picked.size || !confirm(`선택한 ${picked.size}명의 비밀번호를 지울까요?\n각 학생이 같은 별명으로 다시 입장하면서 새 비밀번호를 정합니다. 하던 내용은 그대로 이어집니다.`)) return;
+  if (!picked.size || !(await confirmModal(`${picked.size}명의 비밀번호를 지울까요?`, PW_RESET_BODY, "비밀번호 지우기", "취소"))) return;
   try { const { data } = await call("resetStudentPassword")({ code: current, uids: [...picked] }); toast(`${data.count}명의 비밀번호를 초기화했습니다.`); picked.clear(); renderDash(); }
   catch (err) { toast(errMsg(err), true); }
 };
@@ -416,7 +424,7 @@ $("#students").onclick = async (e) => {
   if (mv) return moveDialog(mv.dataset.move, mv.dataset.nick, mv.dataset.g);
   const r = e.target.closest("[data-reset]");
   if (r) {
-    if (!confirm(`'${r.dataset.nick}' 학생의 비밀번호를 지울까요?\n학생이 같은 별명으로 다시 입장하면서 새 비밀번호를 정합니다. 하던 내용은 그대로 이어집니다.`)) return;
+    if (!(await confirmModal(`'${esc(r.dataset.nick)}' 학생의 비밀번호를 지울까요?`, PW_RESET_BODY, "비밀번호 지우기", "취소"))) return;
     try { await call("resetStudentPassword")({ code: current, uid: r.dataset.reset }); toast(`'${r.dataset.nick}' 비밀번호를 초기화했습니다.`); }
     catch (err) { toast(errMsg(err), true); }
     return;
@@ -476,7 +484,7 @@ async function refreshCase(eventId) {
 async function loadCheck(eventId) {
   try {
     const data = await refreshCase(eventId);
-    $("#check-mode").innerHTML = data.allowUnverified ? `<div class="notice yellow">리허설 모드: 원문 대조 전 인물·자료도 학생에게 보입니다 (ALLOW_UNVERIFIED_PERSONAS=true). 실제 수업 전에는 false로 바꾸세요.</div>` : "";
+    $("#check-mode").innerHTML = data.allowUnverified ? `<div class="notice yellow">리허설 모드: 확인 전 인물·자료도 학생에게 보여요. 실제 수업 전에 꺼 주세요.</div>` : "";
     $("#check-note").innerHTML = `<div class="notice muted">교사 메모: ${esc(data.event.teacherNote)}</div>
       <div class="notice muted"><b>모든 인물이 아는 사건 공통 배경</b> (인물은 자기 진술과 이 배경에 있는 핵심 사실만 말합니다)${(data.event.background || []).map((c) =>
         `<div style="margin-top:4px"><span class="tag ${c.kind === "주장" || c.kind === "의견" ? "y" : ""}">${esc(c.kind)}</span> ${esc(c.text)} <span class="tag ${c.verified ? "" : "x"}">${esc(c.src)}</span></div>`).join("")}</div>
@@ -639,14 +647,17 @@ async function loadMats(force = false) {
 }
 
 // 서버에 저장하고, 서버가 정리한 목록(id 부여, 길이 제한)으로 화면을 맞춘다. 실패하면 서버의 값으로 되돌린다.
-async function saveMats(okMsg = "저장했습니다") {
+// undo: 바꾸기 전 목록. 주면 알림에 '되돌리기'가 붙고, 누르면 그 목록을 다시 저장한다.
+async function saveMats(okMsg = "저장했습니다", undo = null) {
   try {
     const { data } = await call("saveMaterials")({ code: current, categories: mat.cats });
     Object.assign(mat, { cats: data.categories, isDefault: false, editItem: null, editCat: null });
-    toast(okMsg);
+    if (undo) toastAction(okMsg, "되돌리기", () => { mat.cats = undo; saveMats("되돌렸습니다"); }, 8000);
+    else toast(okMsg);
   } catch (e) { toast(errMsg(e), true); await loadMats(true); return; }
   renderMats();
 }
+const matsCopy = () => JSON.parse(JSON.stringify(mat.cats));
 
 const kindOptions = (sel) => KINDS.map((k) => `<option ${k === sel ? "selected" : ""}>${k}</option>`).join("");
 function itemForm(c, it) {
@@ -720,10 +731,11 @@ $("#cpane-materials").onclick = async (e) => {
       Object.assign(it, { kind: v.kind, date: v.date ?? it.date, text: v.text, caption: v.caption || "" });
       return saveMats("자료를 고쳤습니다");
     }
-    case "item-del":
-      if (!confirm("이 자료를 삭제할까요? 학생 화면에서도 사라집니다.")) return;
+    case "item-del": {
+      const before = matsCopy();
       c.items = c.items.filter((x) => x.id !== id);
-      return saveMats("자료를 삭제했습니다");
+      return saveMats("자료를 삭제했어요", before);
+    }
     case "item-up": case "item-down": {
       const i = c.items.findIndex((x) => x.id === id);
       if (swap(c.items, i, act === "item-up" ? i - 1 : i + 1)) return saveMats("순서를 바꿨습니다");
@@ -742,22 +754,25 @@ $("#cpane-materials").onclick = async (e) => {
       Object.assign(c, { title: v.title, type: v.type });
       return saveMats("분류를 고쳤습니다");
     }
-    case "cat-del":
-      if (!confirm(`'${c.title}' 분류와 안의 자료 ${c.items.length}개를 모두 삭제할까요?`)) return;
+    case "cat-del": {
+      const before = matsCopy();
       mat.cats = mat.cats.filter((x) => x.id !== c.id);
-      return saveMats("분류를 삭제했습니다");
+      return saveMats(`'${c.title}' 분류(자료 ${c.items.length}개)를 삭제했어요`, before);
+    }
     case "cat-up": case "cat-down": {
       const i = mat.cats.findIndex((x) => x.id === c.id);
       if (swap(mat.cats, i, act === "cat-up" ? i - 1 : i + 1)) return saveMats("순서를 바꿨습니다");
       return;
     }
-    case "reset":
-      if (!confirm("이 수업에서 고친 자료를 모두 버리고 기본 자료로 되돌릴까요? 되돌릴 수 없습니다.")) return;
+    case "reset": { // 고친 자료를 들고 있다가, '되돌리기'를 누르면 이 수업만의 자료로 다시 저장한다
+      const before = matsCopy();
       try {
         const { data } = await call("resetMaterials")({ code: current });
         Object.assign(mat, { cats: data.categories, isDefault: true, editItem: null, editCat: null });
-        toast("기본 자료로 되돌렸습니다"); renderMats();
+        toastAction("기본 자료로 바꿨어요", "되돌리기", () => { mat.cats = before; saveMats("고친 자료로 되돌렸습니다"); }, 8000);
+        renderMats();
       } catch (err) { toast(errMsg(err), true); }
+    }
   }
 };
 
@@ -791,12 +806,28 @@ $("#s-save").onclick = async () => {
 };
 $("#s-copy-guide").onclick = async () => { try { await navigator.clipboard.writeText(studentGuide()); toast("안내문을 복사했어요"); } catch { toast("복사하지 못했습니다. 위 글을 직접 선택해 복사하세요.", true); } };
 $("#s-delete").onclick = async () => {
-  const typed = prompt(`'${curTitle}' 수업을 삭제합니다. 모든 기록이 지워지고 되돌릴 수 없습니다.\n계속하려면 수업 코드(${current})를 입력하세요.`);
-  if (typed === null) return;
-  if (typed.trim().toUpperCase() !== current) return toast("수업 코드가 맞지 않아 삭제하지 않았습니다.", true);
+  // 되돌릴 수 없으므로 수업 코드를 직접 쳐야 삭제 버튼이 눌린다
+  const ok = await deleteDialog();
+  if (!ok) return;
   try { await call("deleteSession")({ code: current }); toast("수업을 삭제했습니다"); closeSession(); }
   catch (e) { toast(errMsg(e), true); }
 };
+
+function deleteDialog() {
+  const p = showModal({
+    title: `'${esc(curTitle)}' 수업을 삭제할까요?`, dismissible: true,
+    body: `<p>모둠 산출물, AI 기록, 학생 대화가 모두 지워지고 되돌릴 수 없어요. 필요하면 먼저 <button class="link" type="button" id="del-csv">기록 CSV</button>를 받아 두세요.</p>
+      <label class="lbl" for="del-code">확인을 위해 수업 코드 <b>${esc(current)}</b>를 입력하세요</label>
+      <input type="text" id="del-code" maxlength="10" autocomplete="off" autocapitalize="characters" spellcheck="false" />`,
+    actions: [{ label: "삭제", value: true, kind: "btn-danger", disabled: true }, { label: "취소", value: false }],
+  });
+  const input = document.querySelector("#del-code"), btn = document.querySelector('.modal .btn-danger');
+  input.oninput = () => { input.value = input.value.toUpperCase().replace(/[^A-Z0-9]/g, ""); btn.disabled = input.value !== current; };
+  input.onkeydown = (e) => { if (e.key === "Enter" && !e.isComposing && !btn.disabled) btn.click(); };
+  document.querySelector("#del-csv").onclick = () => $("#csv-btn").click();
+  input.focus();
+  return p.then((v) => v === true);
+}
 
 // ---------- 수업 열기/닫기 ----------
 // 닫으면 새로 입장할 수도, 이미 들어와 있던 학생이 이어서 쓸 수도 없다(수업이 끝난 뒤 접속 차단). 언제든 다시 열 수 있다.
@@ -808,11 +839,12 @@ function renderOpen() {
   b.className = "btn btn-sm " + (closed ? "btn-primary" : "btn-danger");
   const waiting = !closed && r?.started === false;
   $("#open-note").innerHTML = closed
-    ? `<span class="tag r">닫힘</span> <span class="meta-line">학생은 입장할 수 없고, 들어와 있던 학생도 더 쓸 수 없습니다.</span>`
+    ? `<span class="tag r">닫힘</span> <span class="meta-line">학생 접속이 막혀 있어요</span>`
     : waiting
-      ? `<span class="tag y">대기 중</span> <span class="meta-line">학생이 모두 들어오면 아래 '수업 시작하기'를 누르세요.</span>`
-      : `<span class="tag">진행 중</span> <span class="meta-line">수업이 끝나면 '수업 닫기'를 눌러 추가 접속을 막으세요.</span>`;
+      ? `<span class="tag y">대기 중</span> <span class="meta-line">모두 들어오면 아래 '수업 시작하기'</span>`
+      : `<span class="tag">진행 중</span> <span class="meta-line">끝나면 '수업 닫기'</span>`;
   renderLobby();
+  renderNoticeCard();
 }
 
 // ---------- 대기실: 모두 들어왔는지 확인하고 수업 시작 ----------
@@ -847,7 +879,7 @@ $("#start-btn").onclick = async () => {
 async function moveDialog(uid, nick, fromId) {
   const to = await showModal({
     title: `${esc(nick)} 학생을 옮길 모둠`, dismissible: true, grid: true,
-    body: `<p class="meta-line">지금은 ${esc(String(fromId).replace("g", ""))}모둠이에요. 인물·대화·개인 정리·비밀번호가 함께 옮겨지고, 학생 화면은 새 모둠으로 저절로 바뀝니다.</p>`,
+    body: `<p class="meta-line">지금은 ${esc(String(fromId).replace("g", ""))}모둠이에요. 인물·대화·비밀번호가 함께 옮겨져요.</p>`,
     actions: [...groups.map((g) => ({ label: `${esc(g.name)} <small>(${members.filter((m) => m.groupId === g.id).length}명)</small>`, value: g.id, kind: g.id === fromId ? "btn-tinted" : "btn-plain", disabled: g.id === fromId })), { label: "취소", value: null }],
   });
   if (!to) return;
@@ -856,13 +888,20 @@ async function moveDialog(uid, nick, fromId) {
 }
 $("#open-btn").onclick = async () => {
   const closing = !sessionRows.find((x) => x.code === current)?.closed;
-  if (closing && !confirm("수업을 닫을까요? 학생이 더 이상 입장하거나 AI를 쓸 수 없습니다. 기록은 그대로 보존되고 언제든 다시 열 수 있습니다.")) return;
+  if (closing) {
+    // 닫기 전에 아직 남은 상황(접속 중인 학생, 7단계를 마치지 않은 모둠)을 보여 준다
+    const online = members.filter(isOnline).length;
+    const unfinished = groups.filter((g) => members.some((m) => m.groupId === g.id) && !filled(g.work?.s7?.share)).map((g) => g.name);
+    const warn = [online && `지금 접속 중인 학생이 ${online}명 있어요.`, unfinished.length && `7단계 발표 준비를 아직 쓰지 않은 모둠: ${unfinished.join(", ")}`].filter(Boolean);
+    const ok = await confirmModal("수업을 닫을까요?", `<p>학생이 더 이상 입장하거나 AI를 쓸 수 없어요. 기록은 남고, 언제든 다시 열 수 있어요.</p>${warn.map((w) => `<p class="notice yellow">${esc(w)}</p>`).join("")}`, "수업 닫기", "아직이요", true);
+    if (!ok) return;
+  }
   try { await call("updateSession")({ code: current, closed: closing }); toast(closing ? "수업을 닫았습니다" : "수업을 열었습니다"); }
   catch (e) { toast(errMsg(e), true); }
 };
 
 $("#s-clone").onclick = async () => {
-  if (!confirm("이 수업을 복제할까요? 새 수업 코드가 만들어집니다.")) return;
+  if (!(await confirmModal("이 수업을 복제할까요?", "<p>이름·모둠 수·설정과 고친 자료·인물을 가져와 새 수업 코드를 만들어요. 학생과 기록은 가져오지 않아요.</p>", "복제", "취소"))) return;
   try {
     const { data } = await call("cloneSession")({ code: current });
     toast(`복제했습니다. 새 코드: ${data.code}`);
@@ -880,6 +919,7 @@ function renderAlerts() {
     if ((g.aiCount || 0) >= lim * 0.8) out.push(["y", `${g.name}: AI 사용 ${g.aiCount}/${lim}회 — 한도가 가깝습니다 (수업 설정에서 늘릴 수 있어요)`]);
     if ((g.guardCount || 0) >= 3) out.push(["y", `${g.name}: 감독자가 ${g.guardCount}번 개입했습니다 — 학생 질문을 확인해 보세요`]);
   }
+  for (const g of groups) { const st = stuckMin(g); if (st) out.push(["y", `${g.name}: ${st}분째 산출물·대화가 그대로예요 — 막혔는지 살펴보세요`]); }
   for (const [uid, n] of Object.entries(piiBy)) {
     const m = members.find((x) => x.uid === uid);
     out.push(["r", `${m?.nickname || "학생"}: 개인정보로 보이는 입력 ${n}건 — 대화 보기에서 확인하고 안내해 주세요`]);
@@ -935,14 +975,23 @@ $("#cpane-personas").onclick = async (e) => {
       const { data } = await call("savePersonaOverride")({ code: current, personaId: pid, fields });
       pe.overrides = data.overrides; toast("저장했습니다. 이 수업의 새 대화부터 적용됩니다.");
     } else {
-      if (!confirm("이 인물을 원래 내용으로 되돌릴까요?")) return;
+      const before = pe.overrides[pid];
       const { data } = await call("resetPersonaOverride")({ code: current, personaId: pid });
-      pe.overrides = data.overrides; toast("원래대로 되돌렸습니다.");
+      pe.overrides = data.overrides;
+      toastAction("원래 내용으로 바꿨어요", "되돌리기", async () => {
+        try { const { data: d } = await call("savePersonaOverride")({ code: current, personaId: pid, fields: before }); pe.overrides = d.overrides; toast("고친 내용으로 되돌렸습니다."); }
+        catch (err) { return toast(errMsg(err), true); }
+        redrawPersonas(open);
+      }, 8000);
     }
   } catch (err) { return toast(errMsg(err), true); }
+  redrawPersonas(open);
+};
+// 다시 그려도 펼쳐 둔 인물은 펼친 채로
+function redrawPersonas(open) {
   renderPersonaEdit();
   open.forEach((id) => document.querySelector(`#persona-edit details[data-pid="${id}"]`)?.setAttribute("open", ""));
-};
+}
 
 // ---------- 수업 전 연결 점검 ----------
 $("#health-btn").onclick = async () => {
@@ -959,3 +1008,96 @@ $("#health-btn").onclick = async () => {
   } catch (e) { $("#health-out").innerHTML = `<div class="notice">${esc(errMsg(e))}</div>`; }
   finally { btn.disabled = false; }
 };
+
+// ---------- 입장 안내: QR·크게 띄우기 ----------
+// QR 을 찍으면 수업 코드가 채워진 입장 화면이 열린다(학생은 모둠·별명·비밀번호만 쓰면 된다)
+const joinUrl = () => `${location.origin}/?code=${current}`;
+function qrSvg(text) {
+  if (!window.qrcode) return "";
+  const q = window.qrcode(0, "M"); q.addData(text); q.make();
+  return q.createSvgTag({ cellSize: 4, margin: 8, scalable: true, title: "수업 입장 QR" });
+}
+function renderQr() {
+  const svg = current ? qrSvg(joinUrl()) : "";
+  $("#d-qr").innerHTML = svg;
+  $("#d-qr").classList.toggle("hidden", !svg);
+}
+const presentOpen = () => !$("#present").classList.contains("hidden");
+function openPresent() {
+  $("#present").classList.remove("hidden");
+  document.body.classList.add("presenting");
+  renderPresent();
+  $("#present-close").focus();
+  document.documentElement.requestFullscreen?.().catch(() => {});
+}
+function closePresent() {
+  if (!presentOpen()) return;
+  $("#present").classList.add("hidden");
+  document.body.classList.remove("presenting");
+  if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  $("#present-btn")?.focus();
+}
+function renderPresent() {
+  if (!presentOpen() || !current) return;
+  const online = members.filter(isOnline).length;
+  $("#p-title").textContent = curTitle;
+  $("#p-url").textContent = `${location.host}/`;
+  $("#p-code").textContent = current;
+  if (!$("#p-qr").dataset.code || $("#p-qr").dataset.code !== current) { $("#p-qr").innerHTML = qrSvg(joinUrl()); $("#p-qr").dataset.code = current; }
+  $("#p-count").innerHTML = `<b>${members.length}명</b> 입장${members.length ? ` · 접속 중 ${online}명` : ""}`;
+}
+$("#present-btn").onclick = openPresent;
+$("#d-qr").onclick = openPresent;
+$("#present-close").onclick = closePresent;
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && presentOpen()) closePresent(); });
+
+// ---------- 학생에게 한마디 ----------
+const QUICK_NOTICES = ["5분 남았어요", "잠깐 화면을 봐 주세요", "모둠끼리 이야기해 보세요", "다음 단계로 넘어가요"];
+$("#n-quick").innerHTML = QUICK_NOTICES.map((t) => `<button class="chip sm" type="button" data-nq="${esc(t)}">${esc(t)}</button>`).join("");
+// 빠른 문구는 칸에 채우기만 한다(눌러서 바로 나가는 실수를 막고, 고쳐서 보낼 수 있게)
+$("#n-quick").onclick = (e) => { const b = e.target.closest("[data-nq]"); if (b) { $("#n-text").value = b.dataset.nq; $("#n-text").focus(); } };
+function renderNoticeCard() {
+  const sel = $("#n-target");
+  const opts = `<option value="">모든 모둠</option>${groups.map((g) => `<option value="${g.id}">${esc(g.name)}</option>`).join("")}`;
+  if (sel.dataset.opts !== opts) { const keep = sel.value; sel.innerHTML = opts; sel.dataset.opts = opts; sel.value = groups.some((g) => g.id === keep) ? keep : ""; }
+  const n = curRow()?.notice;
+  const to = n?.groups?.length ? n.groups.map((g) => groups.find((x) => x.id === g)?.name || g).join(", ") : "모든 모둠";
+  $("#n-cur").innerHTML = n?.text ? `<div class="notice muted n-now"><span>지금 학생 화면에 보이는 말 (${esc(to)}): <b>${esc(n.text)}</b></span><button class="link" type="button" id="n-clear">내리기</button></div>` : "";
+}
+async function sendNotice(text, groupsTo) {
+  try {
+    await call("updateSession")({ code: current, notice: { text, groups: groupsTo } });
+    toast(text ? "학생 화면에 띄웠어요" : "내렸어요");
+  } catch (e) { toast(errMsg(e), true); }
+}
+$("#n-send").onclick = async () => {
+  const text = $("#n-text").value.trim();
+  if (!text) { $("#n-text").focus(); return toast("보낼 말을 쓰세요.", true); }
+  const g = $("#n-target").value;
+  $("#n-send").disabled = true;
+  await sendNotice(text, g ? [g] : []);
+  $("#n-send").disabled = false;
+  $("#n-text").value = "";
+};
+$("#n-text").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) $("#n-send").click(); });
+$("#n-cur").onclick = (e) => { if (e.target.closest("#n-clear")) sendNotice("", []); };
+
+// ---------- 오래 멈춘 모둠 ----------
+// 모둠 산출물·AI 사용·인물 대화 수가 STUCK_MIN 분 넘게 그대로이면 표시한다(교사 화면을 연 뒤부터 센다).
+const STUCK_MIN = 10;
+const changedAt = {}; // 모둠 ID → { sig, t }
+function trackChanges() {
+  for (const g of groups) {
+    const { live, ...work } = g.work || {};
+    const chats = members.filter((m) => m.groupId === g.id).reduce((n, m) => n + (m.chatCount || 0), 0);
+    const sig = `${JSON.stringify(work)}|${g.aiCount || 0}|${chats}`;
+    if (changedAt[g.id]?.sig !== sig) changedAt[g.id] = { sig, t: Date.now() };
+  }
+}
+function stuckMin(g) {
+  const r = curRow(), c = changedAt[g.id];
+  if (!c || !r || r.closed || r.started === false || filled(g.work?.s7?.share)) return 0;
+  if (!members.some((m) => m.groupId === g.id && isOnline(m))) return 0; // 아무도 없는 모둠은 멈춘 것이 아니다
+  const min = Math.floor((Date.now() - c.t) / 60000);
+  return min >= STUCK_MIN ? min : 0;
+}

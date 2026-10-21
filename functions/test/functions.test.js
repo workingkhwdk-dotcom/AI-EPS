@@ -993,6 +993,8 @@ test("모둠 이동: 인물·대화·개인 정리·비밀번호가 따라가고
   assert.equal(store.get(`sessions/${c}/groups/g1`).work.s1.findings.A1, undefined);
   assert.equal(store.get(`sessions/${c}/assignGroup/g1`).personaIds.includes(pid), false);
   assert.equal(store.get(`sessions/${c}/assignGroup/g2`).personaIds.includes(pid), true);
+  assert.deepEqual(store.get(`sessions/${c}/groups/g1`).names, { B1: "나래" }, "옛 모둠 별명 목록에서 빠진다");
+  assert.deepEqual(store.get(`sessions/${c}/groups/g2`).names, { A1: "가람" }, "새 모둠 별명 목록에 들어간다");
   // 이동한 뒤에는 새 모둠 번호로 입장해야 하고(같은 비밀번호), 옛 모둠 번호로는 새로운 학생이 된다
   await join("A2", c, "가람", "sesame1", 2);
   assert.equal(pidOf(c, "A2"), pid);
@@ -1124,4 +1126,26 @@ test("1단계: 경고 3번이면 대화가 멈추고, 교사만 다시 열 수 �
   personaReply = "네, 괜찮아요.";
   const r2 = await ask("S3", "아까는 미안해요");
   assert.equal(r2.conduct, null);
+});
+
+test("모둠원 별명 목록: 입장하면 모둠 문서에 별명이 적히고(인물 정보 없음), 다시 입장하면 새 계정으로 바뀐다", async () => {
+  const c = await mk();
+  await join("A1", c, "가람", "sesame1");
+  await join("B1", c, "나래", "sesame2");
+  assert.deepEqual(store.get(`sessions/${c}/groups/g1`).names, { A1: "가람", B1: "나래" });
+  await join("A2", c, "가람", "sesame1");
+  assert.deepEqual(store.get(`sessions/${c}/groups/g1`).names, { A2: "가람", B1: "나래" });
+});
+
+test("선생님 한마디: 교사만 보낼 수 있고, 모둠을 고를 수 있으며, 빈 글이면 지운다", async () => {
+  const c = await mk(3);
+  await assert.rejects(api.updateSession({ ...student("A1"), data: { code: c, notice: { text: "x" } } }), /교사/);
+  await api.updateSession({ ...teacher, data: { code: c, notice: { text: "  5분 남았어요  ", groups: ["g2", "bad", 3] } } });
+  const n = store.get(`sessions/${c}`).notice;
+  assert.equal(n.text, "5분 남았어요"); assert.deepEqual(n.groups, ["g2"]); assert.ok(n.t > 0);
+  await api.updateSession({ ...teacher, data: { code: c, notice: { text: "가".repeat(300) } } });
+  assert.equal(store.get(`sessions/${c}`).notice.text.length, 100);
+  assert.deepEqual(store.get(`sessions/${c}`).notice.groups, [], "모둠을 안 고르면 모두에게");
+  const r = await api.updateSession({ ...teacher, data: { code: c, notice: { text: "" } } });
+  assert.equal(store.get(`sessions/${c}`).notice, undefined); assert.equal(r.notice, null);
 });

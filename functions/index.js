@@ -113,6 +113,7 @@ async function ownSession(req) {
 }
 
 // 수업 설정값(모둠 AI 한도, 학생별 대화 횟수, 웹 검색, 자동 닫힘)을 검사해 저장할 값으로 바꾼다. 없는 값은 건드리지 않는다.
+const NOTICE_MAX = 100;
 function sessionSettings(d) {
   const out = {};
   if (d?.aiLimit !== undefined) {
@@ -274,7 +275,8 @@ async function moveMember(code, groupId, fromUid, toUid) {
   }
   if (work.live?.[fromUid] !== undefined) upd[`work.live.${fromUid}`] = FieldValue().delete();
   for (const [pid, pk] of Object.entries(grp.picks || {})) if (pk?.uid === fromUid) upd[`picks.${pid}.uid`] = toUid;
-  if (Object.keys(upd).length) await groupRef.update(upd);
+  upd[`names.${fromUid}`] = FieldValue().delete(); // 모둠원 별명 목록(대기실에 보인다)은 입장 처리에서 새 uid 로 다시 적는다
+  await groupRef.update(upd);
   for (let i = 0; i < chats.length; i += 200) {
     const batch = db.batch();
     chats.slice(i, i + 200).forEach((d) => batch.delete(db.doc(`sessions/${code}/members/${fromUid}/chat/${d.id}`)));
@@ -356,6 +358,7 @@ exports.joinSession = onCall(fastOpts, async (req) => {
     if (m.exists && m.data().groupId === groupId) {
       const curPid = a.exists ? a.data().personaId : m.data()?.personaId; // 옛 방식(학생 문서에 있던 인물 ID)도 읽는다
       tx.update(memberRef, { nickname, credKey: key, personaId: FieldValue().delete() });
+      tx.update(groupRef, { [`names.${auth.uid}`]: nickname });
       if (curPid) {
         if (!a.exists) tx.set(assignRef, { groupId, personaId: curPid });
         if (!g.data()?.picks?.[curPid]) tx.update(groupRef, { [`picks.${curPid}`]: { uid: auth.uid, nick: nickname } });
@@ -363,7 +366,8 @@ exports.joinSession = onCall(fastOpts, async (req) => {
       if (!ag.exists && g.data()?.personaIds) { tx.set(agRef, { personaIds: g.data().personaIds }); tx.update(groupRef, { personaIds: FieldValue().delete() }); }
       return;
     }
-    tx.update(groupRef, { memberCount: (g.data()?.memberCount || 0) + 1 });
+    // names: 모둠원 별명 목록. 모둠원이 읽을 수 있는 모둠 문서에 두어 대기실에서 누가 들어왔는지 보여 준다(인물 정보는 없다).
+    tx.update(groupRef, { memberCount: (g.data()?.memberCount || 0) + 1, [`names.${auth.uid}`]: nickname });
     tx.set(memberRef, {
       groupId, nickname, credKey: key,
       stage: 1, aiCount: 0, chatCount: 0, joinedAt: FieldValue().serverTimestamp(), lastSeen: FieldValue().serverTimestamp(),
@@ -519,6 +523,12 @@ exports.updateSession = onCall(opts, async (req) => {
     patch.openedAt = FieldValue().serverTimestamp();
   }
   Object.assign(patch, sessionSettings(req.data));
+  // 선생님 한마디: 학생 화면 위쪽에 띄우는 짧은 공지. groups 를 주면 그 모둠에만, 빈 글이면 지운다.
+  if (req.data?.notice !== undefined) {
+    const text = String(req.data.notice?.text ?? req.data.notice ?? "").trim().slice(0, NOTICE_MAX);
+    const groups = Array.isArray(req.data.notice?.groups) ? req.data.notice.groups.map(String).filter((g) => /^g\d{1,2}$/.test(g)).slice(0, MAX_GROUPS) : [];
+    patch.notice = text ? { text, groups, t: Date.now() } : FieldValue().delete();
+  }
   if (req.data?.groupCount !== undefined) {
     const n = parseInt(req.data.groupCount, 10);
     if (!(n >= 1 && n <= MAX_GROUPS)) throw new HttpsError("invalid-argument", `모둠 수는 1~${MAX_GROUPS} 사이로 정하세요.`);
@@ -537,7 +547,8 @@ exports.updateSession = onCall(opts, async (req) => {
     patch.groupCount = n;
   }
   if (Object.keys(patch).length) await db.doc(`sessions/${code}`).update(patch);
-  return { ...patch };
+  // 지운 한마디(FieldValue)는 응답으로 보낼 수 없으므로 null 로 돌려준다
+  return { ...patch, ...(patch.notice && !patch.notice.text ? { notice: null } : {}) };
 });
 
 // ---------- 교사: 인물 항목 편집 (말투·삶의 이야기·의견·편지만) ----------
@@ -609,8 +620,8 @@ exports.moveStudent = onCall(opts, async (req) => {
     batch.update(fromG, { [`picks.${pid}`]: FieldValue().delete() });
     batch.update(toG, { [`picks.${pid}`]: { uid, nick: d.nickname } });
   }
-  batch.update(fromG, { memberCount: FieldValue().increment(-1) });
-  batch.update(toG, { memberCount: FieldValue().increment(1) });
+  batch.update(fromG, { memberCount: FieldValue().increment(-1), [`names.${uid}`]: FieldValue().delete() });
+  batch.update(toG, { memberCount: FieldValue().increment(1), [`names.${uid}`]: d.nickname });
   if (work.s1?.findings?.[uid] !== undefined) {
     batch.update(toG, { [`work.s1.findings.${uid}`]: work.s1.findings[uid] });
     batch.update(fromG, { [`work.s1.findings.${uid}`]: FieldValue().delete() });

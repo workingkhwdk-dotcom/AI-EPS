@@ -134,6 +134,7 @@ body.m.typing{ padding-bottom:16px; }
    활동과 무관한 줄(.m-hide)만 숨긴다. */
 .m .desc{ margin-bottom:10px; }
 .m .m-hide{ display:none !important; }
+.m .next{ padding:8px 12px; margin-bottom:8px; font-size:13.5px; }
 .m .problem-bar{ padding:9px 13px; margin-bottom:10px; }
 .m .problem-bar .pb-s{ display:none; }
 .m .problem-bar .pb-q{ font-size:14.5px; }
@@ -144,8 +145,6 @@ body.m.typing{ padding-bottom:16px; }
 
 /* 대기실·안내 팝업 (모바일): 아래 막대 없이 한 화면에 다 보이도록 촘촘하게 */
 .m .wait-hero{ padding:12px 6px 6px; } .m .wait-hero h2{ font-size:23px; margin:6px 0 4px; }
-.m .journey{ gap:9px; } .m .journey li{ gap:10px; } .m .journey .jn{ width:24px; height:24px; font-size:12px; }
-.m .journey b{ font-size:14px; } .m .journey small{ font-size:12.5px; }
 .m .help-btn{ width:26px; height:26px; }
 
 /* ---------- 학습 활동 공간 극대화 ----------
@@ -166,6 +165,8 @@ body.m{ --navh:calc(54px + env(safe-area-inset-bottom)); --hdrh:calc(41px + env(
 .m .net-banner{ top:var(--hdrh); }
 .m .m-nav{ min-height:var(--navh); padding-top:3px; transition:transform .22s var(--ease); }
 .m .m-nav .stage-tab b{ width:24px; height:24px; font-size:12.5px; }
+.m .m-nav .stage-tab.done b{ box-shadow:inset 0 0 0 2px var(--green); }
+.m .m-nav .stage-tab.done b::after{ content:none; }
 .m .m-nav .stage-tab span{ font-size:9.5px; }
 .m .toast{ bottom:calc(var(--navh) + 10px); }
 .m .wrap{ padding:12px 12px 8px; }
@@ -232,3 +233,11 @@ body.m{ --navh:calc(54px + env(safe-area-inset-bottom)); --hdrh:calc(41px + env(
 
 /* 휴대폰에서 예시가 긴 칸은 두 줄 칸으로 보여 예시 글이 잘리지 않게 한다(app.js fld) */
 .m textarea.short{ min-height:64px; }
+
+/* 선생님 한마디 띠: 머리글 바로 아래 */
+.m .t-notice{ top:calc(var(--hdrh) + 6px); margin:8px 0 10px; font-size:14px; }
+.m.chrome-hidden .t-notice{ top:6px; }
+/* 휴대폰에서 글자를 크게 키워도 아래 막대의 숫자 동그라미·글자가 잘리지 않게 */
+.m .m-nav .stage-tab b{ min-width:24px; min-height:24px; width:auto; height:auto; aspect-ratio:1; padding:0 2px; }
+.m .m-nav .stage-tab span{ max-width:100%; }
+.m .qr-mini{ width:56px; height:56px; }

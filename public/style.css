@@ -48,7 +48,7 @@ a{ color:var(--accent); }
 @media (max-width:420px){ .mark{ width:36px; height:36px; } .logo{ font-size:17px; } .brand .tot{ display:none; } }
 /* 모바일 화면에서만(.m-only) 또는 PC 화면에서만(.pc-only) 보이는 조각 */
 .m-only{ display:none; }
-.goal-chips{ gap:6px; align-items:center; overflow-x:auto; scrollbar-width:none; font-size:12px; margin:0 0 8px; }
+.goal-chips{ display:flex; gap:6px; align-items:center; overflow-x:auto; scrollbar-width:none; font-size:12px; margin:0 0 8px; }
 .goal-chips::-webkit-scrollbar{ display:none; }
 .goal-chips span{ color:var(--ink-3); font-weight:800; white-space:nowrap; }
 .goal-chips b{ background:var(--accent-tint); color:var(--accent); border-radius:14px; padding:3px 10px; white-space:nowrap; font-weight:800; }
@@ -130,6 +130,10 @@ label.lbl{ display:block; font-size:13px; font-weight:700; color:var(--ink-2); m
   .stage-tab b{ width:30px; height:30px; font-size:14px; box-shadow:0 0 0 3px var(--surface); }
   .stage-tab span{ font-size:11px; }
 }
+/* 마친 단계: 번호 원에 작은 초록 체크 */
+.stage-tab.done b{ position:relative; }
+.stage-tab.done b::after{ content:"✓"; position:absolute; right:-5px; top:-5px; width:16px; height:16px; border-radius:50%; background:var(--green); color:#fff;
+  font-size:10px; font-weight:800; display:flex; align-items:center; justify-content:center; box-shadow:0 0 0 2px var(--surface); }
 
 /* ---------- 도착한 편지 ---------- */
 .letter{ background:var(--paper);
@@ -225,6 +229,7 @@ th{ color:var(--ink-2); font-weight:700; }
 .tbl-wrap{ overflow-x:auto; }
 .tbl{ min-width:640px; }
 .tbl td,.tbl th{ padding:10px 8px; }
+.tbl th, .tbl .btn{ white-space:nowrap; }
 .dot{ display:inline-block; width:9px; height:9px; border-radius:50%; background:var(--ink-3); margin-right:6px; }
 .dot.on{ background:var(--green); box-shadow:0 0 0 3px var(--green-tint); }
 .pill{ display:inline-block; font-size:12px; font-weight:800; padding:2px 10px; border-radius:20px; background:var(--accent-tint); color:var(--accent); white-space:nowrap; }
@@ -243,6 +248,15 @@ details.fold .inner{ margin-top:12px; }
 .logline .a{ color:var(--ink-2); white-space:pre-wrap; word-break:break-word; }
 
 
+/* 지금 할 일: 다음에 할 일 하나만 한 줄로 */
+.next{ display:flex; align-items:baseline; gap:8px; background:var(--accent-tint); color:var(--ink); border-radius:12px; padding:9px 13px; margin-bottom:12px; font-size:14px; font-weight:700; line-height:1.5; }
+.next-k{ flex:none; font-size:11.5px; font-weight:800; color:var(--accent); }
+.next.done{ background:var(--green-tint); }
+.next.done .next-k{ color:var(--green-ink); }
+.next .link{ font-size:13px; margin-left:4px; }
+.sec-h{ font-size:16px; margin:18px 4px 8px; }
+.legend{ font-size:12.5px; color:var(--ink-3); margin:0 0 10px; }
+.legend .kind{ margin-right:2px; }
 /* 1단계 작은 단계 */
 .subnav{ display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:12px; }
 .subnav button{ font:inherit; font-size:13px; font-weight:800; border:none; background:var(--surface); color:var(--ink-2); box-shadow:var(--shadow); border-radius:12px; padding:9px 6px; cursor:pointer; line-height:1.3; }
@@ -262,6 +276,9 @@ details.fold .inner{ margin-top:12px; }
 
 /* 좋은 예·나쁜 예 */
 .example{ background:var(--fill); border-radius:12px; padding:10px 14px; font-size:13.5px; margin-bottom:12px; line-height:1.6; }
+details.example{ padding:7px 14px; }
+details.example > summary{ cursor:pointer; font-weight:700; color:var(--ink-2); font-size:13px; }
+details.example[open]{ padding-bottom:10px; }
 .ex-row{ margin-top:4px; font-weight:700; }
 .ex-row span{ font-weight:500; color:var(--ink-3); font-size:12.5px; margin-left:4px; }
 .ex-row.bad{ color:var(--danger); } .ex-row.good{ color:var(--green-ink); }
@@ -420,12 +437,7 @@ body.modal-open{ overflow:hidden; }
 .wait-orb i{ width:14px; height:14px; border-radius:50%; background:var(--grad); animation:blink 1.4s infinite ease-in-out; }
 .wait-orb i:nth-child(2){ animation-delay:.2s; } .wait-orb i:nth-child(3){ animation-delay:.4s; }
 .wait-me .wm-top{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px; }
-.journey{ list-style:none; margin:8px 0 0; padding:0; display:flex; flex-direction:column; gap:12px; }
-.journey li{ display:flex; gap:12px; align-items:flex-start; }
-.journey .jn{ flex:none; width:28px; height:28px; border-radius:50%; background:var(--grad); color:#fff; font-weight:800; font-size:13.5px; display:flex; align-items:center; justify-content:center; }
-.journey b{ display:block; font-size:15px; }
-.journey small{ display:block; color:var(--ink-3); font-size:13px; line-height:1.5; }
-.wait-tips{ margin:6px 0 0; padding-left:18px; display:flex; flex-direction:column; gap:8px; font-size:14px; line-height:1.6; color:var(--ink-2); }
+.wait-key{ margin-top:8px; font-size:15px; }
 .wait-note{ text-align:center; margin-top:4px; }
 
 /* 교사: 대기실 */
@@ -438,6 +450,62 @@ body.modal-open{ overflow:hidden; }
 .lobby-m .dot{ margin-right:5px; }
 .lobby-mv{ font:inherit; font-size:11.5px; font-weight:700; border:none; background:var(--fill-strong); color:var(--ink-2); border-radius:14px; padding:3px 9px; margin-left:6px; cursor:pointer; }
 .modal-acts.grid .btn small{ font-weight:600; opacity:.7; }
+
+/* ---------- 작은 디테일 ---------- */
+/* 대기실: 우리 모둠에 누가 들어왔는지 */
+.wait-mates{ font-size:13.5px; color:var(--ink-2); margin-top:2px; }
+/* 1단계: 마지막 질문 미리 알림 */
+.chat-left.last{ color:var(--warn); }
+.last-q{ color:var(--warn); }
+/* 처음 받는 편지는 도착하듯 내려앉는다(안내 창이 떠 있는 동안에는 기다린다) */
+.letter.arrive{ animation:arrive .75s var(--ease) both; }
+.modal-open .letter.arrive{ animation-play-state:paused; }
+@keyframes arrive{ 0%{ opacity:0; transform:translateY(-18px) rotate(-1.5deg) scale(.97); } 70%{ opacity:1; transform:translateY(3px) rotate(.3deg); } 100%{ transform:none; } }
+/* 모둠원이 방금 바꾼 칸·새 항목 */
+.flash{ animation:flash 1.6s ease-out; }
+@keyframes flash{ 0%,30%{ box-shadow:0 0 0 3px var(--accent-tint); background-color:var(--accent-tint); } 100%{ box-shadow:0 0 0 0 transparent; } }
+/* 최소 글자 수 */
+.cnt{ font-size:11.5px; color:var(--ink-3); text-align:right; margin-top:3px; font-variant-numeric:tabular-nums; transition:color .2s; }
+.cnt.ok{ color:var(--green-ink); font-weight:700; }
+/* 버튼이 달린 알림(되돌리기 등) */
+.toast.act{ display:flex; align-items:center; gap:14px; padding:8px 8px 8px 20px; }
+.toast.act button{ font:inherit; font-weight:800; color:#fff; background:rgba(255,255,255,.18); border:none; border-radius:16px; padding:6px 14px; cursor:pointer; }
+/* 방금 마친 단계 탭 */
+.stage-tab.just-done{ animation:tabpop .9s var(--ease); }
+@keyframes tabpop{ 0%{ transform:scale(1); } 30%{ transform:scale(1.14); } 60%{ transform:scale(.97); } 100%{ transform:scale(1); } }
+/* AI를 기다리는 동안 해 볼 일 */
+.wait-tip{ font-size:12.5px; color:var(--ink-2); margin-top:8px; }
+/* 선생님 한마디: 화면 위쪽에 붙는 띠 */
+.t-notice{ position:sticky; top:64px; z-index:9; display:flex; align-items:center; gap:10px; max-width:760px; margin:10px auto 12px; padding:10px 10px 10px 16px;
+  background:var(--navy); color:#fff; border-radius:14px; box-shadow:0 10px 26px -12px rgba(6,34,107,.6); font-size:14.5px; font-weight:700; }
+.t-notice .tn-k{ flex:none; font-size:12px; opacity:.85; }
+.t-notice .tn-t{ flex:1; min-width:0; }
+.t-notice .tn-x{ flex:none; font:inherit; color:#fff; background:rgba(255,255,255,.16); border:none; border-radius:50%; width:30px; height:30px; cursor:pointer; }
+.t-notice.pop{ animation:noticepop .7s var(--ease); }
+@keyframes noticepop{ 0%{ opacity:0; transform:translateY(-12px) scale(.96); } 100%{ opacity:1; transform:none; } }
+/* 교사: 수업 코드 옆 QR, 크게 띄우기 */
+.code-row{ display:flex; align-items:center; gap:14px; }
+.qr-mini{ width:64px; height:64px; padding:0; border:none; background:#fff; border-radius:10px; box-shadow:var(--shadow); cursor:zoom-in; overflow:hidden; }
+.qr-mini svg{ width:100%; height:100%; display:block; }
+.present{ position:fixed; inset:0; z-index:40; background:var(--bg); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3vh; padding:24px; text-align:center; }
+.present-close{ position:absolute; top:16px; right:16px; }
+.p-title{ font-size:clamp(20px, 3.4vw, 40px); font-weight:800; color:var(--ink); }
+.p-body{ display:flex; align-items:center; justify-content:center; gap:5vw; flex-wrap:wrap; }
+.p-qr{ width:min(42vh, 80vw); aspect-ratio:1; background:#fff; border-radius:24px; padding:12px; box-shadow:var(--shadow); }
+.p-qr svg{ width:100%; height:100%; display:block; }
+.p-info{ text-align:left; }
+.p-k{ font-size:clamp(13px, 1.6vw, 20px); color:var(--ink-3); font-weight:700; margin-top:1.5vh; }
+.p-url{ font-size:clamp(20px, 3.2vw, 40px); font-weight:800; color:var(--ink); }
+.p-code{ font-size:clamp(48px, 10vw, 140px); font-weight:800; letter-spacing:.12em; line-height:1.05; color:var(--navy); font-variant-numeric:tabular-nums; }
+.p-count{ font-size:clamp(16px, 2.4vw, 30px); color:var(--ink-2); margin-top:2vh; }
+.p-count b{ color:var(--green-ink); }
+body.presenting{ overflow:hidden; }
+/* 교사: 학생에게 한마디 */
+.n-row{ flex-wrap:nowrap; }
+.n-row input{ flex:1; min-width:0; }
+.n-row select{ width:auto; flex:none; }
+.n-now{ display:flex; justify-content:space-between; align-items:center; gap:10px; margin:10px 0 0; }
+@media (max-width:620px){ .n-row{ flex-wrap:wrap; } .n-row input{ flex:1 0 100%; } }
 
 /* ---------- 대화 규칙 안내·경고 ---------- */
 .chat-rule{ font-size:12.5px; color:var(--ink-2); background:var(--fill); padding:9px 18px; line-height:1.55; }
