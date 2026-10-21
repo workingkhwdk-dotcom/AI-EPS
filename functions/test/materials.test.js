@@ -2,10 +2,11 @@ const test = require("node:test");
 const assert = require("node:assert");
 const { defaultMaterials, sanitizeMaterials, toStudentMaterials, LIMITS } = require("../materials");
 const { parseResponses, buildResponsesBody, buildBody } = require("../openai");
-const { LOOKUP_TOOL } = require("../lookup");
+const { lookupTool } = require("../lookup");
+const { EVENTS } = require("../case");
 
 test("기본 자료는 항목마다 id 가 있고 출처 ID 는 없다", () => {
-  const d = defaultMaterials(true);
+  const d = defaultMaterials("jeju2018", true);
   assert.ok(d.length >= 5);
   for (const c of d) for (const it of c.items) assert.ok(it.id && it.text && !("src" in it));
   assert.ok(d.find((c) => c.stats?.length));
@@ -49,7 +50,7 @@ test("요청 본문: 검색은 web_search 도구를 쓰고 minimal 사고량은 
   assert.equal(b.tools[0].type, "web_search");
   assert.equal(b.reasoning.effort, "low");
   assert.equal("tools" in buildBody({ model: "gpt-5-mini", messages: [] }), false);
-  assert.equal(buildBody({ model: "gpt-5-mini", messages: [], tools: [LOOKUP_TOOL] }).tools[0].function.name, "lookup");
+  assert.equal(buildBody({ model: "gpt-5-mini", messages: [], tools: [lookupTool(EVENTS.jeju2018)] }).tools[0].function.name, "lookup");
 });
 
 test("materialsText: 3단계 근거용으로 분류·종류·날짜·출처를 한 줄씩 적고, 길면 줄 단위로 자른다", () => {

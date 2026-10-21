@@ -20,13 +20,17 @@ function validatePassword(pw) {
   return null;
 }
 
-function hashPassword(pw, salt = crypto.randomBytes(16).toString("hex")) {
-  return { salt, hash: crypto.scryptSync(String(pw), salt, 32).toString("hex") };
+// scrypt 는 CPU 를 많이 쓴다. 동기 함수(scryptSync)는 그동안 서버가 다른 요청을 못 받아서, 한 반이 동시에 입장하면 줄을 서서
+// 마지막 학생이 몇 초씩 기다린다. 비동기 scrypt 는 따로 돌아가 여러 학생이 함께 처리된다.
+const scrypt = (pw, salt) => new Promise((resolve, reject) => crypto.scrypt(String(pw), salt, 32, (e, key) => (e ? reject(e) : resolve(key))));
+
+async function hashPassword(pw, salt = crypto.randomBytes(16).toString("hex")) {
+  return { salt, hash: (await scrypt(pw, salt)).toString("hex") };
 }
 
-function verifyPassword(pw, cred) {
+async function verifyPassword(pw, cred) {
   if (!cred?.salt || !cred?.hash) return false;
-  const a = Buffer.from(hashPassword(pw, cred.salt).hash, "hex");
+  const a = await scrypt(pw, cred.salt);
   const b = Buffer.from(cred.hash, "hex");
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }

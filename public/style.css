@@ -1,6 +1,7 @@
 /* 한국교원대학교(KNUE) 스타일: 짙은 남색(로고 배경), 청색, 녹색(로고의 두 사람)을 기준 색으로 쓴다.
    글자에 쓰는 색(--accent, --green-ink)은 흰 배경 대비 4.5:1 이상으로 맞췄다. 장식용 색(--blue, --green)은 글자에 쓰지 않는다. */
 :root{
+  color-scheme:light; /* 다크모드는 쓰지 않는다(기기가 어두운 화면이어도 항상 밝은 화면) */
   --navy:#06226B; --blue:#0A7ED0; --green:#4EA82B;
   --bg:#F3F6FB; --surface:#FFFFFF; --surface-2:#EAF0F9;
   --ink:#0E1B3A; --ink-2:#4A5878; --ink-3:#62708F;
@@ -15,25 +16,9 @@
   --bubble-me:#0B4DA8; --bubble-me-ink:#FFFFFF; --bubble-ai:#FFFFFF;
   --paper:#FFFDF7; --paper-line:rgba(6,34,107,0.08);
   --shadow:0 1px 2px rgba(6,34,107,0.06), 0 10px 26px -14px rgba(6,34,107,0.30);
-  --ui:'Pretendard','Apple SD Gothic Neo','Noto Sans KR','Malgun Gothic',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+  --ui:'Pretendard Variable','Pretendard','Apple SD Gothic Neo','Noto Sans KR','Malgun Gothic',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
   --serif:'Gowun Batang','Apple SD Gothic Neo',serif;
   --ease:cubic-bezier(0.32,0.72,0,1);
-}
-@media (prefers-color-scheme: dark){
-  :root{
-    --bg:#0B1630; --surface:#121F3F; --surface-2:#1A2A52;
-    --ink:#E8EEFA; --ink-2:#AEBBD6; --ink-3:#8190B0;
-    --sep:rgba(255,255,255,0.12); --fill:rgba(255,255,255,0.07); --fill-strong:rgba(255,255,255,0.14);
-    --accent:#6FB1F5; --accent-tint:rgba(111,177,245,0.18);
-    --green-ink:#7FD05A; --green-tint:rgba(127,208,90,0.16);
-    --warn:#F5B84A; --warn-tint:rgba(245,184,74,0.16);
-    --danger:#FF7C98; --danger-tint:rgba(255,124,152,0.15);
-    --header-bg:#050F2E;
-    --bubble-me:#1B63C9; --bubble-ai:#1A2A52;
-    --paper:#16244A; --paper-line:rgba(255,255,255,0.07);
-    --shadow:0 1px 2px rgba(0,0,0,0.5);
-    color-scheme:dark;
-  }
 }
 *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
 html,body{ margin:0; }
@@ -99,7 +84,6 @@ a{ color:var(--accent); }
 .chip{ font:inherit; border:none; background:var(--fill); color:var(--ink-2); font-size:13px; font-weight:700; padding:9px 14px; border-radius:20px; cursor:pointer; white-space:nowrap; }
 .chip.on{ background:var(--navy); color:#fff; }
 .chip.sm{ padding:5px 10px; font-size:12px; }
-@media (prefers-color-scheme: dark){ .chip.on{ background:var(--blue); color:#06142F; } }
 
 .card{ background:var(--surface); border-radius:20px; box-shadow:var(--shadow); padding:18px; margin-bottom:14px; }
 .card.flat{ box-shadow:none; background:var(--fill); padding:12px 14px; border-radius:14px; }
@@ -125,18 +109,31 @@ textarea{ min-height:84px; resize:vertical; }
 label.lbl{ display:block; font-size:13px; font-weight:700; color:var(--ink-2); margin:12px 0 6px; }
 :focus-visible{ outline:2px solid var(--blue); outline-offset:2px; border-radius:6px; }
 
-/* 단계 탭 */
-.stages{ display:flex; gap:6px; overflow-x:auto; padding:2px 0 10px; scrollbar-width:none; }
-.stages::-webkit-scrollbar{ display:none; }
-.stage-tab{ font:inherit; flex:0 0 auto; border:none; background:var(--surface); box-shadow:var(--shadow); border-radius:14px; padding:8px 12px; cursor:pointer; text-align:center; min-width:64px; color:var(--ink-2); }
-.stage-tab b{ display:block; font-size:16px; color:var(--ink); }
-.stage-tab span{ font-size:11px; }
-.stage-tab.on{ background:var(--navy); color:#fff; }
-.stage-tab.on b{ color:#fff; }
-/* 마친 단계: 숫자 옆에 작은 체크 */
-.stage-tab.done b::after{ content:"✓"; font-size:11px; color:var(--green-ink); margin-left:2px; vertical-align:top; }
-.stage-tab.on.done b::after{ color:inherit; }
-@media (prefers-color-scheme: dark){ .stage-tab.on{ background:var(--blue); color:#06142F; } .stage-tab.on b{ color:#06142F; } }
+/* 단계 탭: 카드와 같은 폭의 진행 표시줄. 7칸을 똑같이 나누고 번호 원을 선으로 잇는다. */
+.stages{ position:relative; display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); background:var(--surface); box-shadow:var(--shadow);
+  border-radius:20px; padding:14px 6px 12px; margin-bottom:14px; }
+.stages::before{ content:""; position:absolute; top:31px; left:calc(6px + (100% - 12px) / 14); right:calc(6px + (100% - 12px) / 14);
+  height:2px; background:var(--fill-strong); border-radius:2px; }
+.stage-tab{ font:inherit; position:relative; border:none; background:none; padding:0 2px; cursor:pointer; color:var(--ink-3);
+  display:flex; flex-direction:column; align-items:center; gap:7px; min-width:0; }
+.stage-tab b{ display:flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:50%;
+  background:var(--surface-2); color:var(--ink-2); font-size:15px; font-weight:800; font-variant-numeric:tabular-nums;
+  box-shadow:0 0 0 4px var(--surface); transition:transform .15s var(--ease), background .15s ease; }
+.stage-tab span{ font-size:12.5px; font-weight:700; line-height:1.3; text-align:center; word-break:keep-all; }
+.stage-tab:hover b{ transform:translateY(-1px); }
+.stage-tab.past b{ background:var(--accent-tint); color:var(--accent); }
+.stage-tab.on b{ background:var(--grad); color:#fff; box-shadow:0 0 0 4px var(--surface), 0 6px 14px -6px rgba(6,34,107,0.7); }
+.stage-tab.on span{ color:var(--ink); font-weight:800; }
+@media (max-width:520px){
+  .stages{ padding:12px 2px 10px; }
+  .stages::before{ top:27px; left:calc(2px + (100% - 4px) / 14); right:calc(2px + (100% - 4px) / 14); }
+  .stage-tab b{ width:30px; height:30px; font-size:14px; box-shadow:0 0 0 3px var(--surface); }
+  .stage-tab span{ font-size:11px; }
+}
+/* 마친 단계: 번호 원에 작은 초록 체크 */
+.stage-tab.done b{ position:relative; }
+.stage-tab.done b::after{ content:"✓"; position:absolute; right:-5px; top:-5px; width:16px; height:16px; border-radius:50%; background:var(--green); color:#fff;
+  font-size:10px; font-weight:800; display:flex; align-items:center; justify-content:center; box-shadow:0 0 0 2px var(--surface); }
 
 /* ---------- 도착한 편지 ---------- */
 .letter{ background:var(--paper);
@@ -145,9 +142,12 @@ label.lbl{ display:block; font-size:13px; font-weight:700; color:var(--ink-2); m
 .letter summary::-webkit-details-marker{ display:none; }
 .letter summary::after{ content:"펼치기"; margin-left:auto; font-size:12px; color:var(--ink-3); font-weight:600; }
 .letter[open] summary::after{ content:"접기"; }
-.letter .body{ font-family:var(--serif); font-size:16.5px; line-height:1.9; margin-top:10px; }
+.letter .body{ font-family:var(--serif); font-size:16.5px; line-height:1.9; margin-top:10px; word-break:keep-all; }
 .letter .body p{ margin:0 0 12px; }
 .letter .sign{ text-align:right; font-weight:700; margin-top:6px; }
+.letter .sign span{ display:block; font-weight:400; font-size:14px; color:var(--ink-2); }
+.letter .ps{ margin-top:16px; font-size:15px; color:var(--ink-2); }
+.letter-note{ margin-top:12px; padding-top:10px; border-top:1px dashed var(--paper-line); font-size:12px; color:var(--ink-3); }
 
 /* ---------- 메신저 대화(카카오톡 스타일) ---------- */
 .chat-card{ padding:0; overflow:visible; }
@@ -221,9 +221,9 @@ th{ color:var(--ink-2); font-weight:700; }
 .seg button{ font:inherit; font-size:14px; font-weight:700; border:none; background:transparent; color:var(--ink-2); border-radius:9px; padding:9px 16px; cursor:pointer; white-space:nowrap; }
 .seg button.on{ background:var(--surface); color:var(--accent); box-shadow:0 1px 3px rgba(0,0,0,.14); }
 .code-big{ font-size:34px; font-weight:800; letter-spacing:.14em; font-variant-numeric:tabular-nums; color:var(--navy); }
-@media (prefers-color-scheme: dark){ .code-big{ color:var(--accent); } }
 .kpis{ display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; margin:12px 0; }
-.kpi{ background:var(--fill); border-radius:14px; padding:12px 14px; }
+.kpi{ background:var(--fill); border-radius:14px; padding:12px 14px; display:flex; align-items:center; gap:10px; }
+.kpi-ic{ flex:none; width:32px; height:32px; padding:7px; border-radius:10px; background:var(--surface); color:var(--accent); }
 .kpi b{ display:block; font-size:24px; font-variant-numeric:tabular-nums; letter-spacing:-0.02em; }
 .kpi span{ font-size:12px; color:var(--ink-2); }
 .tbl-wrap{ overflow-x:auto; }
@@ -248,14 +248,6 @@ details.fold .inner{ margin-top:12px; }
 .logline .a{ color:var(--ink-2); white-space:pre-wrap; word-break:break-word; }
 
 
-/* ---------- AI 역할 상자 ---------- */
-.role{ background:var(--warn-tint); border-radius:12px; padding:7px 12px; margin-bottom:10px; font-size:13.5px; line-height:1.55; }
-/* AI 역할: 한 줄 요약, 누르면 펼친다 */
-.m-role summary{ list-style:none; cursor:pointer; display:flex; align-items:center; gap:6px; white-space:nowrap; overflow:hidden; }
-.m-role summary::-webkit-details-marker{ display:none; }
-.m-role summary b{ overflow:hidden; text-overflow:ellipsis; font-size:13.5px; }
-.m-role summary::after{ content:"자세히"; margin-left:auto; font-size:11.5px; font-weight:700; color:var(--ink-3); }
-.m-role[open] summary::after{ content:"접기"; }
 /* 지금 할 일: 다음에 할 일 하나만 한 줄로 */
 .next{ display:flex; align-items:baseline; gap:8px; background:var(--accent-tint); color:var(--ink); border-radius:12px; padding:9px 13px; margin-bottom:12px; font-size:14px; font-weight:700; line-height:1.5; }
 .next-k{ flex:none; font-size:11.5px; font-weight:800; color:var(--accent); }
@@ -265,23 +257,12 @@ details.fold .inner{ margin-top:12px; }
 .sec-h{ font-size:16px; margin:18px 4px 8px; }
 .legend{ font-size:12.5px; color:var(--ink-3); margin:0 0 10px; }
 .legend .kind{ margin-right:2px; }
-.role.x{ background:var(--fill); }
-.role-h{ display:flex; align-items:center; gap:8px; }
-.role-h b{ font-size:14.5px; }
-.role-g{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:8px; }
-.role-g > div{ background:var(--surface); border-radius:10px; padding:8px 10px; }
-.role-g span{ display:block; font-size:11.5px; font-weight:800; color:var(--ink-3); margin-bottom:2px; }
-.role-g .me{ box-shadow:inset 0 0 0 2px var(--blue); }
-.role-g .me span{ color:var(--accent); }
-@media (max-width:620px){ .role-g{ grid-template-columns:1fr; gap:4px; } .role-g > div{ padding:6px 10px; } .role-g span{ display:inline; margin-right:6px; } }
-
 /* 1단계 작은 단계 */
-.subnav{ display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-bottom:12px; }
+.subnav{ display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:12px; }
 .subnav button{ font:inherit; font-size:13px; font-weight:800; border:none; background:var(--surface); color:var(--ink-2); box-shadow:var(--shadow); border-radius:12px; padding:9px 6px; cursor:pointer; line-height:1.3; }
 .subnav button small{ display:block; font-size:11px; font-weight:600; color:var(--ink-3); }
 .subnav button.on{ background:var(--navy); color:#fff; }
 .subnav button.on small{ color:rgba(255,255,255,.75); }
-@media (prefers-color-scheme: dark){ .subnav button.on{ background:var(--blue); color:#06142F; } .subnav button.on small{ color:#06142F; } }
 
 /* 우리 모둠의 문제 띠 */
 .problem-bar{ background:var(--navy); color:#fff; border-radius:16px; padding:12px 16px; margin-bottom:14px; }
@@ -291,7 +272,6 @@ details.fold .inner{ margin-top:12px; }
 .problem-bar .link{ color:#fff; }
 .problem-bar.empty{ background:var(--warn-tint); color:var(--warn); font-size:13.5px; font-weight:700; }
 .problem-bar.empty .link{ color:var(--warn); }
-@media (prefers-color-scheme: dark){ .problem-bar{ background:#1A2A52; } }
 .link{ font:inherit; font-size:12.5px; font-weight:800; background:none; border:none; padding:0 2px; color:var(--accent); text-decoration:underline; cursor:pointer; }
 
 /* 좋은 예·나쁜 예 */
@@ -307,6 +287,9 @@ details.example[open]{ padding-bottom:10px; }
 .live-who{ font-size:12px; color:var(--accent); font-weight:700; min-height:0; margin-top:3px; }
 .live-who:empty{ display:none; }
 .judge{ border-left:3px solid var(--blue); padding-left:12px; margin-top:8px; }
+.coach{ margin-top:10px; display:flex; flex-direction:column; gap:6px; align-items:flex-start; }
+.coach-q{ background:var(--fill); border-radius:12px; padding:10px 12px; word-break:break-word; align-self:stretch; }
+.card.prior{ border:1px dashed var(--blue); }
 
 /* 1단계 제출 카드·모둠 보드 */
 .finding{ background:var(--fill); border-radius:14px; padding:12px 14px; margin-bottom:10px; }
@@ -358,7 +341,6 @@ details.example[open]{ padding-bottom:10px; }
 .newbox{ margin-top:14px; padding:14px 16px; border-radius:14px; background:var(--surface-2); }
 .cls{ display:flex; align-items:center; gap:12px; }
 .cls .code{ font-weight:800; letter-spacing:.12em; color:var(--navy); font-variant-numeric:tabular-nums; }
-@media (prefers-color-scheme: dark){ .cls .code{ color:var(--accent); } }
 .mcat{ margin-bottom:14px; }
 .mcat-h{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
 .mcat-h h3{ margin:0; flex:1; min-width:120px; }
@@ -444,7 +426,6 @@ body.modal-open{ overflow:hidden; }
 .help-steps li b{ display:block; font-size:14.5px; }
 .help-steps li span{ display:block; font-size:13.5px; color:var(--ink-2); line-height:1.55; margin-top:1px; }
 .help-tip{ margin-top:14px; background:var(--warn-tint); color:var(--warn); border-radius:12px; padding:10px 13px; font-size:13.5px; line-height:1.6; font-weight:600; }
-@media (prefers-color-scheme: dark){ .help-how li::before, .help-steps li::before{ background:var(--blue); color:#06142F; } }
 .help-btn{ width:28px; height:28px; padding:0; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-weight:800; }
 
 /* 대기실 */
@@ -502,7 +483,6 @@ body.modal-open{ overflow:hidden; }
 .t-notice .tn-x{ flex:none; font:inherit; color:#fff; background:rgba(255,255,255,.16); border:none; border-radius:50%; width:30px; height:30px; cursor:pointer; }
 .t-notice.pop{ animation:noticepop .7s var(--ease); }
 @keyframes noticepop{ 0%{ opacity:0; transform:translateY(-12px) scale(.96); } 100%{ opacity:1; transform:none; } }
-@media (prefers-color-scheme: dark){ .t-notice{ background:#1B63C9; } }
 /* 교사: 수업 코드 옆 QR, 크게 띄우기 */
 .code-row{ display:flex; align-items:center; gap:14px; }
 .qr-mini{ width:64px; height:64px; padding:0; border:none; background:#fff; border-radius:10px; box-shadow:var(--shadow); cursor:zoom-in; overflow:hidden; }
@@ -519,7 +499,6 @@ body.modal-open{ overflow:hidden; }
 .p-code{ font-size:clamp(48px, 10vw, 140px); font-weight:800; letter-spacing:.12em; line-height:1.05; color:var(--navy); font-variant-numeric:tabular-nums; }
 .p-count{ font-size:clamp(16px, 2.4vw, 30px); color:var(--ink-2); margin-top:2vh; }
 .p-count b{ color:var(--green-ink); }
-@media (prefers-color-scheme: dark){ .p-code{ color:var(--accent); } }
 body.presenting{ overflow:hidden; }
 /* 교사: 학생에게 한마디 */
 .n-row{ flex-wrap:nowrap; }
@@ -527,3 +506,344 @@ body.presenting{ overflow:hidden; }
 .n-row select{ width:auto; flex:none; }
 .n-now{ display:flex; justify-content:space-between; align-items:center; gap:10px; margin:10px 0 0; }
 @media (max-width:620px){ .n-row{ flex-wrap:wrap; } .n-row input{ flex:1 0 100%; } }
+
+/* ---------- 대화 규칙 안내·경고 ---------- */
+.chat-rule{ font-size:12.5px; color:var(--ink-2); background:var(--fill); padding:9px 18px; line-height:1.55; }
+.chat-head .st.off{ color:var(--danger); }
+.sysmsg{ align-self:center; max-width:92%; text-align:center; font-size:12.5px; font-weight:700; color:var(--danger); background:var(--danger-tint); padding:7px 14px; border-radius:14px; }
+.composer.locked{ justify-content:center; text-align:center; font-size:13.5px; font-weight:700; color:var(--danger); background:var(--danger-tint); }
+
+/* ---------- 문제·원인 되짚기, 모둠원 비교 ---------- */
+.recap{ background:var(--accent-tint); box-shadow:none; padding:14px 16px; line-height:1.7; }
+.compare{ display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; margin:4px 0 6px; }
+.compare-item{ background:var(--fill); border-radius:14px; padding:12px 14px; font-size:14px; white-space:pre-wrap; word-break:break-word; }
+.compare-item b{ display:block; font-size:12.5px; color:var(--accent); margin-bottom:4px; }
+
+/* ---------- 4단계 해외 사례 카드 ---------- */
+.case{ margin-top:12px; border-radius:16px; background:var(--surface-2); padding:16px 18px; }
+.case-head{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px; }
+.case-head h3{ margin:0; }
+.case-sec{ margin-top:10px; }
+.case-sec b{ font-size:13px; color:var(--ink-2); }
+.case-sec p{ margin:3px 0 0; line-height:1.7; word-break:keep-all; }
+.case-sec.think{ background:var(--warn-tint); border-radius:12px; padding:10px 12px; }
+.case-sec.think b{ color:var(--warn); }
+.case-src{ margin-top:12px; padding-top:10px; border-top:1px solid var(--sep); font-size:13px; line-height:1.8; word-break:break-all; }
+.case-src b{ display:block; font-size:12px; color:var(--ink-3); }
+.mat-item .cap a{ color:var(--accent); }
+
+/* ---------- 교사: 규칙 위반 신호 ---------- */
+.alert-card{ box-shadow:0 0 0 2px var(--danger), var(--shadow); }
+.alert-card h3{ color:var(--danger); }
+.alert-row{ display:flex; gap:10px; align-items:flex-start; flex-wrap:wrap; padding:10px 0; box-shadow:inset 0 -0.5px 0 var(--sep); }
+.alert-row .grow{ flex:1; min-width:220px; }
+.alert-msg{ margin-top:4px; font-size:14px; background:var(--danger-tint); border-radius:10px; padding:6px 10px; word-break:break-word; }
+.kpi.warn{ background:var(--danger-tint); }
+.kpi.warn b{ color:var(--danger); }
+
+/* 1단계 인물 고르기: 모든 인물의 편지 카드. 눌러서 펼치면 편지와 '고르기' 버튼이 나온다 */
+.tag.g{ background:var(--green-tint); color:var(--green-ink); }
+.notice.ok{ color:var(--green-ink); background:var(--green-tint); }
+.chat-tools{ display:flex; gap:6px; margin-left:auto; }
+.pcards{ display:grid; gap:8px; margin:10px 0; }
+.pcard{ background:var(--surface); border-radius:14px; box-shadow:var(--shadow); padding:0; overflow:hidden; border:2px solid transparent; }
+.pcard.mine{ border-color:var(--green); }
+.pcard.taken{ opacity:.78; }
+.pcard summary{ list-style:none; cursor:pointer; display:flex; align-items:center; gap:10px; padding:11px 12px; }
+.pcard summary::-webkit-details-marker{ display:none; }
+.pcard .pc-t{ display:flex; flex-direction:column; min-width:0; flex:1; line-height:1.3; }
+.pcard .pc-t small{ color:var(--ink-3); font-size:12.5px; }
+.pcard .pc-body{ padding:0 14px 14px; font-family:var(--serif); line-height:1.8; border-top:1px solid var(--sep); }
+.pcard .pc-body p{ margin:10px 0 0; }
+.pcard .pc-act{ margin-top:12px; font-family:inherit; }
+.subnav button:disabled{ opacity:.45; cursor:not-allowed; }
+#join-wait{ margin-top:12px; }
+
+/* ---------- PC 넓은 화면(1100px 이상) ----------
+   좁은 한 줄(780px)로 두면 좌우가 비므로, 화면 폭을 넓게 쓴다. 모바일 화면(body.m)에는 쓰지 않는다.
+   - 학생: 위에 1~7단계 탭을 한 줄로 넓게, 그 아래 '우리 모둠의 문제'와 AI 역할을 나란히, 활동 카드는 두 줄로 나란히 놓는다.
+     1단계 대화는 편지(왼쪽)와 대화창(오른쪽, 넓게), 2단계는 활동(왼쪽, 넓게)과 실제 자료(오른쪽)로 나눈다(.split).
+   - 교사: 표가 넓게 펼쳐지고, 수업 설정·인물 편집 등은 두 줄로 놓는다.
+   - 입장·로그인처럼 칸이 몇 개 없는 화면은 가운데에 알맞은 폭으로 둔다. */
+.split-side, .split-main{ min-width:0; }
+@media (min-width:1100px){
+  body:not(.m){ --pc-w:1760px; --stick:84px; --gap:28px; }
+  body:not(.m) .wrap{ max-width:var(--pc-w); padding:28px 28px; }
+
+  /* 항목 사이 여백: 카드끼리는 넉넉히 띄우고, 카드 안은 제목·설명·입력 칸이 덩어리로 보이게 */
+  body:not(.m) .card{ padding:26px 28px; margin-bottom:var(--gap); border-radius:22px; box-shadow:0 0 0 1px var(--sep), var(--shadow); }
+  body:not(.m) .card.chat-card{ padding:0; }
+  body:not(.m) .card.flat{ padding:16px 18px; margin-bottom:14px !important; box-shadow:none; }
+  body:not(.m) .card > h3, body:not(.m) .card > h2{ margin-bottom:12px; }
+  body:not(.m) .card > h3:first-child{ padding-bottom:12px; border-bottom:1px solid var(--sep); margin-bottom:16px; }
+  body:not(.m) .card .desc{ margin-bottom:18px; }
+  body:not(.m) label.lbl{ margin:20px 0 8px; }
+  body:not(.m) .example, body:not(.m) .notice{ margin-bottom:18px; }
+  body:not(.m) .example{ padding:14px 18px; }
+  body:not(.m) .notice{ padding:14px 18px; }
+  body:not(.m) .group{ box-shadow:0 0 0 1px var(--sep); }
+  body:not(.m) .cell{ padding:14px 18px; }
+  body:not(.m) .problem-bar{ padding:18px 22px; border-radius:18px; margin-bottom:var(--gap); }
+  body:not(.m) .subnav{ gap:12px; margin-bottom:var(--gap); }
+  body:not(.m) .subnav button{ padding:12px 8px; }
+  body:not(.m) details.fold{ padding:22px 26px; margin-bottom:var(--gap); box-shadow:0 0 0 1px var(--sep), var(--shadow); }
+  body:not(.m) details.fold .inner{ margin-top:18px; }
+  body:not(.m) .letter{ padding:24px 28px; margin-bottom:var(--gap); }
+  body:not(.m) .split-side > * + *{ margin-top:0; }
+  body:not(.m) .board{ gap:16px; }
+  body:not(.m) .b-col, body:not(.m) .finding, body:not(.m) .mat-item{ padding:16px 18px; }
+  body:not(.m) .mat{ gap:14px; }
+  body:not(.m) .nav-foot{ margin-top:8px; padding-top:var(--gap); border-top:1px solid var(--sep); }
+  body:not(.m) .chat-head{ padding:18px 24px; }
+  body:not(.m) .msgs{ padding:24px 22px 12px; gap:16px; }
+  body:not(.m) .seg{ margin-bottom:var(--gap); }
+  body:not(.m) .kpis{ gap:16px; margin:4px 0; }
+  body:not(.m) .kpi{ padding:16px 18px; }
+  body:not(.m) .hdr{ padding-left:28px; padding-right:28px; }
+  body:not(.m) .hdr-in{ max-width:calc(var(--pc-w) - 56px); }
+  body:not(.m) #join, body:not(.m) #login{ max-width:560px; margin:24px auto; }
+
+  /* 학생: 1~7단계 탭을 한 줄로 넓게 */
+  body:not(.m) .stages{ gap:10px; padding:4px 0 var(--gap); overflow:visible; }
+  body:not(.m) .stage-tab{ flex:1 1 0; display:flex; align-items:center; gap:10px; text-align:left; padding:10px 14px; min-width:0; }
+  body:not(.m) .stage-tab b{ flex:none; width:28px; height:28px; border-radius:50%; background:var(--fill); display:flex; align-items:center; justify-content:center; font-size:14px; }
+  body:not(.m) .stage-tab.on b{ background:rgba(255,255,255,0.2); }
+  body:not(.m) .stage-tab span{ font-size:14px; font-weight:700; line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  /* 활동 카드는 두 줄로. 안내·역할·이동 버튼·넓은 표가 든 카드는 한 줄을 다 쓴다 */
+  body:not(.m) #panel{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:var(--gap); align-items:start; }
+  body:not(.m) #panel > *{ grid-column:1 / -1; }
+  body:not(.m) #panel > .card{ grid-column:auto; }
+  body:not(.m) #panel > .card:has(.board, .flow, .timeline, table){ grid-column:1 / -1; }
+
+  /* 활동은 왼쪽에 넓게, 참고(편지·자료)는 오른쪽에 두고 화면에 붙여 둔다. 화면 읽기 순서(참고 → 활동)는 그대로 둔다 */
+  body:not(.m) .split{ display:grid; grid-template-columns:minmax(0,3fr) minmax(0,2fr); gap:var(--gap); align-items:start; }
+  body:not(.m) .split-main{ grid-column:1; grid-row:1; }
+  body:not(.m) .split-side{ grid-column:2; grid-row:1; }
+  body:not(.m) .split-side{ position:sticky; top:var(--stick); max-height:calc(100vh - var(--stick) - 16px); overflow-y:auto; overscroll-behavior:contain; border-radius:16px; scrollbar-width:thin; }
+  body:not(.m) .split-side > :last-child{ margin-bottom:0; }
+  body:not(.m) .chat-split .split-side > .tip{ display:none; }
+  /* 1단계 대화는 편지를 먼저 읽고 대화하므로 편지(왼쪽) → 대화창(오른쪽) */
+  body:not(.m) .chat-split{ grid-template-columns:minmax(0,2fr) minmax(0,3fr); }
+  body:not(.m) .chat-split .split-side{ grid-column:1; }
+  body:not(.m) .chat-split .split-main{ grid-column:2; }
+  body:not(.m) .chat-split .msgs{ min-height:calc(100vh - 380px); }
+
+  /* 대기실 */
+  body:not(.m) #wait:not(.hidden){ max-width:980px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:var(--gap); align-items:start; }
+  body:not(.m) #wait > .wait-hero, body:not(.m) #wait > .wait-me, body:not(.m) #wait > .wait-note{ grid-column:1 / -1; }
+
+  /* 교사 */
+  body:not(.m) #cpane-settings:not(.hidden){ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); column-gap:var(--gap); align-items:start; }
+  body:not(.m) #cpane-settings > .card:first-child{ grid-row:span 4; }
+  body:not(.m) #persona-edit, body:not(.m) #mat-body, body:not(.m) #persona-check{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:var(--gap); align-items:start; }
+  body:not(.m) #persona-edit > :only-child, body:not(.m) #mat-body > :only-child, body:not(.m) #persona-check > :only-child{ grid-column:1 / -1; }
+  body:not(.m) .newbox{ max-width:720px; }
+  body:not(.m) #cmp-body{ display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); column-gap:24px; }
+}
+/* 단계 머리말(.hero)은 PC 넓은 화면에서만 보인다 */
+.hero{ display:none; }
+@media (min-width:1100px){
+  /* ---------- PC 꾸밈(학생·교사 공통): 부드러운 바탕, 카드 제목 표시, 지금 쓰는 카드 강조. 단계 머리말은 학생 화면 ---------- */
+  body:not(.m){ background:
+    radial-gradient(1200px 520px at 0% 0%, rgba(78,168,43,0.08), transparent 60%),
+    radial-gradient(1100px 560px at 100% 0%, rgba(10,126,208,0.10), transparent 60%), var(--bg); background-attachment:fixed; }
+
+  body:not(.m) #panel > .hero{ order:-3; display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:22px; align-items:center;
+    padding:22px 28px; margin-bottom:var(--gap); border-radius:24px; background:var(--surface); box-shadow:0 0 0 1px var(--sep), var(--shadow); }
+  .hero-ic{ width:56px; height:56px; border-radius:18px; background:var(--accent-tint); color:var(--accent); display:flex; align-items:center; justify-content:center; }
+  .hero-ic svg{ width:30px; height:30px; }
+  .hero-k{ font-size:12.5px; font-weight:800; color:var(--accent); letter-spacing:.02em; }
+  .hero-t{ font-size:21px; font-weight:800; letter-spacing:-0.02em; line-height:1.35; margin-top:2px; }
+  .hero-w{ margin:4px 0 0; color:var(--ink-2); font-size:14.5px; line-height:1.6; }
+  .hero-r{ display:flex; flex-direction:column; align-items:flex-end; gap:6px; min-width:130px; }
+  .hero-r small{ font-size:12.5px; font-weight:800; color:var(--ink-2); }
+  .hero-prog{ width:130px; height:8px; border-radius:8px; background:var(--fill-strong); overflow:hidden; }
+  .hero-prog i{ display:block; height:100%; border-radius:8px; background:linear-gradient(90deg,var(--green),var(--blue)); }
+
+  /* 단계 탭: 지금 단계는 그라데이션, 올려놓으면 살짝 떠오른다 */
+  body:not(.m) .stage-tab{ transition:transform .15s var(--ease), box-shadow .15s ease; }
+  body:not(.m) .stage-tab:hover:not(.on){ transform:translateY(-2px); box-shadow:0 0 0 1px var(--accent-tint), var(--shadow); }
+  body:not(.m) .stage-tab.on{ background:var(--grad); box-shadow:0 10px 22px -12px rgba(6,34,107,0.9); }
+  body:not(.m) .subnav button{ transition:transform .15s var(--ease); }
+  body:not(.m) .subnav button:hover:not(.on){ transform:translateY(-2px); }
+  body:not(.m) .subnav button.on{ background:var(--grad); box-shadow:0 10px 22px -12px rgba(6,34,107,0.9); }
+
+  /* 카드 제목 앞의 색 막대, 지금 쓰고 있는 카드는 테두리로 알려 준다 */
+  body:not(.m) .wrap .card > h3:first-child, body:not(.m) .wrap .card > h2:first-child{ padding-left:14px; background:linear-gradient(var(--green),var(--blue)) 0 3px / 4px calc(100% - 15px) no-repeat; }
+  body:not(.m) .wrap .card{ transition:box-shadow .2s ease; }
+  body:not(.m) .wrap .card:focus-within{ box-shadow:0 0 0 2px var(--blue), 0 14px 30px -16px rgba(10,126,208,0.45); }
+  body:not(.m) .wrap .card.flat:focus-within, body:not(.m) .wrap .card.cls-head:focus-within{ box-shadow:none; }
+
+  /* 입력 칸: 누르면 하얗게 밝아지고 파란 테두리 */
+  body:not(.m) .wrap :is(input[type=text], input[type=number], input[type=password], textarea, select){ border-radius:14px; transition:background .15s ease, box-shadow .15s ease; }
+  body:not(.m) .wrap :is(input[type=text], input[type=number], input[type=password], textarea, select):hover{ box-shadow:inset 0 0 0 1.5px var(--fill-strong); }
+  body:not(.m) .wrap :is(input[type=text], input[type=number], input[type=password], textarea, select):focus{ background:var(--surface); box-shadow:inset 0 0 0 1.5px var(--blue), 0 0 0 4px var(--accent-tint); }
+
+  /* '모둠 공용 · 실시간' 표시 앞의 작은 점 */
+  body:not(.m) #panel .tag.b{ display:inline-flex; align-items:center; gap:5px; vertical-align:middle; }
+  body:not(.m) #panel h3 .tag.b::before{ content:""; width:6px; height:6px; border-radius:50%; background:var(--green); }
+
+  /* 버튼: 둥글게, 다음 단계 버튼은 크게 */
+  body:not(.m) .wrap .btn{ border-radius:14px; }
+  body:not(.m) .wrap .btn-sm{ border-radius:10px; }
+  body:not(.m) .wrap .btn-primary:hover:not(:disabled){ transform:translateY(-1px); }
+  body:not(.m) .nav-foot .btn{ padding:14px 22px; font-size:15.5px; }
+}
+@media (min-width:1100px){
+  /* ---------- 교사 화면(PC) ---------- */
+  /* 위 메뉴(내 수업 / 점검)와 수업 안 메뉴: 크게, 지금 메뉴는 학교 색 */
+  body:not(.m) #main > .seg, body:not(.m) #ctabs{ padding:4px; border-radius:14px; gap:4px; }
+  body:not(.m) #main > .seg button, body:not(.m) #ctabs button{ padding:11px 22px; font-size:15px; border-radius:11px; }
+  body:not(.m) #main > .seg button.on, body:not(.m) #ctabs button.on{ background:var(--grad); color:#fff; box-shadow:0 8px 18px -10px rgba(6,34,107,0.9); }
+  body:not(.m) #main > .seg button:hover:not(.on), body:not(.m) #ctabs button:hover:not(.on){ background:var(--surface); }
+
+  /* 수업 머리: 수업 이름·코드는 왼쪽에 크게, 학생 안내와 상태는 오른쪽 */
+  body:not(.m) .cls-head{ background:linear-gradient(120deg, var(--surface) 0%, var(--surface) 45%, var(--accent-tint) 100%); }
+  body:not(.m) .ch-main{ display:flex; align-items:flex-end; justify-content:space-between; gap:28px; margin-top:6px; }
+  body:not(.m) .ch-main .code-big{ font-size:44px; line-height:1.15; }
+  body:not(.m) .ch-main #d-title{ font-size:15px; font-weight:700; color:var(--ink-2); }
+  body:not(.m) .ch-note{ text-align:right; max-width:520px; }
+  body:not(.m) .ch-note #open-note .row{ justify-content:flex-end; }
+
+  /* 진행 현황: '확인이 필요해요'와 숫자 칸은 나란히 */
+  body:not(.m) #cpane-live:not(.hidden){ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); column-gap:var(--gap); align-items:start; }
+  body:not(.m) #cpane-live > *{ grid-column:1 / -1; }
+  body:not(.m) #cpane-live > #alerts:not(.hidden), body:not(.m) #cpane-live > #alerts:not(.hidden) + .card{ grid-column:auto; align-self:stretch; }
+  body:not(.m) #alerts:not(.hidden) + .card .kpis{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+  body:not(.m) .kpi{ display:flex; align-items:center; gap:14px; background:var(--surface-2); }
+  body:not(.m) .kpi-ic{ flex:none; width:40px; height:40px; padding:9px; border-radius:12px; background:var(--surface); color:var(--accent); }
+  body:not(.m) .kpi b{ font-size:26px; line-height:1.2; }
+
+  /* 표: 머리줄은 옅은 바탕, 줄 위에 올리면 살짝 표시 */
+  body:not(.m) .tbl thead th{ background:var(--fill); font-size:12.5px; }
+  body:not(.m) .tbl thead th:first-child{ border-radius:10px 0 0 10px; } body:not(.m) .tbl thead th:last-child{ border-radius:0 10px 10px 0; }
+  body:not(.m) .tbl td, body:not(.m) .tbl th{ padding:13px 12px; vertical-align:middle; }
+  body:not(.m) .tbl tbody tr:hover td{ background:var(--fill); }
+
+  /* 수업 목록: 줄마다 넉넉히 */
+  body:not(.m) #sessions .cell{ padding:18px 20px; align-items:center; }
+  body:not(.m) #sessions .cls b{ font-size:16px; }
+}
+@media (min-width:1100px) and (max-width:1279px){
+  /* 조금 좁은 PC: 단계 탭과 항목 사이 여백을 조금 줄인다 */
+  body:not(.m){ --gap:22px; }
+  body:not(.m) .card{ padding:22px 24px; }
+  body:not(.m) .stages{ gap:6px; }
+  body:not(.m) .stage-tab{ padding:8px 10px; gap:7px; }
+  body:not(.m) .stage-tab span{ font-size:13px; }
+}
+
+/* ---------- 학생 PC 화면: 부드러운 학습 앱 모양 ----------
+   (color-mix 를 모르는 오래된 브라우저를 위해 바로 앞에 단색 배경을 먼저 적어 둔다)
+   밝은 반투명 머리글, 여정 길 모양의 단계 탭, 테두리 없는 둥근 카드와 알약 모양 버튼으로 딱딱한 느낌을 줄인다.
+   (교사 화면·모바일 화면에는 쓰지 않는다) */
+@media (min-width:1100px){
+  body:not(.m):has(#app){ --soft:0 1px 3px rgba(6,34,107,.05), 0 22px 44px -26px rgba(6,34,107,.28); --r:28px;
+    background:radial-gradient(900px 520px at 6% -8%, rgba(78,168,43,.16), transparent 62%),
+      radial-gradient(1000px 620px at 96% -12%, rgba(10,126,208,.16), transparent 62%),
+      radial-gradient(900px 600px at 50% 115%, rgba(120,110,230,.10), transparent 60%), var(--bg); background-attachment:fixed; }
+
+  /* 머리글: 밝은 반투명 */
+  body:not(.m):has(#app) .hdr{ background:var(--surface); background:color-mix(in srgb, var(--surface) 76%, transparent); color:var(--ink); backdrop-filter:blur(16px) saturate(1.4); -webkit-backdrop-filter:blur(16px) saturate(1.4); box-shadow:0 1px 0 var(--sep); }
+  body:not(.m):has(#app) .hdr::after{ display:none; }
+  body:not(.m):has(#app) .logo{ color:var(--navy); }
+  body:not(.m):has(#app) .brand .model{ color:var(--ink-2); opacity:1; }
+  body:not(.m):has(#app) .brand small{ color:var(--ink-3); opacity:1; }
+  body:not(.m):has(#app) .mark{ box-shadow:0 0 0 1px var(--sep); }
+  body:not(.m):has(#app) .btn-out{ color:var(--ink); background:var(--fill); border-color:transparent; border-radius:999px; }
+  body:not(.m):has(#app) .btn-out:hover{ background:var(--fill-strong); }
+  body:not(.m):has(#app) .net{ background:var(--green-tint); color:var(--green-ink); }
+  body:not(.m):has(#app) .net.off{ background:var(--danger); color:#fff; }
+  body:not(.m):has(#app) .who{ color:var(--ink-2); opacity:1; }
+
+  /* 단계 탭: 7개의 동그라미가 한 줄 길 위에 놓인 여정 */
+  body:not(.m):has(#app) .stages{ position:relative; gap:0; padding:10px 0 calc(var(--gap) + 6px); }
+  body:not(.m):has(#app) .stages::before{ content:""; position:absolute; left:calc(100% / 14); right:calc(100% / 14); top:29px; height:4px; border-radius:4px; background:var(--fill-strong); }
+  body:not(.m):has(#app) .stage-tab{ transition:transform .2s var(--ease); position:relative; z-index:1; flex:1 1 0; flex-direction:column; gap:8px; padding:0 4px; background:transparent; box-shadow:none; text-align:center; }
+  body:not(.m):has(#app) .stage-tab:hover:not(.on){ transform:translateY(-2px); box-shadow:none; }
+  body:not(.m):has(#app) .stage-tab b{ width:40px; height:40px; font-size:15px; color:var(--ink-2); background:var(--surface); box-shadow:0 0 0 5px var(--bg), var(--soft); transition:transform .2s var(--ease); }
+  body:not(.m):has(#app) .stage-tab span{ font-size:13.5px; color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+  body:not(.m):has(#app) .stage-tab:has(~ .stage-tab.on) b{ background:var(--accent-tint); color:var(--accent); }
+  body:not(.m):has(#app) .stage-tab:has(~ .stage-tab.on) span{ color:var(--ink-2); }
+  body:not(.m):has(#app) .stage-tab.on{ background:transparent; box-shadow:none; }
+  body:not(.m):has(#app) .stage-tab.on b{ background:var(--grad); color:#fff; transform:scale(1.15); box-shadow:0 0 0 5px var(--bg), 0 0 0 10px rgba(10,126,208,.14), 0 10px 20px -6px rgba(10,126,208,.6); }
+  body:not(.m):has(#app) .stage-tab.on span{ color:var(--accent); font-weight:800; }
+
+  /* 카드: 테두리 없이 크게 둥글고 그림자는 은은하게 */
+  body:not(.m):has(#app) .wrap :is(.card, details.fold, .letter){ border-radius:var(--r); box-shadow:var(--soft); }
+  body:not(.m):has(#app) .wrap .card.flat{ border-radius:20px; box-shadow:none; }
+  body:not(.m):has(#app) .letter{ border-left:none; border-radius:var(--r); background:linear-gradient(180deg, var(--paper), var(--paper)) padding-box; box-shadow:inset 6px 0 0 var(--blue), var(--soft); }
+  body:not(.m):has(#app) #panel .card > h3:first-child{ background:none; padding:0; border-bottom:none; margin-bottom:12px; font-size:18px; }
+  body:not(.m):has(#app) #panel .card:focus-within{ box-shadow:0 0 0 2px rgba(10,126,208,.55), 0 22px 44px -22px rgba(10,126,208,.45); }
+  body:not(.m):has(#app) .wrap :is(.notice, .example, .mat-item, .finding, .b-col, .overview){ border-radius:20px; }
+  body:not(.m):has(#app) .group{ border-radius:20px; box-shadow:none; background:var(--fill); }
+  body:not(.m):has(#app) .cell + .cell{ box-shadow:inset 0 1px 0 var(--surface); }
+
+  /* 단계 머리말: 연한 빛깔 바탕, 아이콘은 흰 둥근 칸 */
+  body:not(.m):has(#app) #panel > .hero{ border-radius:var(--r); box-shadow:var(--soft); padding:26px 30px;
+    background:var(--surface);
+    background:linear-gradient(115deg, color-mix(in srgb, var(--surface) 92%, transparent) 30%, color-mix(in srgb, var(--blue) 12%, var(--surface)) 75%, color-mix(in srgb, var(--green) 14%, var(--surface)) 100%); }
+  body:not(.m):has(#app) .hero-ic{ width:60px; height:60px; border-radius:20px; background:var(--grad); color:#fff; box-shadow:0 12px 24px -10px rgba(10,126,208,.7); }
+  body:not(.m):has(#app) .hero-t{ font-size:23px; }
+
+  /* 우리 모둠의 문제: 짙은 띠 대신 부드러운 빛깔 카드 */
+  body:not(.m):has(#app) .problem-bar{ border-radius:var(--r); color:var(--ink); box-shadow:var(--soft); padding:20px 26px 20px 74px; position:relative;
+    background:var(--surface-2);
+    background:linear-gradient(115deg, color-mix(in srgb, var(--green) 16%, var(--surface)), color-mix(in srgb, var(--blue) 14%, var(--surface))); }
+  body:not(.m):has(#app) .problem-bar::before{ content:"“"; position:absolute; left:24px; top:12px; font-family:var(--serif); font-size:56px; line-height:1; color:var(--accent); opacity:.55; }
+  body:not(.m):has(#app) .problem-bar .pb-k{ color:var(--accent); opacity:1; }
+  body:not(.m):has(#app) .problem-bar .pb-q{ font-size:18px; }
+  body:not(.m):has(#app) .problem-bar .pb-s{ color:var(--ink-2); opacity:1; }
+  body:not(.m):has(#app) .problem-bar .link{ color:var(--accent); }
+  body:not(.m):has(#app) .problem-bar.empty{ padding-left:26px; }
+  body:not(.m):has(#app) .problem-bar.empty::before{ display:none; }
+
+  /* 1단계 작은 단계: 알약 모양 바꾸기 단추 */
+  body:not(.m):has(#app) .subnav{ background:var(--surface); border-radius:999px; padding:6px; gap:6px; box-shadow:var(--soft); }
+  body:not(.m):has(#app) .subnav button{ background:transparent; box-shadow:none; border-radius:999px; padding:10px 8px; display:flex; align-items:center; justify-content:center; gap:8px; }
+  body:not(.m):has(#app) .subnav button small{ display:inline; background:var(--fill); padding:1px 8px; border-radius:999px; }
+  body:not(.m):has(#app) .subnav button:hover:not(.on){ background:var(--fill); transform:none; }
+  body:not(.m):has(#app) .subnav button.on{ background:var(--grad); color:#fff; box-shadow:0 8px 18px -8px rgba(10,126,208,.7); }
+  body:not(.m):has(#app) .subnav button.on small{ background:rgba(255,255,255,.2); color:#fff; }
+
+  /* 입력 칸: 흰 바탕, 옅은 테두리 */
+  body:not(.m):has(#app) .wrap :is(input[type=text], input[type=number], input[type=password], textarea, select){ background:var(--surface); border-radius:16px; box-shadow:inset 0 0 0 1.5px var(--fill-strong); }
+  body:not(.m):has(#app) .wrap .card.flat :is(input[type=text], textarea, select){ box-shadow:inset 0 0 0 1.5px var(--sep); }
+  body:not(.m):has(#app) .wrap :is(input[type=text], input[type=number], input[type=password], textarea, select):hover{ box-shadow:inset 0 0 0 1.5px var(--ink-3); }
+  body:not(.m):has(#app) .wrap :is(input[type=text], input[type=number], input[type=password], textarea, select):focus{ box-shadow:inset 0 0 0 2px var(--blue), 0 0 0 5px var(--accent-tint); }
+
+  /* 버튼: 알약 모양 */
+  body:not(.m):has(#app) .wrap .btn, body:not(.m):has(#app) .wrap .btn-sm{ border-radius:999px; }
+  body:not(.m):has(#app) .wrap .btn-primary{ box-shadow:0 10px 22px -10px rgba(10,126,208,.8); }
+  body:not(.m):has(#app) .nav-foot{ border-top:none; padding-top:6px; }
+  body:not(.m):has(#app) .nav-foot .btn{ padding:15px 26px; }
+  body:not(.m):has(#app) .chip{ border-radius:999px; }
+
+  /* 대화: 말풍선과 입력 줄도 부드럽게 */
+  body:not(.m):has(#app) .chat-head{ border-bottom:none; background:linear-gradient(180deg, var(--surface-2), transparent); border-radius:var(--r) var(--r) 0 0; }
+  body:not(.m):has(#app) .composer{ border-top:none; border-radius:0 0 var(--r) var(--r); box-shadow:0 -12px 24px -20px rgba(6,34,107,.35); }
+  body:not(.m):has(#app) .bubble{ border-radius:22px; }
+  body:not(.m):has(#app) .composer input{ border-radius:999px; }
+}
+@media (min-width:1100px){
+  /* 1단계 인물 고르기: 한 줄을 다 쓰고, 편지 카드는 여러 줄로 나란히 */
+  body:not(.m) #panel > .card:has(.pcards){ grid-column:1 / -1; }
+  body:not(.m) .pcards{ grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:14px; align-items:start; }
+}
+
+/* 교사 로그인: 구글 로그인과 이메일 로그인 사이 구분선 */
+.auth-alt{ margin:16px 0 0; font-size:13px; color:var(--ink-3); }
+.auth-alt .link{ font-size:13px; }
+.su-h{ font-size:14px; margin:14px 0 8px; }
+.login-or{ display:flex; align-items:center; gap:10px; margin:18px 0 2px; font-size:12.5px; color:var(--ink-3); }
+.login-or::before, .login-or::after{ content:""; flex:1; height:1px; background:var(--sep); }
+input[type=email]{ font:inherit; font-size:16px; width:100%; padding:11px 13px; border-radius:12px; border:none; background:var(--fill); color:var(--ink); outline:none; }
+
+/* 제출 뒤 기다리는 카드: 누가 제출했는지 점으로 보여 준다 */
+.wait-card{ border:1px dashed var(--blue); }
+.wait-card.done{ border:1px solid var(--green); }
+.sub-dots{ display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 8px; }
+.sub-dots .dot{ font-size:12.5px; padding:4px 10px; border-radius:999px; background:var(--fill); color:var(--ink-3); }
+.sub-dots .dot.on{ background:var(--accent); color:#fff; font-weight:700; }
+.mine-fold summary{ font-weight:700; }

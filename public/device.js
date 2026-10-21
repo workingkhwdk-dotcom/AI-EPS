@@ -24,13 +24,45 @@
     return;
   }
 
+  // 키보드가 올라오면 '보이는 화면'(visualViewport)이 줄어든다. 그 크기를 CSS 변수로 알려서
+  // 대화 화면이 보이는 영역에 딱 맞게 하고(입력창이 키보드 바로 위에 붙는다), 화면이 위아래로 밀리지 않게 한다.
+  var vv = window.visualViewport;
+  if (vv) {
+    var setVV = function () {
+      var r = document.documentElement.style;
+      r.setProperty("--vvh", vv.height + "px");
+      r.setProperty("--vvt", vv.offsetTop + "px");
+    };
+    vv.addEventListener("resize", setVV);
+    vv.addEventListener("scroll", setVV);
+    setVV();
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     // PC 화면을 고른 휴대폰에는 모바일 화면으로 돌아가는 링크를 보여 준다
     var back = document.getElementById("to-mobile");
     if (back && phone) back.classList.remove("hidden");
     if (!document.body.classList.contains("m")) return;
     var isText = function (el) { return el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && !/checkbox|radio|button|submit/.test(el.type))); };
-    document.addEventListener("focusin", function (e) { if (isText(e.target)) document.body.classList.add("typing"); });
+    document.addEventListener("focusin", function (e) {
+      if (!isText(e.target)) return;
+      document.body.classList.add("typing");
+      // 대화 입력창은 화면 아래에 붙어 있어 따로 끌어올리지 않는다
+      if (document.body.classList.contains("chat-mode")) return;
+      // 다른 화면: 키보드가 다 올라온 뒤, 쓰고 있는 칸(위의 칸 이름까지)을 보이는 화면 위쪽으로 끌어올린다
+      setTimeout(function () { showField(e.target); }, 320);
+    });
+    // 쓰고 있는 칸이 키보드에 가리면, 칸 이름이 보이는 화면 맨 위 근처에 오도록 스크롤한다
+    var showField = function (el) {
+      if (!el || document.activeElement !== el || document.body.classList.contains("chat-mode")) return;
+      var lbl = el.previousElementSibling && el.previousElementSibling.matches("label") ? el.previousElementSibling : el;
+      var top = lbl.getBoundingClientRect().top, bottom = el.getBoundingClientRect().bottom;
+      var viewH = vv ? vv.height : window.innerHeight, viewTop = vv ? vv.offsetTop : 0;
+      if (top - viewTop >= 8 && bottom - viewTop <= viewH - 8) return; // 이미 다 보이면 그대로
+      window.scrollBy({ top: top - viewTop - 12, behavior: "smooth" });
+    };
+    // 키보드 높이가 바뀌면(예측 단어 줄이 생기는 등) 한 번 더 맞춘다
+    if (vv) vv.addEventListener("resize", function () { var a = document.activeElement; if (isText(a)) showField(a); });
     document.addEventListener("focusout", function () {
       setTimeout(function () { if (!isText(document.activeElement)) document.body.classList.remove("typing"); }, 50);
     });
@@ -48,16 +80,5 @@
         else if (d < -12) { b.classList.remove("chrome-hidden"); lastY = y; }
       });
     }, { passive: true });
-    // 한 줄로 줄여 둔 설명·안내는 누르면 펼치고 다시 누르면 접는다. 화면을 다시 그려도 펼친 것은 펼친 채로 둔다.
-    var FOLD = ".desc, .tip, p.meta-line", opened = {};
-    document.addEventListener("click", function (e) {
-      if (e.target.closest("a, button, input, select, textarea, label")) return;
-      var el = e.target.closest(FOLD); if (!el) return;
-      var on = el.classList.toggle("open");
-      opened[el.textContent] = on;
-    });
-    new MutationObserver(function () {
-      document.querySelectorAll(FOLD).forEach(function (el) { if (opened[el.textContent] && !el.classList.contains("open")) el.classList.add("open"); });
-    }).observe(document.body, { childList: true, subtree: true });
   });
 })();
