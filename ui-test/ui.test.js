@@ -385,6 +385,25 @@ test("교사: 새 수업을 만들 때 학생별 인물 질문 횟수를 정해 
   assert.equal(st.calls.find((c) => c[0] === "createSession")[1].chatLimit, 7);
 });
 
+test("학생: '지금 할 일'은 모둠이 쓴 내용을 따라 다음 할 일 하나만 알려 주고, 마친 단계는 탭에 완료 표시가 붙는다", async () => {
+  const st = studentFixture();
+  const s = await openStudent(st, { work: { s2: { links: { l1: { level: "개인", situation: "일자리를 구하기 어렵다", point: "시장에도 외국인 노동자가 있다", confirm: "구청 자료", t: 1 } } } } });
+  await login(s.pg);
+  await s.pg.click('.stage-tab[data-stage="2"]');
+  await s.pg.waitForSelector("#panel .next");
+  assert.match(await s.pg.locator("#panel .next").innerText(), /② 왜 생겼을지/, "이어 보기를 했으면 다음은 원인 추측");
+  assert.equal(await s.pg.locator('.stage-tab.done[data-stage="2"]').count(), 0);
+  assert.match(await s.pg.locator(".nav-foot .btn:has-text('다음')").getAttribute("class"), /btn-tinted/, "아직 덜 했으면 '다음'을 강조하지 않는다");
+  await s.pg.evaluate(() => window.__push("sessions/ABC234/groups/g1", { work: {
+    s2: { links: { l1: { level: "개인", situation: "a", point: "b", confirm: "c", t: 1 } }, causes: { q1: { level: "개인", text: "원인", t: 1 } }, checks: { c1: { heard: "말", question: "질문인가요?", t: 1 } } } } }));
+  await s.pg.waitForFunction(() => /완료/.test(document.querySelector("#panel .next")?.innerText || ""));
+  assert.equal(await s.pg.locator('.stage-tab.done[data-stage="2"]').count(), 1);
+  assert.match(await s.pg.locator(".nav-foot .btn:has-text('다음')").getAttribute("class"), /btn-primary/);
+  await s.pg.click('.stage-tab[data-stage="3"]');
+  await s.pg.waitForFunction(() => /모둠 문제를 먼저/.test(document.querySelector("#panel .next")?.innerText || ""));
+  await s.pg.click('#panel .next [data-go="1"]');
+  await s.pg.waitForSelector('.subnav button.on[data-sub="group"]');
+});
 // ---------- 모바일 전용 화면 ----------
 const phone = { userAgent: IPHONE, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 };
 const shot = async (pg, name) => { if (process.env.SHOT_DIR) await pg.screenshot({ path: path.join(process.env.SHOT_DIR, name + ".png"), fullPage: false }); };
@@ -470,21 +489,17 @@ test("교사 모바일: 학생·모둠 표가 카드로 보이고, 아래 메뉴
   assert.deepEqual(errors, []);
 });
 
-test("학생 모바일: 안내 글은 한 줄로 줄이고(누르면 펼침, 다시 그려도 유지), AI 역할은 한 줄 요약, 사건 자료(학습 내용)는 펼친 채로 시작한다", async () => {
+test("학생 모바일: 설명 글 없이 '지금 할 일' 한 줄, AI 역할은 한 줄 요약, 예시는 접어 두고, 사건 자료(학습 내용)는 펼친 채로 시작한다", async () => {
   const s = await openStudent(studentFixture(), { ctxOpts: phone });
   await login(s.pg);
   await s.pg.waitForSelector(".m-role");
   assert.equal(await s.pg.locator("details.m-role").getAttribute("open"), null, "AI 역할 설명은 접혀 있다");
   await s.pg.tap('#tabs .stage-tab[data-stage="2"]');
   await s.pg.waitForSelector("details.fold");
-  // 설명 글은 한 줄로 줄어 있고, 누르면 펼쳐지며, 화면을 다시 그려도 펼친 채로 있다
-  const desc = s.pg.locator(".card .desc >> visible=true").first();
-  const h1 = (await desc.boundingBox()).height;
-  await desc.tap();
-  await s.pg.waitForFunction(() => [...document.querySelectorAll(".card .desc")].some((e) => e.classList.contains("open")));
-  assert.ok((await s.pg.locator(".card .desc.open").first().boundingBox()).height > h1 + 10, "누르면 펼쳐진다");
-  await s.pg.evaluate(() => { const d = document.querySelector("#panel"); d.innerHTML = d.innerHTML; });
-  await s.pg.waitForFunction(() => [...document.querySelectorAll(".card .desc")].some((e) => e.classList.contains("open")));
+  assert.equal(await s.pg.locator("#panel .desc").count(), 0, "단계 화면에 설명 문단이 없다");
+  assert.match(await s.pg.locator("#panel .next").innerText(), /지금 할 일[\s\S]*① 인물의 처지/);
+  assert.ok((await s.pg.locator("#panel .next").boundingBox()).height <= 60, "지금 할 일은 짧다");
+  assert.equal(await s.pg.locator("details.example").getAttribute("open"), null, "예시는 접혀 있다");
   assert.notEqual(await s.pg.locator("details.fold").getAttribute("open"), null, "사건 자료는 학습 내용이므로 펼쳐서 시작한다");
   await s.pg.locator("details.fold summary").tap();
   await s.pg.evaluate(() => window.scrollTo(0, 0));
@@ -543,13 +558,13 @@ test("학생 모바일: 안내 팝업은 아래에서 올라오는 창으로 뜨
   assert.ok((await s.pg.locator(".modal").boundingBox()).height <= 844 * 0.9 + 1);
 });
 
-test("학생: 선생님이 시작하기 전에는 대기실이 보이고(개발 용어 없이 여정·안내), 시작하면 활동 화면과 첫 안내가 뜬다", async () => {
+test("학생: 선생님이 시작하기 전에는 대기실이 보이고(개발 용어 없이 꼭 알 것만), 시작하면 활동 화면과 첫 안내가 뜬다", async () => {
   const { pg, errors } = await openStudent(studentFixture(), { session: { chatLimit: 4, started: false }, help: true });
   await login(pg, "#wait:not(.hidden)");
   assert.ok(await pg.locator("#app").isHidden());
   const t = await pg.locator("#wait").innerText();
-  assert.match(t, /곧 시작해요/); assert.match(t, /오늘의 여정/); assert.match(t, /질문은 4번/); assert.match(t, /1모둠 · 가람/);
-  assert.equal(await pg.locator("#wait .journey li").count(), 7);
+  assert.match(t, /곧 시작해요/); assert.match(t, /질문은 4번/); assert.match(t, /1모둠 · 가람/);
+  assert.equal(await pg.locator("#wait .card").count(), 1, "기다리는 동안에는 카드 하나만 보인다");
   assert.doesNotMatch(t, /AI-EPS|GYR|서버|세션|워크스페이스|로딩/);
   assert.ok(await pg.locator("#logout").isVisible(), "대기실에서도 로그아웃할 수 있다");
   assert.equal(await pg.locator(".modal").count(), 0, "대기 중에는 단계 안내 팝업이 뜨지 않는다");
@@ -646,7 +661,6 @@ test("학생 모바일: 머리글·아래 막대가 얇고, 1단계 대화창이
   const chips = await pg.locator(".goal-chips").innerText();
   assert.match(chips, /알아낼 것/); assert.match(chips, /누구인지/); assert.match(chips, /힘든 것/); assert.match(chips, /바라는 것/);
   assert.ok(await pg.locator(".goal-chips").isVisible());
-  assert.ok(await pg.locator(".notice.pc-only").isHidden(), "긴 '할 일' 안내문은 모바일에서 숨긴다");
   const card = await pg.locator(".chat-card").boundingBox();
   assert.ok(card.height >= 844 * 0.6, `대화창 높이 ${card.height}px`);
   const cr = await pg.locator("#chat-form").boundingBox();
@@ -660,15 +674,15 @@ test("학생 모바일: 머리글·아래 막대가 얇고, 1단계 대화창이
   await shot(pg, "m-chat-space");
 });
 
-test("학생 모바일: 대화 전에는 예시 질문이 보이고, PC 화면에는 '알아낼 것' 칩이 없다", async () => {
+test("학생: 대화 전에는 예시 질문이 보이고, PC·모바일 모두 긴 안내문 대신 '알아낼 것' 칩이 보인다", async () => {
   const m = await openStudent(studentFixture(), { ctxOpts: phone, chat: [] });
   await login(m.pg);
   await m.pg.waitForSelector("#msgs");
   assert.ok(await m.pg.locator(".starters").isVisible());
   const d = await openStudent(studentFixture(), { chat: [] });
   await login(d.pg, "#msgs");
-  assert.ok(await d.pg.locator(".goal-chips").isHidden());
-  assert.ok(await d.pg.locator(".notice.pc-only").isVisible());
+  assert.ok(await d.pg.locator(".goal-chips").isVisible());
+  assert.equal(await d.pg.locator("#panel .desc, #panel .notice.tip").count(), 0);
 });
 
 test("학생 모바일: 아래로 스크롤하면 머리글·아래 막대가 숨고, 위로 스크롤하면 다시 나타난다", async () => {

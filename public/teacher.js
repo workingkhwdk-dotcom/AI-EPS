@@ -77,7 +77,7 @@ function listSessions(uid) {
     sessionRows = s.docs.map((d) => ({ code: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
     $("#sessions").innerHTML = sessionRows.map((r) =>
       `<div class="cell cls"><div class="grow"><b>${esc(r.title)}</b>${r.closed ? ` <span class="tag r">닫힘</span>` : r.started === false ? ` <span class="tag y">대기 중</span>` : ` <span class="tag">진행 중</span>`}<br><span class="meta-line"><span class="code">${r.code}</span> · ${r.groupCount}모둠 · ${fmt(r.createdAt)}</span></div><button class="btn btn-tinted btn-sm" data-code="${r.code}">열기</button></div>`
-    ).join("") || `<div class="cell meta-line">아직 만든 수업이 없습니다. 위의 '＋ 새 수업 만들기'로 시작하세요.</div>`;
+    ).join("") || `<div class="cell meta-line">아직 수업이 없어요. '＋ 새 수업 만들기'로 시작하세요.</div>`;
     if (current) {
       const cur = sessionRows.find((r) => r.code === current);
       if (cur) { curTitle = cur.title; $("#d-title").textContent = cur.title; renderOpen(); }
@@ -171,7 +171,7 @@ function renderDash() {
     <td>${m.chatCount || 0} / ${curRow()?.chatLimit || 5}번</td>
     <td class="row" style="flex-wrap:nowrap"><button class="btn btn-tinted btn-sm" data-chat="${m.uid}">대화 보기</button><button class="btn btn-plain btn-sm" data-reset="${m.uid}" data-nick="${esc(m.nickname)}">비번 초기화</button><button class="btn btn-plain btn-sm" data-move="${m.uid}" data-nick="${esc(m.nickname)}" data-g="${esc(m.groupId)}">모둠 이동</button></td></tr>`).join("");
   renderBulk();
-  $("#no-students").textContent = rows.length ? "" : "아직 입장한 학생이 없습니다. 위의 수업 코드와 모둠 번호를 학생에게 알려 주세요.";
+  $("#no-students").textContent = rows.length ? "" : "아직 입장한 학생이 없어요. 위 수업 코드를 알려 주세요.";
 
   $("#groups").innerHTML = groups.map((g) => {
     const ms = members.filter((m) => m.groupId === g.id);
@@ -323,11 +323,11 @@ async function refreshCase(eventId) {
 async function loadCheck(eventId) {
   try {
     const data = await refreshCase(eventId);
-    $("#check-mode").innerHTML = data.allowUnverified ? `<div class="notice yellow">리허설 모드: 원문 대조 전 인물·자료도 학생에게 보입니다 (ALLOW_UNVERIFIED_PERSONAS=true). 실제 수업 전에는 false로 바꾸세요.</div>` : "";
+    $("#check-mode").innerHTML = data.allowUnverified ? `<div class="notice yellow">리허설 모드: 확인 전 인물·자료도 학생에게 보여요. 실제 수업 전에 꺼 주세요.</div>` : "";
     $("#check-note").innerHTML = `<div class="notice muted">교사 메모: ${esc(data.event.teacherNote)}</div>
       <div class="notice muted"><b>모든 인물이 아는 사건 공통 배경</b> (인물은 자기 진술과 이 배경에 있는 핵심 사실만 말합니다)${(data.event.background || []).map((c) =>
         `<div style="margin-top:4px"><span class="tag ${c.kind === "주장" || c.kind === "의견" ? "y" : ""}">${esc(c.kind)}</span> ${esc(c.text)} <span class="tag ${c.verified ? "" : "x"}">${esc(c.src)}</span></div>`).join("")}</div>
-      <div class="notice muted">인물 ${data.personas.length}명은 네 축(당사자·도민·시민사회·제도)으로 나뉩니다. 학생이 입장하면 모둠 안에서 축이 겹치지 않게 무작위로 배정됩니다. 배정은 수업 현황의 '인물(교사용)' 열에서 봅니다.</div>`;
+      <div class="notice muted">인물 ${data.personas.length}명 · 네 축(당사자·도민·시민사회·제도). 모둠 안에서 축이 겹치지 않게 무작위로 배정돼요.</div>`;
     $("#persona-check").innerHTML = data.personas.map((p) => {
       const ok = p.sources.every((s) => s.verified);
       return `<details class="fold"><summary><span><span class="tag b">${esc(p.axis || "")}</span> ${esc(p.name)} <span class="meta-line">· ${esc(p.label)}</span></span> <span class="tag ${ok ? "" : "y"}">${ok ? "원문 대조 완료" : "대조 필요"}</span></summary><div class="inner">
@@ -619,7 +619,7 @@ $("#s-save").onclick = async () => {
 };
 $("#s-copy-guide").onclick = async () => { try { await navigator.clipboard.writeText(studentGuide()); toast("안내문을 복사했어요"); } catch { toast("복사하지 못했습니다. 위 글을 직접 선택해 복사하세요.", true); } };
 $("#s-delete").onclick = async () => {
-  const typed = prompt(`'${curTitle}' 수업을 삭제합니다. 모든 기록이 지워지고 되돌릴 수 없습니다.\n계속하려면 수업 코드(${current})를 입력하세요.`);
+  const typed = prompt(`'${curTitle}' 수업을 삭제합니다. 모든 기록이 지워지고 되돌릴 수 없습니다. 필요하면 먼저 '기록 CSV'를 받아 두세요.\n계속하려면 수업 코드(${current})를 입력하세요.`);
   if (typed === null) return;
   if (typed.trim().toUpperCase() !== current) return toast("수업 코드가 맞지 않아 삭제하지 않았습니다.", true);
   try { await call("deleteSession")({ code: current }); toast("수업을 삭제했습니다"); closeSession(); }
@@ -636,10 +636,10 @@ function renderOpen() {
   b.className = "btn btn-sm " + (closed ? "btn-primary" : "btn-danger");
   const waiting = !closed && r?.started === false;
   $("#open-note").innerHTML = closed
-    ? `<span class="tag r">닫힘</span> <span class="meta-line">학생은 입장할 수 없고, 들어와 있던 학생도 더 쓸 수 없습니다.</span>`
+    ? `<span class="tag r">닫힘</span> <span class="meta-line">학생 접속이 막혀 있어요</span>`
     : waiting
-      ? `<span class="tag y">대기 중</span> <span class="meta-line">학생이 모두 들어오면 아래 '수업 시작하기'를 누르세요.</span>`
-      : `<span class="tag">진행 중</span> <span class="meta-line">수업이 끝나면 '수업 닫기'를 눌러 추가 접속을 막으세요.</span>`;
+      ? `<span class="tag y">대기 중</span> <span class="meta-line">모두 들어오면 아래 '수업 시작하기'</span>`
+      : `<span class="tag">진행 중</span> <span class="meta-line">끝나면 '수업 닫기'</span>`;
   renderLobby();
 }
 
@@ -675,7 +675,7 @@ $("#start-btn").onclick = async () => {
 async function moveDialog(uid, nick, fromId) {
   const to = await showModal({
     title: `${esc(nick)} 학생을 옮길 모둠`, dismissible: true, grid: true,
-    body: `<p class="meta-line">지금은 ${esc(String(fromId).replace("g", ""))}모둠이에요. 인물·대화·개인 정리·비밀번호가 함께 옮겨지고, 학생 화면은 새 모둠으로 저절로 바뀝니다.</p>`,
+    body: `<p class="meta-line">지금은 ${esc(String(fromId).replace("g", ""))}모둠이에요. 인물·대화·비밀번호가 함께 옮겨져요.</p>`,
     actions: [...groups.map((g) => ({ label: `${esc(g.name)} <small>(${members.filter((m) => m.groupId === g.id).length}명)</small>`, value: g.id, kind: g.id === fromId ? "btn-tinted" : "btn-plain", disabled: g.id === fromId })), { label: "취소", value: null }],
   });
   if (!to) return;

@@ -29,27 +29,24 @@
 <main class="wrap" id="main">
   <section id="join">
     <div class="m-hero">
-      <img src="knue-mark@2x.webp" width="72" height="72" alt="" decoding="async" />
       <div class="m-hero-t">AI-EPS</div>
       <div class="m-hero-s">확장된 경험 기반 문제해결학습 모형</div>
       <div class="m-hero-u">한국교원대학교 · Teacher of Teachers</div>
     </div>
     <div class="card">
       <h2>수업 입장</h2>
-      <p class="desc">선생님이 알려 준 수업 코드와 모둠 번호를 입력하세요. 이름 대신 별명을 쓰고, 개인정보는 쓰지 않습니다.</p>
       <label class="lbl" for="j-code">수업 코드</label>
       <input type="text" id="j-code" maxlength="6" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="next" placeholder="예) ABC234" />
       <div class="m-two">
         <div><label class="lbl" for="j-group">모둠 번호</label>
         <input type="number" id="j-group" min="1" max="12" inputmode="numeric" pattern="[0-9]*" enterkeyhint="next" /></div>
         <div><label class="lbl" for="j-nick">별명</label>
-        <input type="text" id="j-nick" maxlength="12" autocomplete="off" autocorrect="off" enterkeyhint="next" /></div>
+        <input type="text" id="j-nick" maxlength="12" autocomplete="off" autocorrect="off" enterkeyhint="next" placeholder="실명 X" /></div>
       </div>
       <label class="lbl" for="j-pw">비밀번호</label>
       <input type="password" id="j-pw" maxlength="40" autocomplete="off" enterkeyhint="go" placeholder="4자 이상" />
-      <p class="meta-line" style="margin:6px 0 0">처음이라면 지금 정한 비밀번호가 내 비밀번호가 됩니다. 다시 들어올 때 같은 별명과 비밀번호를 쓰면 하던 것이 이어집니다.</p>
+      <p class="meta-line" style="margin:6px 0 0">처음이면 지금 정한 비밀번호로 다음에 이어서 해요.</p>
       <button class="btn btn-primary m-block" id="j-btn" style="margin-top:16px">입장하기</button>
-      <p class="meta-line" style="margin:12px 0 0">친구 휴대폰이나 함께 쓰는 기기라면 끝낼 때 꼭 <b>로그아웃</b>을 누르세요.</p>
     </div>
     <p class="m-switch"><a href="index.html?view=pc">PC 화면으로 보기</a></p>
   </section>

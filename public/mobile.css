@@ -144,11 +144,7 @@ body.m.typing{ padding-bottom:16px; }
 .m .notice.tip, .m .example.tip{ padding:0 12px; border-block:8px solid transparent; }
 .m .m-hide{ display:none !important; }
 .m .m-role{ padding:8px 12px; margin-bottom:10px; }
-.m .m-role summary{ list-style:none; cursor:pointer; display:flex; align-items:center; gap:6px; white-space:nowrap; overflow:hidden; }
-.m .m-role summary::-webkit-details-marker{ display:none; }
-.m .m-role summary b{ overflow:hidden; text-overflow:ellipsis; font-size:13.5px; }
-.m .m-role summary::after{ content:"자세히"; margin-left:auto; font-size:11.5px; font-weight:700; color:var(--ink-3); }
-.m .m-role[open] summary::after{ content:"접기"; }
+.m .next{ padding:8px 12px; margin-bottom:8px; font-size:13.5px; }
 .m .problem-bar{ padding:9px 13px; margin-bottom:10px; }
 .m .problem-bar .pb-s{ display:none; }
 .m .problem-bar .pb-q{ font-size:14.5px; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
@@ -159,8 +155,6 @@ body.m.typing{ padding-bottom:16px; }
 
 /* 대기실·안내 팝업 (모바일): 아래 막대 없이 한 화면에 다 보이도록 촘촘하게 */
 .m .wait-hero{ padding:12px 6px 6px; } .m .wait-hero h2{ font-size:23px; margin:6px 0 4px; }
-.m .journey{ gap:9px; } .m .journey li{ gap:10px; } .m .journey .jn{ width:24px; height:24px; font-size:12px; }
-.m .journey b{ font-size:14px; } .m .journey small{ font-size:12.5px; }
 .m .help-btn{ width:26px; height:26px; }
 /* 알림 창 안의 글은 줄이지 않는다 */
 .m .modal .desc, .m .modal .tip, .m .modal p.meta-line{ display:block; -webkit-line-clamp:unset; line-clamp:none; overflow:visible; cursor:auto; }
@@ -183,6 +177,8 @@ body.m{ --navh:calc(54px + env(safe-area-inset-bottom)); --hdrh:calc(41px + env(
 .m .net-banner{ top:var(--hdrh); }
 .m .m-nav{ min-height:var(--navh); padding-top:3px; transition:transform .22s var(--ease); }
 .m .m-nav .stage-tab b{ width:24px; height:24px; font-size:12.5px; }
+.m .m-nav .stage-tab.done b{ box-shadow:inset 0 0 0 2px var(--green); }
+.m .m-nav .stage-tab.done b::after{ content:none; }
 .m .m-nav .stage-tab span{ font-size:9.5px; }
 .m .toast{ bottom:calc(var(--navh) + 10px); }
 .m .wrap{ padding:8px 10px 4px; }
