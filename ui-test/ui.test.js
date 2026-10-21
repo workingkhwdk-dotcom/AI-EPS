@@ -134,8 +134,9 @@ test("교사: 학생 선택 → 일괄 비번 초기화(선택 수만큼 요청)
   await pg.locator('[data-pick="u1"]').check();
   await pg.locator('[data-pick="u2"]').check();
   assert.match(await pg.locator("#bulk-n").innerText(), /2명 선택됨/);
-  pg.once("dialog", (d) => d.accept());
   await pg.click("#bulk-reset");
+  assert.match(await pg.locator(".modal").innerText(), /2명의 비밀번호를 지울까요/, "브라우저 기본 창이 아니라 화면 안의 확인 창");
+  await pg.click('.modal .btn:has-text("비밀번호 지우기")');
   await pg.waitForFunction(() => window.__log.includes("resetStudentPassword"));
   assert.deepEqual(st.calls.find((c) => c[0] === "resetStudentPassword")[1].uids.sort(), ["u1", "u2"]);
   await pg.locator('[data-move="u1"]').click();
@@ -164,15 +165,22 @@ test("교사: 자료 추가·수정·순서·삭제·분류 추가·되돌리기
   await pg.waitForFunction(() => document.body.innerText.includes("수정됨"));
   await pg.locator(".mcat").first().locator('[data-m="item-down"]').first().click();
   await pg.waitForFunction(() => document.querySelector(".mcat .mitem .mbody").innerText.includes("무사증"));
-  pg.once("dialog", (d) => d.accept());
+  await pg.locator(".mcat").first().locator('[data-m="item-del"]').first().click();
+  await pg.waitForFunction(() => document.querySelectorAll(".mcat")[0].querySelectorAll(".mitem").length === 2);
+  // 묻지 않고 지우고, '되돌리기'를 누르면 지운 자료가 제자리로 돌아온다
+  await pg.click('.toast.act button:has-text("되돌리기")');
+  await pg.waitForFunction(() => document.querySelectorAll(".mcat")[0].querySelectorAll(".mitem").length === 3);
   await pg.locator(".mcat").first().locator('[data-m="item-del"]').first().click();
   await pg.waitForFunction(() => document.querySelectorAll(".mcat")[0].querySelectorAll(".mitem").length === 2);
   await pg.locator('[data-form="newcat"] [data-f="title"]').fill("전문가 의견");
   await pg.locator('[data-m="cat-add"]').click();
   await pg.waitForFunction(() => document.querySelectorAll(".mcat").length === 3);
-  pg.once("dialog", (d) => d.accept());
   await pg.click('[data-m="reset"]');
   await pg.waitForFunction(() => document.querySelector("#mat-status").innerText.includes("기본 자료"));
+  const n = st.calls.filter((c) => c[0] === "saveMaterials").length;
+  await pg.click('.toast.act button:has-text("되돌리기")');
+  await pg.waitForFunction((n) => window.__log.filter((x) => x === "saveMaterials").length === n + 1, n);
+  assert.equal(st.calls.filter((c) => c[0] === "saveMaterials").pop()[1].categories.length, 3, "고친 자료(분류 3개)로 다시 저장한다");
 });
 
 test("교사: 인물 편집 → 저장·되돌리기 요청", async () => {
@@ -188,9 +196,11 @@ test("교사: 인물 편집 → 저장·되돌리기 요청", async () => {
   assert.equal(sent.fields.voice, "아주 느리게");
   assert.deepEqual(sent.fields.story, ["첫째", "둘째"]);
   assert.equal(sent.fields.claims, undefined, "사실 항목은 화면에서 보내지 않는다");
-  pg.once("dialog", (d) => d.accept());
   await pg.locator('[data-pe="reset"]').click();
   await pg.waitForFunction(() => !document.querySelector("#persona-edit").innerText.includes("항목 고침"));
+  await pg.click('.toast.act button:has-text("되돌리기")');
+  await pg.waitForFunction(() => document.querySelector("#persona-edit").innerText.includes("항목 고침"));
+  assert.equal(st.calls.filter((c) => c[0] === "savePersonaOverride").pop()[1].fields.voice, "아주 느리게", "되돌리면 고친 내용을 다시 저장한다");
 });
 
 test("교사: 연결 점검 — 기다리는 동안 움직이는 표시와 초가 보이고, 끝나면 결과(정상·실패)가 보인다", async () => {
@@ -852,4 +862,23 @@ test("교사: 10분 넘게 그대로인 모둠은 표시하고, 수업을 닫을
   assert.match(m, /수업을 닫을까요/); assert.match(m, /접속 중인 학생이 2명/); assert.match(m, /발표 준비를 아직 쓰지 않은 모둠: 1모둠/);
   await pg.click('.modal .btn:has-text("아직이요")');
   assert.ok(!st.calls.some((c) => c[0] === "updateSession"), "취소하면 닫지 않는다");
+});
+
+test("교사: 수업 복제는 화면 안의 확인 창, 수업 삭제는 수업 코드를 쳐야 삭제 버튼이 눌린다", async () => {
+  const st = teacherFixture(), { pg } = await openTeacher(st);
+  let dialogs = 0; pg.on("dialog", (d) => { dialogs++; d.dismiss(); });
+  await pg.click('[data-ctab="settings"]');
+  await pg.click("#s-clone");
+  assert.match(await pg.locator(".modal").innerText(), /복제할까요/);
+  await pg.click('.modal .btn:has-text("취소")');
+  await pg.click("#s-delete");
+  assert.ok(await pg.locator(".modal .btn-danger").isDisabled());
+  await pg.locator("#del-code").fill("abc23");
+  assert.ok(await pg.locator(".modal .btn-danger").isDisabled());
+  await pg.locator("#del-code").fill("abc234");
+  assert.equal(await pg.inputValue("#del-code"), "ABC234");
+  assert.ok(!(await pg.locator(".modal .btn-danger").isDisabled()));
+  await pg.click(".modal .btn-danger");
+  await pg.waitForFunction(() => window.__log.includes("deleteSession"));
+  assert.equal(dialogs, 0, "브라우저 기본 창을 쓰지 않는다");
 });

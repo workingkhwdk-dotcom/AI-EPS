@@ -1,4 +1,4 @@
-import { auth, db, call, esc, toast, errMsg } from "./fb.js";
+import { auth, db, call, esc, toast, toastAction, errMsg } from "./fb.js";
 import { waitHtml, startWaitTicker, STEPS } from "./wait.js";
 import { showModal, confirmModal } from "./modal.js";
 startWaitTicker();
@@ -267,8 +267,9 @@ $("#stu-all").onchange = (e) => {
   document.querySelectorAll("#students [data-pick]").forEach((c) => { c.checked = e.target.checked; e.target.checked ? picked.add(c.dataset.pick) : picked.delete(c.dataset.pick); });
   renderBulk();
 };
+const PW_RESET_BODY = "<p>학생이 같은 별명으로 다시 입장하면서 새 비밀번호를 정해요. 하던 내용은 그대로 이어져요.</p>";
 $("#bulk-reset").onclick = async () => {
-  if (!picked.size || !confirm(`선택한 ${picked.size}명의 비밀번호를 지울까요?\n각 학생이 같은 별명으로 다시 입장하면서 새 비밀번호를 정합니다. 하던 내용은 그대로 이어집니다.`)) return;
+  if (!picked.size || !(await confirmModal(`${picked.size}명의 비밀번호를 지울까요?`, PW_RESET_BODY, "비밀번호 지우기", "취소"))) return;
   try { const { data } = await call("resetStudentPassword")({ code: current, uids: [...picked] }); toast(`${data.count}명의 비밀번호를 초기화했습니다.`); picked.clear(); renderDash(); }
   catch (err) { toast(errMsg(err), true); }
 };
@@ -277,7 +278,7 @@ $("#students").onclick = async (e) => {
   if (mv) return moveDialog(mv.dataset.move, mv.dataset.nick, mv.dataset.g);
   const r = e.target.closest("[data-reset]");
   if (r) {
-    if (!confirm(`'${r.dataset.nick}' 학생의 비밀번호를 지울까요?\n학생이 같은 별명으로 다시 입장하면서 새 비밀번호를 정합니다. 하던 내용은 그대로 이어집니다.`)) return;
+    if (!(await confirmModal(`'${esc(r.dataset.nick)}' 학생의 비밀번호를 지울까요?`, PW_RESET_BODY, "비밀번호 지우기", "취소"))) return;
     try { await call("resetStudentPassword")({ code: current, uid: r.dataset.reset }); toast(`'${r.dataset.nick}' 비밀번호를 초기화했습니다.`); }
     catch (err) { toast(errMsg(err), true); }
     return;
@@ -475,14 +476,17 @@ async function loadMats(force = false) {
 }
 
 // 서버에 저장하고, 서버가 정리한 목록(id 부여, 길이 제한)으로 화면을 맞춘다. 실패하면 서버의 값으로 되돌린다.
-async function saveMats(okMsg = "저장했습니다") {
+// undo: 바꾸기 전 목록. 주면 알림에 '되돌리기'가 붙고, 누르면 그 목록을 다시 저장한다.
+async function saveMats(okMsg = "저장했습니다", undo = null) {
   try {
     const { data } = await call("saveMaterials")({ code: current, categories: mat.cats });
     Object.assign(mat, { cats: data.categories, isDefault: false, editItem: null, editCat: null });
-    toast(okMsg);
+    if (undo) toastAction(okMsg, "되돌리기", () => { mat.cats = undo; saveMats("되돌렸습니다"); }, 8000);
+    else toast(okMsg);
   } catch (e) { toast(errMsg(e), true); await loadMats(true); return; }
   renderMats();
 }
+const matsCopy = () => JSON.parse(JSON.stringify(mat.cats));
 
 const kindOptions = (sel) => KINDS.map((k) => `<option ${k === sel ? "selected" : ""}>${k}</option>`).join("");
 function itemForm(c, it) {
@@ -556,10 +560,11 @@ $("#cpane-materials").onclick = async (e) => {
       Object.assign(it, { kind: v.kind, date: v.date ?? it.date, text: v.text, caption: v.caption || "" });
       return saveMats("자료를 고쳤습니다");
     }
-    case "item-del":
-      if (!confirm("이 자료를 삭제할까요? 학생 화면에서도 사라집니다.")) return;
+    case "item-del": {
+      const before = matsCopy();
       c.items = c.items.filter((x) => x.id !== id);
-      return saveMats("자료를 삭제했습니다");
+      return saveMats("자료를 삭제했어요", before);
+    }
     case "item-up": case "item-down": {
       const i = c.items.findIndex((x) => x.id === id);
       if (swap(c.items, i, act === "item-up" ? i - 1 : i + 1)) return saveMats("순서를 바꿨습니다");
@@ -578,22 +583,25 @@ $("#cpane-materials").onclick = async (e) => {
       Object.assign(c, { title: v.title, type: v.type });
       return saveMats("분류를 고쳤습니다");
     }
-    case "cat-del":
-      if (!confirm(`'${c.title}' 분류와 안의 자료 ${c.items.length}개를 모두 삭제할까요?`)) return;
+    case "cat-del": {
+      const before = matsCopy();
       mat.cats = mat.cats.filter((x) => x.id !== c.id);
-      return saveMats("분류를 삭제했습니다");
+      return saveMats(`'${c.title}' 분류(자료 ${c.items.length}개)를 삭제했어요`, before);
+    }
     case "cat-up": case "cat-down": {
       const i = mat.cats.findIndex((x) => x.id === c.id);
       if (swap(mat.cats, i, act === "cat-up" ? i - 1 : i + 1)) return saveMats("순서를 바꿨습니다");
       return;
     }
-    case "reset":
-      if (!confirm("이 수업에서 고친 자료를 모두 버리고 기본 자료로 되돌릴까요? 되돌릴 수 없습니다.")) return;
+    case "reset": { // 고친 자료를 들고 있다가, '되돌리기'를 누르면 이 수업만의 자료로 다시 저장한다
+      const before = matsCopy();
       try {
         const { data } = await call("resetMaterials")({ code: current });
         Object.assign(mat, { cats: data.categories, isDefault: true, editItem: null, editCat: null });
-        toast("기본 자료로 되돌렸습니다"); renderMats();
+        toastAction("기본 자료로 바꿨어요", "되돌리기", () => { mat.cats = before; saveMats("고친 자료로 되돌렸습니다"); }, 8000);
+        renderMats();
       } catch (err) { toast(errMsg(err), true); }
+    }
   }
 };
 
@@ -626,12 +634,28 @@ $("#s-save").onclick = async () => {
 };
 $("#s-copy-guide").onclick = async () => { try { await navigator.clipboard.writeText(studentGuide()); toast("안내문을 복사했어요"); } catch { toast("복사하지 못했습니다. 위 글을 직접 선택해 복사하세요.", true); } };
 $("#s-delete").onclick = async () => {
-  const typed = prompt(`'${curTitle}' 수업을 삭제합니다. 모든 기록이 지워지고 되돌릴 수 없습니다. 필요하면 먼저 '기록 CSV'를 받아 두세요.\n계속하려면 수업 코드(${current})를 입력하세요.`);
-  if (typed === null) return;
-  if (typed.trim().toUpperCase() !== current) return toast("수업 코드가 맞지 않아 삭제하지 않았습니다.", true);
+  // 되돌릴 수 없으므로 수업 코드를 직접 쳐야 삭제 버튼이 눌린다
+  const ok = await deleteDialog();
+  if (!ok) return;
   try { await call("deleteSession")({ code: current }); toast("수업을 삭제했습니다"); closeSession(); }
   catch (e) { toast(errMsg(e), true); }
 };
+
+function deleteDialog() {
+  const p = showModal({
+    title: `'${esc(curTitle)}' 수업을 삭제할까요?`, dismissible: true,
+    body: `<p>모둠 산출물, AI 기록, 학생 대화가 모두 지워지고 되돌릴 수 없어요. 필요하면 먼저 <button class="link" type="button" id="del-csv">기록 CSV</button>를 받아 두세요.</p>
+      <label class="lbl" for="del-code">확인을 위해 수업 코드 <b>${esc(current)}</b>를 입력하세요</label>
+      <input type="text" id="del-code" maxlength="10" autocomplete="off" autocapitalize="characters" spellcheck="false" />`,
+    actions: [{ label: "삭제", value: true, kind: "btn-danger", disabled: true }, { label: "취소", value: false }],
+  });
+  const input = document.querySelector("#del-code"), btn = document.querySelector('.modal .btn-danger');
+  input.oninput = () => { input.value = input.value.toUpperCase().replace(/[^A-Z0-9]/g, ""); btn.disabled = input.value !== current; };
+  input.onkeydown = (e) => { if (e.key === "Enter" && !e.isComposing && !btn.disabled) btn.click(); };
+  document.querySelector("#del-csv").onclick = () => $("#csv-btn").click();
+  input.focus();
+  return p.then((v) => v === true);
+}
 
 // ---------- 수업 열기/닫기 ----------
 // 닫으면 새로 입장할 수도, 이미 들어와 있던 학생이 이어서 쓸 수도 없다(수업이 끝난 뒤 접속 차단). 언제든 다시 열 수 있다.
@@ -705,7 +729,7 @@ $("#open-btn").onclick = async () => {
 };
 
 $("#s-clone").onclick = async () => {
-  if (!confirm("이 수업을 복제할까요? 새 수업 코드가 만들어집니다.")) return;
+  if (!(await confirmModal("이 수업을 복제할까요?", "<p>이름·모둠 수·설정과 고친 자료·인물을 가져와 새 수업 코드를 만들어요. 학생과 기록은 가져오지 않아요.</p>", "복제", "취소"))) return;
   try {
     const { data } = await call("cloneSession")({ code: current });
     toast(`복제했습니다. 새 코드: ${data.code}`);
@@ -779,14 +803,23 @@ $("#cpane-personas").onclick = async (e) => {
       const { data } = await call("savePersonaOverride")({ code: current, personaId: pid, fields });
       pe.overrides = data.overrides; toast("저장했습니다. 이 수업의 새 대화부터 적용됩니다.");
     } else {
-      if (!confirm("이 인물을 원래 내용으로 되돌릴까요?")) return;
+      const before = pe.overrides[pid];
       const { data } = await call("resetPersonaOverride")({ code: current, personaId: pid });
-      pe.overrides = data.overrides; toast("원래대로 되돌렸습니다.");
+      pe.overrides = data.overrides;
+      toastAction("원래 내용으로 바꿨어요", "되돌리기", async () => {
+        try { const { data: d } = await call("savePersonaOverride")({ code: current, personaId: pid, fields: before }); pe.overrides = d.overrides; toast("고친 내용으로 되돌렸습니다."); }
+        catch (err) { return toast(errMsg(err), true); }
+        redrawPersonas(open);
+      }, 8000);
     }
   } catch (err) { return toast(errMsg(err), true); }
+  redrawPersonas(open);
+};
+// 다시 그려도 펼쳐 둔 인물은 펼친 채로
+function redrawPersonas(open) {
   renderPersonaEdit();
   open.forEach((id) => document.querySelector(`#persona-edit details[data-pid="${id}"]`)?.setAttribute("open", ""));
-};
+}
 
 // ---------- 수업 전 연결 점검 ----------
 $("#health-btn").onclick = async () => {
