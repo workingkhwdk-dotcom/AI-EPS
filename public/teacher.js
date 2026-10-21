@@ -112,6 +112,8 @@ function openSession(code, title) {
   $("#detail").classList.add("hidden");
   $("#d-title").textContent = title;
   $("#d-code").textContent = code;
+  for (const k of Object.keys(changedAt)) delete changedAt[k];
+  renderQr();
   renderOpen();
   piiBy = {};
   unsubs.push(onSnapshot(collection(db, `sessions/${code}/guardlog`), (s) => { piiBy = {}; s.docs.forEach((d) => { const x = d.data(); if ((x.pii || []).length) piiBy[x.uid] = (piiBy[x.uid] || 0) + 1; }); renderDash(); }));
@@ -135,6 +137,7 @@ function openSession(code, title) {
 }
 
 function closeSession() {
+  closePresent();
   unsubs.forEach((u) => u()); unsubs = [];
   clearInterval(tickTimer);
   current = null; members = []; groups = []; logsBy = {};
@@ -149,8 +152,11 @@ const personaLabels = {}; // 인물 ID → 교사용 역할명 (getCase 로 채�
 
 function renderDash() {
   if (!current) return;
+  trackChanges();
   renderLobby();
   renderAlerts();
+  renderPresent();
+  renderNoticeCard();
   const online = members.filter(isOnline).length;
   const ai = members.reduce((n, m) => n + (m.aiCount || 0), 0); // 인물 대화 + 3~5단계
   const guard = groups.reduce((n, g) => n + (g.guardCount || 0), 0);
@@ -177,7 +183,8 @@ function renderDash() {
     const ms = members.filter((m) => m.groupId === g.id);
     const pr = progressOf(g.work);
     const cur = ms.length ? Math.max(...ms.map((m) => m.stage || 1)) : 0;
-    return `<tr><td><b>${esc(g.name)}</b></td><td>${ms.length}명 <span class="meta-line">(접속 ${ms.filter(isOnline).length})</span></td>
+    const st = stuckMin(g);
+    return `<tr><td><b>${esc(g.name)}</b>${st ? ` <span class="tag y" title="산출물·대화가 ${st}분째 그대로예요">${st}분째 그대로</span>` : ""}</td><td>${ms.length}명 <span class="meta-line">(접속 ${ms.filter(isOnline).length})</span></td>
       <td><span class="dots">${pr.map((f, i) => `<i class="${f ? "on" : ""} ${cur === i + 1 ? "cur" : ""}" title="${i + 1}단계 ${STAGE_NAMES[i + 1]}"></i>`).join("")}</span></td>
       <td>${g.aiCount || 0}회${g.lastAiError ? ` <span class="tag r" title="${esc(g.lastAiError.message)}">오류</span>` : ""}</td>
       <td>${g.guardCount || 0}회</td>
@@ -641,6 +648,7 @@ function renderOpen() {
       ? `<span class="tag y">대기 중</span> <span class="meta-line">모두 들어오면 아래 '수업 시작하기'</span>`
       : `<span class="tag">진행 중</span> <span class="meta-line">끝나면 '수업 닫기'</span>`;
   renderLobby();
+  renderNoticeCard();
 }
 
 // ---------- 대기실: 모두 들어왔는지 확인하고 수업 시작 ----------
@@ -684,7 +692,14 @@ async function moveDialog(uid, nick, fromId) {
 }
 $("#open-btn").onclick = async () => {
   const closing = !sessionRows.find((x) => x.code === current)?.closed;
-  if (closing && !confirm("수업을 닫을까요? 학생이 더 이상 입장하거나 AI를 쓸 수 없습니다. 기록은 그대로 보존되고 언제든 다시 열 수 있습니다.")) return;
+  if (closing) {
+    // 닫기 전에 아직 남은 상황(접속 중인 학생, 7단계를 마치지 않은 모둠)을 보여 준다
+    const online = members.filter(isOnline).length;
+    const unfinished = groups.filter((g) => members.some((m) => m.groupId === g.id) && !filled(g.work?.s7?.share)).map((g) => g.name);
+    const warn = [online && `지금 접속 중인 학생이 ${online}명 있어요.`, unfinished.length && `7단계 발표 준비를 아직 쓰지 않은 모둠: ${unfinished.join(", ")}`].filter(Boolean);
+    const ok = await confirmModal("수업을 닫을까요?", `<p>학생이 더 이상 입장하거나 AI를 쓸 수 없어요. 기록은 남고, 언제든 다시 열 수 있어요.</p>${warn.map((w) => `<p class="notice yellow">${esc(w)}</p>`).join("")}`, "수업 닫기", "아직이요", true);
+    if (!ok) return;
+  }
   try { await call("updateSession")({ code: current, closed: closing }); toast(closing ? "수업을 닫았습니다" : "수업을 열었습니다"); }
   catch (e) { toast(errMsg(e), true); }
 };
@@ -708,6 +723,7 @@ function renderAlerts() {
     if ((g.aiCount || 0) >= lim * 0.8) out.push(["y", `${g.name}: AI 사용 ${g.aiCount}/${lim}회 — 한도가 가깝습니다 (수업 설정에서 늘릴 수 있어요)`]);
     if ((g.guardCount || 0) >= 3) out.push(["y", `${g.name}: 감독자가 ${g.guardCount}번 개입했습니다 — 학생 질문을 확인해 보세요`]);
   }
+  for (const g of groups) { const st = stuckMin(g); if (st) out.push(["y", `${g.name}: ${st}분째 산출물·대화가 그대로예요 — 막혔는지 살펴보세요`]); }
   for (const [uid, n] of Object.entries(piiBy)) {
     const m = members.find((x) => x.uid === uid);
     out.push(["r", `${m?.nickname || "학생"}: 개인정보로 보이는 입력 ${n}건 — 대화 보기에서 확인하고 안내해 주세요`]);
@@ -787,3 +803,96 @@ $("#health-btn").onclick = async () => {
   } catch (e) { $("#health-out").innerHTML = `<div class="notice">${esc(errMsg(e))}</div>`; }
   finally { btn.disabled = false; }
 };
+
+// ---------- 입장 안내: QR·크게 띄우기 ----------
+// QR 을 찍으면 수업 코드가 채워진 입장 화면이 열린다(학생은 모둠·별명·비밀번호만 쓰면 된다)
+const joinUrl = () => `${location.origin}/?code=${current}`;
+function qrSvg(text) {
+  if (!window.qrcode) return "";
+  const q = window.qrcode(0, "M"); q.addData(text); q.make();
+  return q.createSvgTag({ cellSize: 4, margin: 8, scalable: true, title: "수업 입장 QR" });
+}
+function renderQr() {
+  const svg = current ? qrSvg(joinUrl()) : "";
+  $("#d-qr").innerHTML = svg;
+  $("#d-qr").classList.toggle("hidden", !svg);
+}
+const presentOpen = () => !$("#present").classList.contains("hidden");
+function openPresent() {
+  $("#present").classList.remove("hidden");
+  document.body.classList.add("presenting");
+  renderPresent();
+  $("#present-close").focus();
+  document.documentElement.requestFullscreen?.().catch(() => {});
+}
+function closePresent() {
+  if (!presentOpen()) return;
+  $("#present").classList.add("hidden");
+  document.body.classList.remove("presenting");
+  if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  $("#present-btn")?.focus();
+}
+function renderPresent() {
+  if (!presentOpen() || !current) return;
+  const online = members.filter(isOnline).length;
+  $("#p-title").textContent = curTitle;
+  $("#p-url").textContent = `${location.host}/`;
+  $("#p-code").textContent = current;
+  if (!$("#p-qr").dataset.code || $("#p-qr").dataset.code !== current) { $("#p-qr").innerHTML = qrSvg(joinUrl()); $("#p-qr").dataset.code = current; }
+  $("#p-count").innerHTML = `<b>${members.length}명</b> 입장${members.length ? ` · 접속 중 ${online}명` : ""}`;
+}
+$("#present-btn").onclick = openPresent;
+$("#d-qr").onclick = openPresent;
+$("#present-close").onclick = closePresent;
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && presentOpen()) closePresent(); });
+
+// ---------- 학생에게 한마디 ----------
+const QUICK_NOTICES = ["5분 남았어요", "잠깐 화면을 봐 주세요", "모둠끼리 이야기해 보세요", "다음 단계로 넘어가요"];
+$("#n-quick").innerHTML = QUICK_NOTICES.map((t) => `<button class="chip sm" type="button" data-nq="${esc(t)}">${esc(t)}</button>`).join("");
+// 빠른 문구는 칸에 채우기만 한다(눌러서 바로 나가는 실수를 막고, 고쳐서 보낼 수 있게)
+$("#n-quick").onclick = (e) => { const b = e.target.closest("[data-nq]"); if (b) { $("#n-text").value = b.dataset.nq; $("#n-text").focus(); } };
+function renderNoticeCard() {
+  const sel = $("#n-target");
+  const opts = `<option value="">모든 모둠</option>${groups.map((g) => `<option value="${g.id}">${esc(g.name)}</option>`).join("")}`;
+  if (sel.dataset.opts !== opts) { const keep = sel.value; sel.innerHTML = opts; sel.dataset.opts = opts; sel.value = groups.some((g) => g.id === keep) ? keep : ""; }
+  const n = curRow()?.notice;
+  const to = n?.groups?.length ? n.groups.map((g) => groups.find((x) => x.id === g)?.name || g).join(", ") : "모든 모둠";
+  $("#n-cur").innerHTML = n?.text ? `<div class="notice muted n-now"><span>지금 학생 화면에 보이는 말 (${esc(to)}): <b>${esc(n.text)}</b></span><button class="link" type="button" id="n-clear">내리기</button></div>` : "";
+}
+async function sendNotice(text, groupsTo) {
+  try {
+    await call("updateSession")({ code: current, notice: { text, groups: groupsTo } });
+    toast(text ? "학생 화면에 띄웠어요" : "내렸어요");
+  } catch (e) { toast(errMsg(e), true); }
+}
+$("#n-send").onclick = async () => {
+  const text = $("#n-text").value.trim();
+  if (!text) { $("#n-text").focus(); return toast("보낼 말을 쓰세요.", true); }
+  const g = $("#n-target").value;
+  $("#n-send").disabled = true;
+  await sendNotice(text, g ? [g] : []);
+  $("#n-send").disabled = false;
+  $("#n-text").value = "";
+};
+$("#n-text").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) $("#n-send").click(); });
+$("#n-cur").onclick = (e) => { if (e.target.closest("#n-clear")) sendNotice("", []); };
+
+// ---------- 오래 멈춘 모둠 ----------
+// 모둠 산출물·AI 사용·인물 대화 수가 STUCK_MIN 분 넘게 그대로이면 표시한다(교사 화면을 연 뒤부터 센다).
+const STUCK_MIN = 10;
+const changedAt = {}; // 모둠 ID → { sig, t }
+function trackChanges() {
+  for (const g of groups) {
+    const { live, ...work } = g.work || {};
+    const chats = members.filter((m) => m.groupId === g.id).reduce((n, m) => n + (m.chatCount || 0), 0);
+    const sig = `${JSON.stringify(work)}|${g.aiCount || 0}|${chats}`;
+    if (changedAt[g.id]?.sig !== sig) changedAt[g.id] = { sig, t: Date.now() };
+  }
+}
+function stuckMin(g) {
+  const r = curRow(), c = changedAt[g.id];
+  if (!c || !r || r.closed || r.started === false || filled(g.work?.s7?.share)) return 0;
+  if (!members.some((m) => m.groupId === g.id && isOnline(m))) return 0; // 아무도 없는 모둠은 멈춘 것이 아니다
+  const min = Math.floor((Date.now() - c.t) / 60000);
+  return min >= STUCK_MIN ? min : 0;
+}

@@ -1,4 +1,4 @@
-import { auth, db, call, esc, toast, errMsg } from "./fb.js";
+import { auth, db, call, esc, toast, toastAction, errMsg } from "./fb.js";
 import { waitHtml, startWaitTicker, STEPS } from "./wait.js";
 import { showModal, confirmModal } from "./modal.js";
 import { HELP, helpSimple, helpDetail } from "./help.js";
@@ -180,12 +180,33 @@ $("#j-btn").onclick = async () => {
   try {
     await call("joinSession")({ code, groupNo: Number(groupNo), nickname, password });
     $("#j-pw").value = "";
+    remember({ code, group: groupNo, nick: nickname });
     saveCode(code);
     await enter(code);
   } catch (e) { toast(errMsg(e), true); }
   finally { btn.disabled = false; }
 };
-for (const id of ["#j-code", "#j-group", "#j-nick", "#j-pw"]) $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") $("#j-btn").click(); });
+// 한글을 조합하는 중의 Enter(글자 확정)는 입장으로 보지 않는다
+for (const id of ["#j-code", "#j-group", "#j-nick", "#j-pw"]) $(id).addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) $("#j-btn").click(); });
+// 수업 코드: 소문자·띄어쓰기를 알아서 고치고, 6자를 다 쓰면 모둠 번호 칸으로 넘어간다
+$("#j-code").addEventListener("input", (e) => {
+  const el = e.target, v = el.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+  if (el.value !== v) el.value = v;
+  if (v.length === 6 && !/^delete/.test(e.inputType || "")) $("#j-group").focus();
+});
+// 이 탭에서 마지막으로 입장한 정보(코드·모둠·별명). 탭을 닫으면 지워진다.
+// 주소에 ?code= 가 있으면(교사 화면의 QR) 그 코드를 먼저 채운다.
+const LAST_KEY = "eps_last";
+const lastJoin = () => { try { return JSON.parse(sessionStorage.getItem(LAST_KEY) || "{}"); } catch { return {}; } };
+const remember = (x) => { try { sessionStorage.setItem(LAST_KEY, JSON.stringify(x)); } catch {} };
+(function prefillJoin() {
+  const last = lastJoin(), qc = (new URLSearchParams(location.search).get("code") || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+  const code = qc || last.code || "";
+  if (!code) return;
+  $("#j-code").value = code;
+  if (last.code === code) { if (last.group) $("#j-group").value = last.group; if (last.nick) $("#j-nick").value = last.nick; }
+  if (!savedCode()) ["#j-group", "#j-nick", "#j-pw"].map((x) => $(x)).find((el) => !el.value)?.focus();
+})();
 
 // 로그아웃: 저장 중인 입력을 먼저 올리고, '입력 중' 표시를 지운 뒤, 로그인 정보를 지우고 처음 화면으로 돌아간다
 let leaving = false;
@@ -197,6 +218,7 @@ async function logout(msg) {
   } catch {}
   clearInterval(hb);
   saveCode(null);
+  if (!msg) { const { nick, ...rest } = lastJoin(); remember(rest); }
   try { await signOut(auth); } catch {}
   if (msg) { try { sessionStorage.setItem("eps_notice", msg); } catch {} }
   location.reload();
@@ -244,6 +266,7 @@ async function enter(code) {
     const d = s.data() || {};
     if (d.closed) logout("수업이 끝나 닫혔습니다. 수고했어요!");
     S.chatLimit = d.chatLimit || 5; renderChatLeft();
+    renderTeacherNotice(d.notice);
     const was = S.started; S.started = d.started !== false;
     if (S.started !== was) {
       showArea();
@@ -260,7 +283,12 @@ async function enter(code) {
     const d = s.data() || {};
     S.work = d.work || {};
     for (const [path, p] of pending) setLocal(path, p.value); // 아직 저장 중인 내 입력은 유지
-    S.aiCount = d.aiCount || 0; S.memberCount = d.memberCount || 0;
+    S.aiCount = d.aiCount || 0; S.memberCount = d.memberCount || 0; S.names = d.names || {};
+    // 모둠원이 모두 ② 정리를 제출한 순간 한 번 알려 준다
+    const sub = submitted().length, tot = Math.max(S.memberCount, sub);
+    if (S.subSeen !== undefined && S.subSeen < tot && sub === tot && tot > 1 && !(S.stage === 1 && S.sub1 === "group"))
+      toastAction("모두 제출했어요! 모둠이 모여 문제를 정해요 👥", "③으로", () => goTo(1, "group"), 7000);
+    S.subSeen = sub;
     scheduleRender();
   }, lost);
   onSnapshot(collection(db, `sessions/${code}/groups/${S.groupId}/logs`), (s) => { S.logs = s.docs.map((d) => ({ id: d.id, ...d.data() })); scheduleRender(); });
@@ -273,6 +301,22 @@ async function enter(code) {
   render(true);
   startPresence();
   maybeHelp();
+}
+
+// 선생님 한마디: 화면 위쪽에 붙는 띠로 보여 준다(우리 모둠에 보낸 것만). 닫으면 같은 말은 다시 뜨지 않는다.
+const NOTICE_SEEN = "eps_tnotice_seen";
+function renderTeacherNotice(n) {
+  let b = $("#t-notice");
+  let seen = ""; try { seen = sessionStorage.getItem(NOTICE_SEEN) || ""; } catch {}
+  const show = n?.text && (!n.groups?.length || n.groups.includes(S.groupId)) && String(n.t) !== seen;
+  if (!show) { b?.remove(); return; }
+  if (!b) { b = document.createElement("div"); b.id = "t-notice"; b.className = "t-notice"; b.setAttribute("role", "status"); document.querySelector("main").prepend(b); }
+  if (b.dataset.t === String(n.t)) return;
+  b.dataset.t = String(n.t);
+  b.innerHTML = `<span class="tn-k">📣 선생님</span><span class="tn-t">${esc(n.text)}</span><button class="tn-x" type="button" aria-label="닫기">✕</button>`;
+  b.querySelector(".tn-x").onclick = () => { try { sessionStorage.setItem(NOTICE_SEEN, String(n.t)); } catch {} b.remove(); };
+  pop(b, "pop", 700);
+  try { navigator.vibrate?.(40); } catch {}
 }
 
 // 대기실과 활동 화면 중 맞는 쪽만 보인다
@@ -288,14 +332,16 @@ function renderWait() {
   const box = $("#wait"); if (!box) return;
   const gno = String(S.groupId || "").replace("g", "");
   const n = Math.max(S.memberCount, 1);
-  const key = `${gno}|${S.nick}|${n}|${S.chatLimit}`;
+  const names = Object.values(S.names || {}).sort((a, b) => a.localeCompare(b));
+  const key = `${gno}|${S.nick}|${n}|${S.chatLimit}|${names.join(",")}`;
   if (key === waitKey && box.innerHTML) return;
   waitKey = key;
   box.innerHTML = `
     <div class="wait-hero"><div class="wait-orb" aria-hidden="true"><i></i><i></i><i></i></div>
       <h2>곧 시작해요</h2>
       <p>시작하면 화면이 저절로 바뀌어요.</p></div>
-    <div class="card wait-me"><div class="wm-top"><span class="tag">입장 완료 ✓</span> <b>${esc(gno)}모둠 · ${esc(S.nick)}</b> <span class="meta-line">우리 모둠 ${n}명</span></div>
+    <div class="card wait-me"><div class="wm-top"><span class="tag">입장 완료 ✓</span> <b>${esc(gno)}모둠 · ${esc(S.nick)}</b></div>
+      <div class="wait-mates">${names.length ? `우리 모둠 <b>${names.length}명</b>: ${names.map((x) => x === S.nick ? `<b>${esc(x)}</b>` : esc(x)).join(" · ")}` : `우리 모둠 <b>${n}명</b>`}</div>
       <div class="wait-key">💬 편지를 보낸 사람에게 <b>질문은 ${S.chatLimit}번!</b></div></div>
     <p class="meta-line wait-note">모둠을 잘못 들어왔다면 선생님께 알려 주세요.</p>`;
 }
@@ -355,8 +401,17 @@ onAuthStateChanged(auth, async (u) => {
 function renderTabs() {
   const html = STAGES.map((s) => { const done = !!S.info && stageDone(s.n);
     return `<button class="stage-tab ${S.stage === s.n ? "on" : ""} ${done ? "done" : ""}" data-stage="${s.n}" aria-current="${S.stage === s.n ? "step" : "false"}"${done ? ` aria-label="${s.n}단계 ${s.name} (완료)"` : ""}><b>${s.n}</b><span>${s.name}</span></button>`; }).join("");
-  if ($("#tabs").innerHTML !== html) $("#tabs").innerHTML = html;
+  if (html === lastTabs) return;
+  lastTabs = html;
+  $("#tabs").innerHTML = html;
+  // 방금 마친 단계는 탭이 한 번 톡 튄다(처음 그릴 때는 제외)
+  const now = new Set(STAGES.filter((x) => S.info && stageDone(x.n)).map((x) => x.n));
+  if (doneTabs) for (const n of now) if (!doneTabs.has(n)) pop($(`#tabs .stage-tab[data-stage="${n}"]`), "just-done", 900);
+  doneTabs = now;
 }
+let lastTabs = "", doneTabs = null;
+// 잠깐 붙였다 떼는 표시(움직임). 같은 표시를 다시 붙이면 처음부터 다시 움직인다.
+function pop(el, cls, ms) { if (!el) return; el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); setTimeout(() => el.classList.remove(cls), ms); }
 function goTo(stage, sub) {
   flushAll();
   S.stage = stage;
@@ -463,16 +518,32 @@ function problemBar() {
 }
 const liveWho = (path) => `<div class="live-who" data-live="${esc(path)}"></div>`;
 // 저장 칸(data-save): 입력하면 자동 저장되고, 모둠원 화면에도 바로 반영된다
-const fld = (path, label, ph = "", area = false) => `${label ? `<label class="lbl">${label}</label>` : ""}${area
+const fld = (path, label, ph = "", area = false, min = 0) => `${label ? `<label class="lbl">${label}</label>` : ""}${area
   ? `<textarea data-save="${path}" maxlength="${MAX_AREA}" placeholder="${esc(ph)}">${esc(w(path) || "")}</textarea>`
-  : `<input type="text" data-save="${path}" maxlength="${MAX_INPUT}" value="${esc(w(path) || "")}" placeholder="${esc(ph)}" />`}${liveWho(path)}`;
+  : `<input type="text" data-save="${path}" maxlength="${MAX_INPUT}" value="${esc(w(path) || "")}" placeholder="${esc(ph)}" enterkeyhint="done" />`}${min ? cnt(path, min) : ""}${liveWho(path)}`;
+// 최소 글자 수가 있는 칸: 쓰는 동안 '18/30자'를 보여 주고, 채우면 초록색 ✓ (누른 뒤에 오류로 알려 주지 않도록)
+// target 은 '#아이디' 또는 저장 칸 경로
+const cnt = (target, min) => `<div class="cnt" data-cnt-for="${esc(target)}" data-min="${min}"></div>`;
+function updateCounts() {
+  panel.querySelectorAll(".cnt[data-cnt-for]").forEach((c) => {
+    const t = c.dataset.cntFor;
+    const el = t.startsWith("#") ? document.getElementById(t.slice(1)) : [...panel.querySelectorAll("[data-save]")].find((x) => x.dataset.save === t);
+    if (!el) return;
+    const n = el.value.trim().length, min = Number(c.dataset.min), ok = n >= min;
+    c.textContent = ok ? `✓ ${n}자` : `${n} / ${min}자`;
+    c.classList.toggle("ok", ok);
+  });
+}
+// 글이 길어지면 글 칸도 따라 늘어난다
+const grow = (el) => { if (el.tagName !== "TEXTAREA") return; el.style.height = "auto"; el.style.height = `${el.scrollHeight + 2}px`; };
 const pick = (path, label, opts) => {
   const cur = w(path) || "";
   const all = cur && !opts.includes(cur) ? [...opts, cur] : opts;
   return `${label ? `<label class="lbl">${label}</label>` : ""}<select data-save="${path}"><option value="">선택하세요</option>${all.map((o) => `<option ${cur === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`;
 };
 // 기다리는 중 표시: 움직이는 점·막대, 흐르는 시간, 오래 걸릴 때의 안내(wait.js)
-const loading = (msg) => waitHtml({ first: msg && msg.replace(/…$/, ""), steps: STEPS.ai, since: S.waitSince || Date.now() });
+// tip: 기다리는 동안 모둠이 먼저 해 볼 수 있는 일
+const loading = (msg, tip) => waitHtml({ first: msg && msg.replace(/…$/, ""), steps: STEPS.ai, since: S.waitSince || Date.now(), tip });
 function listHtml(path, rowFn, empty = "아직 없습니다.") {
   const items = list(path);
   if (!items.length) return `<div class="meta-line">${empty}</div>`;
@@ -512,6 +583,9 @@ function render(force = false) {
   const html = renderStage[S.stage]() + footer();
   const key = `${S.stage}|${S.sub1}|${S.busy}|${html}`;
   if (!force && key === lastKey) { syncLive(); return; }
+  const view = `${S.stage}|${S.sub1}`;
+  const before = view === lastView ? snapValues() : null;
+  lastView = view;
   lastKey = key;
   const sc = window.scrollY;
   // 학생이 펼치거나 접은 상자(data-keep)는 다시 그려도 그대로 둔다
@@ -520,7 +594,24 @@ function render(force = false) {
   panel.querySelectorAll("details[data-keep]").forEach((d) => { if (d.dataset.keep in S.opened) d.open = S.opened[d.dataset.keep]; });
   window.scrollTo(0, sc); // 다시 그려도 보던 자리를 지킨다
   if ($("#msgs")) { const m = $("#msg"); if (m && S.draft) m.value = S.draft; renderMsgs(); }
+  panel.querySelectorAll("textarea").forEach(grow);
+  flashChanged(before);
   syncLive();
+}
+// 같은 화면을 다시 그릴 때, 바뀐 칸과 새로 생긴 항목을 잠깐 반짝여 모둠원이 무엇을 바꿨는지 보이게 한다
+let lastView = "";
+function snapValues() {
+  const v = new Map();
+  panel.querySelectorAll("[data-save]").forEach((el) => v.set(el.dataset.save, el.type === "checkbox" ? el.checked : el.value));
+  return { v, ids: new Set([...panel.querySelectorAll('[data-act="del"][data-id]')].map((b) => b.dataset.id)) };
+}
+function flashChanged(before) {
+  if (!before) return;
+  panel.querySelectorAll("[data-save]").forEach((el) => {
+    const p = el.dataset.save;
+    if (before.v.has(p) && before.v.get(p) !== (el.type === "checkbox" ? el.checked : el.value)) pop(el.type === "checkbox" ? el.closest(".cell") : el, "flash", 1600);
+  });
+  panel.querySelectorAll('[data-act="del"][data-id]').forEach((b) => { if (!before.ids.has(b.dataset.id)) pop(b.closest(".cell, .card.flat"), "flash", 1600); });
 }
 // 다른 칸으로 옮겨 가는 도중(포커스가 잠깐 비는 순간)에 다시 그리지 않도록 한 박자 늦춘다
 let renderTimer = null;
@@ -536,9 +627,10 @@ function syncLive() {
   panel.querySelectorAll("[data-save]").forEach((el) => {
     if (el === document.activeElement || pending.has(el.dataset.save)) return;
     const v = w(el.dataset.save);
-    if (el.type === "checkbox") el.checked = !!v;
-    else if (el.value !== (v ?? "")) el.value = v ?? "";
+    if (el.type === "checkbox") { if (el.checked !== !!v) { el.checked = !!v; pop(el.closest(".cell"), "flash", 1600); } }
+    else if (el.value !== (v ?? "")) { el.value = v ?? ""; grow(el); pop(el, "flash", 1600); }
   });
+  updateCounts();
   panel.querySelectorAll("[data-live]").forEach((el) => {
     const names = editors.filter(([, x]) => x.path === el.dataset.live).map(([, x]) => x.nick);
     el.textContent = names.length ? `✏️ ${names.join(", ")} 입력 중` : "";
@@ -584,12 +676,13 @@ function renderMsgs() {
 function renderChatLeft() {
   const el = $("#chat-left"); if (!el) return;
   $(".starters")?.classList.toggle("m-hide", S.chat.length > 0); // 모바일: 대화가 시작되면 예시 질문 줄을 접어 대화 공간을 넓힌다
-  const left = chatLeft(), out = left === 0;
+  const left = chatLeft(), out = left === 0, lastQ = left === 1;
   el.innerHTML = out
     ? `질문을 모두 썼어요. 들은 이야기로 정리해 보세요. <button class="link" type="button" data-go="1" data-sub="note">② 정리·제출로 가기</button>`
-    : `남은 질문 <b>${left}</b> / ${S.chatLimit}번${S.chat.length >= 2 ? ` · <button class="link" type="button" data-go="1" data-sub="note">다 알아냈으면 ② 정리로</button>` : ""}`;
+    : `남은 질문 <b>${left}</b> / ${S.chatLimit}번${lastQ ? ` · <b class="last-q">마지막 질문이에요</b>` : S.chat.length >= 2 ? ` · <button class="link" type="button" data-go="1" data-sub="note">다 알아냈으면 ② 정리로</button>` : ""}`;
   el.classList.toggle("out", out);
-  const m = $("#msg"); if (m) { m.disabled = out; m.placeholder = out ? "질문을 모두 썼어요" : `${S.me?.name || ""}에게 메시지 보내기`; }
+  el.classList.toggle("last", lastQ);
+  const m = $("#msg"); if (m) { m.disabled = out; m.placeholder = out ? "질문을 모두 썼어요" : lastQ ? "마지막 질문 — 가장 궁금한 것을 물어보세요" : `${S.me?.name || ""}에게 메시지 보내기`; }
   const btn = $("#send-btn"); if (btn) btn.disabled = S.sending || out;
   document.querySelectorAll('[data-act="starter"]').forEach((b) => { b.disabled = out; });
 }
@@ -696,15 +789,15 @@ const renderStage = {
       ${listHtml("s2.links", (r) => `<span class="tag">${esc(r.level)}</span> <b>${esc(r.situation)}</b><br>이어지는 점: ${esc(r.point)}<br>확인하는 방법: ${esc(r.confirm)}`)}
       <label class="lbl">층위</label>
       <select id="lk-level">${CAUSE_LEVELS.map((x) => `<option>${x}</option>`).join("")}</select>
-      <label class="lbl">인물의 처지 (한 문장)</label><input type="text" id="lk-sit" maxlength="${MAX_INPUT}" placeholder="예) 말이 통하지 않아 일자리를 구하기 어렵다" />
-      <label class="lbl">우리 주변에서 비슷한 점</label><input type="text" id="lk-pt" maxlength="${MAX_INPUT}" placeholder="예) 우리 동네 시장에도 외국인 노동자가 일한다" />
-      <label class="lbl">확인하는 방법</label><input type="text" id="lk-cf" maxlength="${MAX_INPUT}" placeholder="예) 구청 외국인 지원 현황을 찾아본다" />
+      <label class="lbl">인물의 처지 (한 문장)</label><input type="text" id="lk-sit" data-next="lk-pt" enterkeyhint="next" maxlength="${MAX_INPUT}" placeholder="예) 말이 통하지 않아 일자리를 구하기 어렵다" />
+      <label class="lbl">우리 주변에서 비슷한 점</label><input type="text" id="lk-pt" data-next="lk-cf" enterkeyhint="next" maxlength="${MAX_INPUT}" placeholder="예) 우리 동네 시장에도 외국인 노동자가 일한다" />
+      <label class="lbl">확인하는 방법</label><input type="text" id="lk-cf" data-enter="add-link" enterkeyhint="done" maxlength="${MAX_INPUT}" placeholder="예) 구청 외국인 지원 현황을 찾아본다" />
       <div style="margin-top:10px"><button class="btn btn-tinted" data-act="add-link">추가</button></div></div>
 
     <div class="card"><h3>② 원인 추측하기 (가설)</h3>
       ${listHtml("s2.causes", (q) => `${q.level ? `<span class="tag">${esc(q.level)}</span> ` : ""}${esc(q.text)}`)}
       <div class="row" style="margin-top:8px"><select id="cz-lv" style="width:auto">${CAUSE_LEVELS.map((x) => `<option>${x}</option>`).join("")}</select>
-        <input type="text" id="cz" maxlength="${MAX_INPUT}" placeholder="예) 난민 신청자가 일할 수 있는 길이 좁았다" style="flex:1;min-width:0" /><button class="btn btn-tinted" data-act="add-cause">추가</button></div></div>
+        <input type="text" id="cz" data-enter="add-cause" enterkeyhint="done" maxlength="${MAX_INPUT}" placeholder="예) 난민 신청자가 일할 수 있는 길이 좁았다" style="flex:1;min-width:0" /><button class="btn btn-tinted" data-act="add-cause">추가</button></div></div>
 
     <div class="card"><h3>③ 확인할 것을 검증 질문으로 바꾸기</h3>
       <details class="example" data-keep="ex-check"><summary>좋은 검증 질문은?</summary>
@@ -718,8 +811,8 @@ const renderStage = {
       ${doubts.length ? `<label class="lbl">모둠원이 확인하고 싶은 말 (누르면 들어가요)</label>
         <div class="chipbar">${doubts.map((f) => `<button class="chip" data-act="use-doubt" data-t="${esc(`${f.persona || f.nick}: ${f.doubt}`)}">${esc(f.doubt.slice(0, 30))}</button>`).join("")}</div>` : ""}
       <label class="lbl">무엇을 확인하나요?</label><select id="ch-cause"><option value="">인물에게 들은 말</option>${list("s2.causes").map((q) => `<option value="${q.id}">원인 가설: ${esc((q.text || "").slice(0, 40))}</option>`).join("")}</select>
-      <label class="lbl">확인할 말</label><input type="text" id="ch-heard" maxlength="${MAX_INPUT}" placeholder="예) ○○: 일자리를 구하기 어려웠다" />
-      <label class="lbl">검증 질문</label><input type="text" id="ch-q" maxlength="${MAX_INPUT}" placeholder="예) 2018년 제주의 난민 신청자는 합법적으로 일할 수 있었나?" />
+      <label class="lbl">확인할 말</label><input type="text" id="ch-heard" data-next="ch-q" enterkeyhint="next" maxlength="${MAX_INPUT}" placeholder="예) ○○: 일자리를 구하기 어려웠다" />
+      <label class="lbl">검증 질문</label><input type="text" id="ch-q" data-enter="add-check" enterkeyhint="done" maxlength="${MAX_INPUT}" placeholder="예) 2018년 제주의 난민 신청자는 합법적으로 일할 수 있었나?" />
       <label class="lbl">무엇으로 확인할까요?</label><select id="ch-src">${SRC_TYPES.map((x) => `<option>${x}</option>`).join("")}</select>
       <div style="margin-top:10px"><button class="btn btn-tinted" data-act="add-check">추가</button></div></div>`;
   },
@@ -739,7 +832,7 @@ const renderStage = {
         <div style="margin-top:6px"><span class="tag y">검증 질문</span> <b>${esc(c.question)}</b></div>
         ${c.real ? `<div class="meta-line" style="margin-top:6px">2단계 자료 비교: ${esc(c.real)}</div>` : ""}
         ${logs.length ? "" : `<div class="row" style="margin-top:10px"><button class="btn btn-primary btn-sm" data-act="ask-check" data-id="${c.id}" ${S.busy || !open3 ? "disabled" : ""}>AI 검색 도우미에게 묻기</button></div>`}
-        ${S.busy === "check:" + c.id ? loading() : ""}
+        ${S.busy === "check:" + c.id ? loading("", "기다리는 동안 2단계 자료에서 먼저 찾아볼까요?") : ""}
         ${logs.map((l) => `<div style="margin-top:12px"><div class="meta-line">AI 검색 도우미의 답${l.payload?.searched === false ? " (웹 검색 없이 수업 자료만 봄)" : ""}</div><div class="ai-out">${esc(l.output)}</div>${srcLinks(l.payload?.sources)}
           <div class="judge">${pick(`s3.checks.${l.id}.verdict`, "판정: 확인할 말은 사실인가요?", VERDICTS)}
           ${fld(`s3.checks.${l.id}.source`, "판정 근거: 어떤 자료에서 무엇을 확인했나요?", "예) 2단계 '심사 결과' 자료에 인도적 체류 412명이라고 나와 있다")}
@@ -756,7 +849,7 @@ const renderStage = {
       ${kept.length ? `<div class="notice muted"><b>남긴 원인</b><br>${kept.map((q) => `· ${esc(q.text)}`).join("<br>")}</div>` : ""}
       ${fld("s3.chain.evidence", "① 확인된 사실", "위에서 '사실이다'로 판정한 내용", true)}
       ${fld("s3.chain.meaning", "② 그 사실이 뜻하는 것", "그 사실은 무엇을 보여 주나요?", true)}
-      ${fld("s3.chain.cause", "③ 그래서 우리 문제의 핵심 원인은", "남긴 원인 중 가장 중요한 것을 한두 문장으로", true)}</div>`;
+      ${fld("s3.chain.cause", "③ 그래서 우리 문제의 핵심 원인은", "남긴 원인 중 가장 중요한 것을 한두 문장으로", true, 10)}</div>`;
   },
 
   4() {
@@ -768,9 +861,9 @@ const renderStage = {
       ${props.map((p) => `<div class="card flat" style="margin-bottom:10px"><div class="grow">${esc(p.text)}</div>${who(p)}
         <div class="row" style="margin-top:8px"><button class="btn btn-primary btn-sm" data-act="ask-feedback" data-id="${p.id}" ${S.busy || !ready.cause() ? "disabled" : ""}>AI 검토 받기</button>
         <button class="btn btn-plain btn-sm" data-act="del" data-path="s4.proposals" data-id="${p.id}">삭제</button></div></div>`).join("")}
-      <textarea id="pt" maxlength="${MAX_AREA}" placeholder="예) 누가: ○○이 / 무엇을: ○○을 / 어떻게: ○○ 방식으로"></textarea>
+      <textarea id="pt" maxlength="${MAX_AREA}" placeholder="예) 누가: ○○이 / 무엇을: ○○을 / 어떻게: ○○ 방식으로"></textarea>${cnt("#pt", 30)}
       <div style="margin-top:8px"><button class="btn btn-tinted" data-act="add-proposal">대안 추가</button></div>
-      ${S.busy === "feedback" ? loading("검토자 3명이 각자 검토하는 중입니다…") : ""}</div>
+      ${S.busy === "feedback" ? loading("검토자 3명이 각자 검토하는 중이에요…", "기다리는 동안 우리 대안의 약점을 먼저 짐작해 보세요") : ""}</div>
     ${logs.map((l) => { let rv = []; try { rv = JSON.parse(l.output).reviews || []; } catch {}
       const p = props.find((x) => x.id === l.payload?.proposalId);
       return `<div class="card"><div class="meta-line">검토를 받은 대안</div><b>${esc((p?.text || l.input).slice(0, 80))}</b>
@@ -779,7 +872,7 @@ const renderStage = {
       ${pick(`s4.decisions.${l.id}.choice`, "이 검토를 어떻게 할까요?", ["수용", "수정해서 반영", "기각"])}
       ${fld(`s4.decisions.${l.id}.reason`, "그렇게 정한 이유", "", true)}</div></div>`; }).join("")}
     <div class="card"><h3>② 최종 대안</h3>
-      ${fld("s4.final", "", "보완한 최종 대안 (누가, 무엇을, 어떻게)", true)}
+      ${fld("s4.final", "", "보완한 최종 대안 (누가, 무엇을, 어떻게)", true, 30)}
       ${fld("s4.finalReason", "이 대안을 고른 이유", "", true)}
       ${pick("s4.finalFit", "우리 문제의 두 바람('~하면서도 ~')을 모두 다루나요?", ["둘 다 다룬다", "한쪽만 다룬다"])}
       ${w("s4.finalFit") === "한쪽만 다룬다" ? `<div class="notice yellow">대안을 보완하거나, 문제 질문이 너무 넓지 않은지 다시 보세요.</div>` : ""}</div>`;
@@ -798,11 +891,11 @@ const renderStage = {
     <div class="card"><h3>① 이해관계자 반응 예측하기</h3>
       ${listHtml("s5.predictions", (r) => `<span class="tag">${esc(r.stakeholder)}</span> ${esc(r.text)}`)}
       <div class="row" style="margin-top:8px"><select id="ps" style="width:auto">${sh.map((x) => `<option>${esc(x)}</option>`).join("")}</select>
-      <input type="text" id="pp" maxlength="${MAX_INPUT}" placeholder="예) 반대할 것이다. 왜냐하면 ~" style="flex:1;min-width:0" /><button class="btn btn-tinted" data-act="add-pred">추가</button></div></div>
+      <input type="text" id="pp" data-enter="add-pred" enterkeyhint="done" maxlength="${MAX_INPUT}" placeholder="예) 반대할 것이다. 왜냐하면 ~" style="flex:1;min-width:0" /><button class="btn btn-tinted" data-act="add-pred">추가</button></div></div>
     <div class="card"><h3>② AI 시뮬레이션</h3>
       ${opts.length ? `<label class="lbl">시뮬레이션할 대안</label><select id="sp">${opts.map((p) => `<option value="${p.id}" ${p.id === S.proposalId ? "selected" : ""}>${esc((p.text || "").slice(0, 50))}</option>`).join("")}</select>
       <label class="lbl">몇 년 후?</label><div class="chipbar">${ROUNDS.map((r) => `<button class="chip ${S.round === r ? "on" : ""}" data-act="round" data-r="${r}">${r}년 후</button>`).join("")}</div>
-      ${S.busy === "scenario" ? loading("시나리오를 만드는 중이에요. 1~2분 걸릴 수 있어요…") : ""}<div style="margin-top:10px"><button class="btn btn-primary" data-act="ask-scenario" ${preds.length >= 2 && !S.busy ? "" : "disabled"}>시나리오 만들기</button>${preds.length < 2 ? ` <span class="meta-line">① 예측을 ${2 - preds.length}개 더 쓰면 열려요</span>` : ""}</div>`
+      ${S.busy === "scenario" ? loading("시나리오를 만드는 중이에요. 1~2분 걸릴 수 있어요…", "기다리는 동안 누가 가장 크게 반응할지 이야기해 보세요") : ""}<div style="margin-top:10px"><button class="btn btn-primary" data-act="ask-scenario" ${preds.length >= 2 && !S.busy ? "" : "disabled"}>시나리오 만들기</button>${preds.length < 2 ? ` <span class="meta-line">① 예측을 ${2 - preds.length}개 더 쓰면 열려요</span>` : ""}</div>`
         : `<div class="meta-line">최종 대안을 쓰면 열려요.</div>`}</div>
     ${logs.map((l) => { let sc = []; try { sc = JSON.parse(l.output).scenarios || []; } catch {}
       const sel = w(`s5.selection.${l.id}`) || {};
@@ -857,7 +950,9 @@ const renderStage = {
 const sub1 = {
   chat() {
     const me = S.me;
-    return `<details class="letter" data-keep="letter" ${S.chat.length ? "" : "open"}>
+    const arrive = !S.chat.length && !seenList().includes("letter");
+    if (arrive) markSeen("letter");
+    return `<details class="letter ${arrive ? "arrive" : ""}" data-keep="letter" ${S.chat.length ? "" : "open"}>
       <summary>${esc(me.name)}에게서 편지가 왔어요</summary>
       <div class="body">${me.letter.map((p) => `<p>${esc(p)}</p>`).join("")}<div class="sign">2018년 12월, 제주에서<br>${esc(me.name)} 드림</div></div>
     </details>
@@ -911,7 +1006,7 @@ const sub1 = {
         <div class="ex-row bad">✗ 난민을 받아들여야 한다 <span>답을 정한 주장이에요</span></div>
         <div class="ex-row good">✓ (다른 주제) 어떻게 하면 급식 줄 서는 시간을 줄이면서도 모두가 충분히 먹을 수 있을까?</div></details>
       ${fld("s1.problem.situation", "문제 상황: 누가 어떤 어려움을 겪고 있나요? (한두 문장)", "", true)}
-      ${fld("s1.problem.hmw", "우리가 풀 질문", "어떻게 하면 ________하면서도 ________할 수 있을까?", true)}</div>
+      ${fld("s1.problem.hmw", "우리가 풀 질문", "어떻게 하면 ________하면서도 ________할 수 있을까?", true, 10)}</div>
     <div class="card"><h3>5) 점검하기</h3>
       <div class="group">${PROBLEM_CHECKS.map((_, i) => chk(i)).join("")}</div></div>`;
   },
@@ -944,7 +1039,12 @@ panel.addEventListener("click", async (e) => {
   const a = b.dataset.act, d = b.dataset;
 
   switch (a) {
-    case "del": if (confirm("삭제할까요? 모둠원 화면에서도 사라집니다.")) await delItem(d.path, d.id); break;
+    case "del": { // 묻지 않고 지운 뒤 몇 초 동안 되돌릴 수 있게 한다
+      const old = (w(d.path) || {})[d.id];
+      await delItem(d.path, d.id);
+      if (old !== undefined) toastAction("삭제했어요", "되돌리기", () => save(`${d.path}.${d.id}`, old));
+      break;
+    }
     case "retry-chat": { const t = S.chatErr?.text; if (t && !S.sending) sendChat(t); break; }
     case "dl-chat": downloadChat(); break;
     case "mat-tab": S.matTab = d.id; render(true); break;
@@ -988,6 +1088,7 @@ panel.addEventListener("click", async (e) => {
 panel.addEventListener("input", (e) => {
   const el = e.target;
   if (el.id === "msg") { S.draft = el.value; return; }
+  grow(el); updateCounts();
   const p = el.dataset?.save;
   if (p && el.type !== "checkbox" && el.tagName !== "SELECT") queueSave(p, el.value);
 });
@@ -999,6 +1100,13 @@ panel.addEventListener("change", (e) => {
   if (el.type === "checkbox") { setLocal(p, el.checked); save(p, el.checked); }
   else if (el.tagName === "SELECT") { setLocal(p, el.value); save(p, el.value); if (p === "s4.finalFit") render(true); }
   else flushSave(p);
+});
+// 추가 칸에서 Enter: 다음 칸으로 가거나(data-next) 바로 추가한다(data-enter). 한글 조합 중의 Enter는 무시한다.
+panel.addEventListener("keydown", (e) => {
+  const el = e.target;
+  if (e.key !== "Enter" || e.isComposing || el.tagName !== "INPUT") return;
+  if (el.dataset.enter) { e.preventDefault(); panel.querySelector(`[data-act="${el.dataset.enter}"]`)?.click(); }
+  else if (el.dataset.next) { e.preventDefault(); document.getElementById(el.dataset.next)?.focus(); }
 });
 // 공용 칸에 들어가면 모둠원 화면에 '입력 중'을 표시하고, 나오면 지운다
 const isShared = (p) => p && !p.startsWith("s1.findings.");

@@ -56,9 +56,9 @@
         <div class="card">
           <div class="row" style="justify-content:space-between;align-items:flex-start">
             <div><button class="btn btn-plain btn-sm" id="back-btn" type="button">← 수업 목록</button>
-              <div class="meta-line" id="d-title" style="margin-top:10px"></div><div class="code-big" id="d-code"></div>
+              <div class="meta-line" id="d-title" style="margin-top:10px"></div><div class="code-row"><div class="code-big" id="d-code"></div><button class="qr-mini" id="d-qr" type="button" aria-label="입장 안내 크게 띄우기"></button></div>
               <div id="open-note" style="margin-top:8px"></div></div>
-            <div class="row"><button class="btn btn-sm" id="open-btn" type="button"></button><button class="btn btn-tinted btn-sm" id="copy-btn" type="button">코드 복사</button><button class="btn btn-plain btn-sm" id="csv-btn" type="button">기록 CSV</button></div>
+            <div class="row"><button class="btn btn-sm" id="open-btn" type="button"></button><button class="btn btn-tinted btn-sm" id="present-btn" type="button">크게 띄우기</button><button class="btn btn-tinted btn-sm" id="copy-btn" type="button">코드 복사</button><button class="btn btn-plain btn-sm" id="csv-btn" type="button">기록 CSV</button></div>
           </div>
         </div>
         <div class="seg" id="ctabs">
@@ -74,6 +74,11 @@
             <div id="lobby-body"></div>
             <button class="btn btn-primary m-block" id="start-btn" type="button" style="margin-top:12px">수업 시작하기</button></div>
           <div class="card hidden" id="alerts"><h3>확인이 필요해요</h3><div id="alerts-body"></div></div>
+          <!-- 선생님 한마디: 학생 화면 위쪽에 띄우는 짧은 공지 -->
+          <div class="card" id="notice-card"><h3>학생에게 한마디</h3>
+            <div class="chipbar" id="n-quick" style="margin-bottom:8px"></div>
+            <div class="row n-row"><input type="text" id="n-text" maxlength="100" placeholder="예) 5분 남았어요" enterkeyhint="send" aria-label="학생에게 보낼 말" /><select id="n-target" aria-label="받는 모둠"></select><button class="btn btn-primary btn-sm" id="n-send" type="button">보내기</button></div>
+            <div id="n-cur"></div></div>
           <div class="card"><div class="kpis" id="kpis"></div></div>
           <div class="card"><h3>학생 현황</h3>
             <div class="chipbar" id="g-filter" style="margin-bottom:10px"></div>
@@ -166,7 +171,15 @@
     </div>
   </section>
   <p class="m-switch hidden" id="to-mobile"><a href="m-teacher.html?view=m">모바일 화면으로 보기</a></p>
+  <!-- 크게 띄우기: 교실 화면에 입장 안내(주소·코드·QR·입장 인원)만 크게 보여 준다 -->
+  <div id="present" class="present hidden" role="dialog" aria-modal="true" aria-label="입장 안내 크게 보기">
+    <button class="btn btn-plain btn-sm present-close" id="present-close" type="button">닫기 (Esc)</button>
+    <div class="p-title" id="p-title"></div>
+    <div class="p-body"><div class="p-qr" id="p-qr"></div>
+      <div class="p-info"><div class="p-k">주소</div><div class="p-url" id="p-url"></div><div class="p-k">수업 코드</div><div class="p-code" id="p-code"></div><div class="p-count" id="p-count"></div></div></div>
+  </div>
 </main>
+<script src="vendor/qrcode.js" defer></script>
 <script type="module" src="teacher.js"></script>
 </body>
 </html>

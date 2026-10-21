@@ -469,3 +469,61 @@ body.modal-open{ overflow:hidden; }
 .lobby-m .dot{ margin-right:5px; }
 .lobby-mv{ font:inherit; font-size:11.5px; font-weight:700; border:none; background:var(--fill-strong); color:var(--ink-2); border-radius:14px; padding:3px 9px; margin-left:6px; cursor:pointer; }
 .modal-acts.grid .btn small{ font-weight:600; opacity:.7; }
+
+/* ---------- 작은 디테일 ---------- */
+/* 대기실: 우리 모둠에 누가 들어왔는지 */
+.wait-mates{ font-size:13.5px; color:var(--ink-2); margin-top:2px; }
+/* 1단계: 마지막 질문 미리 알림 */
+.chat-left.last{ color:var(--warn); }
+.last-q{ color:var(--warn); }
+/* 처음 받는 편지는 도착하듯 내려앉는다(안내 창이 떠 있는 동안에는 기다린다) */
+.letter.arrive{ animation:arrive .75s var(--ease) both; }
+.modal-open .letter.arrive{ animation-play-state:paused; }
+@keyframes arrive{ 0%{ opacity:0; transform:translateY(-18px) rotate(-1.5deg) scale(.97); } 70%{ opacity:1; transform:translateY(3px) rotate(.3deg); } 100%{ transform:none; } }
+/* 모둠원이 방금 바꾼 칸·새 항목 */
+.flash{ animation:flash 1.6s ease-out; }
+@keyframes flash{ 0%,30%{ box-shadow:0 0 0 3px var(--accent-tint); background-color:var(--accent-tint); } 100%{ box-shadow:0 0 0 0 transparent; } }
+/* 최소 글자 수 */
+.cnt{ font-size:11.5px; color:var(--ink-3); text-align:right; margin-top:3px; font-variant-numeric:tabular-nums; transition:color .2s; }
+.cnt.ok{ color:var(--green-ink); font-weight:700; }
+/* 버튼이 달린 알림(되돌리기 등) */
+.toast.act{ display:flex; align-items:center; gap:14px; padding:8px 8px 8px 20px; }
+.toast.act button{ font:inherit; font-weight:800; color:#fff; background:rgba(255,255,255,.18); border:none; border-radius:16px; padding:6px 14px; cursor:pointer; }
+/* 방금 마친 단계 탭 */
+.stage-tab.just-done{ animation:tabpop .9s var(--ease); }
+@keyframes tabpop{ 0%{ transform:scale(1); } 30%{ transform:scale(1.14); } 60%{ transform:scale(.97); } 100%{ transform:scale(1); } }
+/* AI를 기다리는 동안 해 볼 일 */
+.wait-tip{ font-size:12.5px; color:var(--ink-2); margin-top:8px; }
+/* 선생님 한마디: 화면 위쪽에 붙는 띠 */
+.t-notice{ position:sticky; top:64px; z-index:9; display:flex; align-items:center; gap:10px; max-width:760px; margin:10px auto 12px; padding:10px 10px 10px 16px;
+  background:var(--navy); color:#fff; border-radius:14px; box-shadow:0 10px 26px -12px rgba(6,34,107,.6); font-size:14.5px; font-weight:700; }
+.t-notice .tn-k{ flex:none; font-size:12px; opacity:.85; }
+.t-notice .tn-t{ flex:1; min-width:0; }
+.t-notice .tn-x{ flex:none; font:inherit; color:#fff; background:rgba(255,255,255,.16); border:none; border-radius:50%; width:30px; height:30px; cursor:pointer; }
+.t-notice.pop{ animation:noticepop .7s var(--ease); }
+@keyframes noticepop{ 0%{ opacity:0; transform:translateY(-12px) scale(.96); } 100%{ opacity:1; transform:none; } }
+@media (prefers-color-scheme: dark){ .t-notice{ background:#1B63C9; } }
+/* 교사: 수업 코드 옆 QR, 크게 띄우기 */
+.code-row{ display:flex; align-items:center; gap:14px; }
+.qr-mini{ width:64px; height:64px; padding:0; border:none; background:#fff; border-radius:10px; box-shadow:var(--shadow); cursor:zoom-in; overflow:hidden; }
+.qr-mini svg{ width:100%; height:100%; display:block; }
+.present{ position:fixed; inset:0; z-index:40; background:var(--bg); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3vh; padding:24px; text-align:center; }
+.present-close{ position:absolute; top:16px; right:16px; }
+.p-title{ font-size:clamp(20px, 3.4vw, 40px); font-weight:800; color:var(--ink); }
+.p-body{ display:flex; align-items:center; justify-content:center; gap:5vw; flex-wrap:wrap; }
+.p-qr{ width:min(42vh, 80vw); aspect-ratio:1; background:#fff; border-radius:24px; padding:12px; box-shadow:var(--shadow); }
+.p-qr svg{ width:100%; height:100%; display:block; }
+.p-info{ text-align:left; }
+.p-k{ font-size:clamp(13px, 1.6vw, 20px); color:var(--ink-3); font-weight:700; margin-top:1.5vh; }
+.p-url{ font-size:clamp(20px, 3.2vw, 40px); font-weight:800; color:var(--ink); }
+.p-code{ font-size:clamp(48px, 10vw, 140px); font-weight:800; letter-spacing:.12em; line-height:1.05; color:var(--navy); font-variant-numeric:tabular-nums; }
+.p-count{ font-size:clamp(16px, 2.4vw, 30px); color:var(--ink-2); margin-top:2vh; }
+.p-count b{ color:var(--green-ink); }
+@media (prefers-color-scheme: dark){ .p-code{ color:var(--accent); } }
+body.presenting{ overflow:hidden; }
+/* 교사: 학생에게 한마디 */
+.n-row{ flex-wrap:nowrap; }
+.n-row input{ flex:1; min-width:0; }
+.n-row select{ width:auto; flex:none; }
+.n-now{ display:flex; justify-content:space-between; align-items:center; gap:10px; margin:10px 0 0; }
+@media (max-width:620px){ .n-row{ flex-wrap:wrap; } .n-row input{ flex:1 0 100%; } }

@@ -24,5 +24,20 @@ export function toast(msg, isErr = false) {
   setTimeout(() => el.remove(), isErr ? 5000 : 2200);
 }
 
+// 버튼이 달린 알림(예: '삭제했어요 · 되돌리기'). 버튼을 누르거나 시간이 지나면 사라진다. 한 번에 하나만 띄운다.
+export function toastAction(msg, label, onAct, ms = 5000) {
+  document.querySelector(".toast.act")?.remove();
+  const el = document.createElement("div");
+  el.className = "toast act";
+  el.setAttribute("role", "status");
+  el.innerHTML = `<span></span><button type="button"></button>`;
+  el.firstChild.textContent = msg;
+  const b = el.lastChild;
+  b.textContent = label;
+  b.onclick = () => { el.remove(); onAct(); };
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), ms);
+}
+
 // Cloud Functions 오류 메시지를 학생이 읽을 수 있게 꺼낸다
 export const errMsg = (e) => (e && e.message ? e.message.replace(/^.*?:\s*/, "") : "알 수 없는 오류");

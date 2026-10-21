@@ -215,3 +215,11 @@ body.m{ --navh:calc(54px + env(safe-area-inset-bottom)); --hdrh:calc(41px + env(
 .m .problem-bar .pb-k{ font-size:11px; }
 .m .problem-bar .pb-q{ font-size:14px; line-height:1.4; margin-top:1px; }
 .m .role.m-role{ margin-bottom:8px; }
+
+/* 선생님 한마디 띠: 머리글 바로 아래 */
+.m .t-notice{ top:calc(var(--hdrh) + 6px); margin:8px 0 10px; font-size:14px; }
+.m.chrome-hidden .t-notice{ top:6px; }
+/* 휴대폰에서 글자를 크게 키워도 아래 막대의 숫자 동그라미·글자가 잘리지 않게 */
+.m .m-nav .stage-tab b{ min-width:24px; min-height:24px; width:auto; height:auto; aspect-ratio:1; padding:0 2px; }
+.m .m-nav .stage-tab span{ max-width:100%; }
+.m .qr-mini{ width:56px; height:56px; }

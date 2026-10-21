@@ -11,8 +11,8 @@ export const STEPS = {
   load: [[0, "불러오는 중이에요"], [10, "조금 오래 걸려요"], [40, "연결을 확인해 주세요"]],
 };
 
-// opts: { steps: [[sec, text]], first: 첫 문구 바꾸기, since: 시작 시각(ms), compact: 작은 한 줄 }
-export function waitHtml({ steps = STEPS.ai, first, since = Date.now(), compact = false } = {}) {
+// opts: { steps: [[sec, text]], first: 첫 문구 바꾸기, since: 시작 시각(ms), compact: 작은 한 줄, tip: 기다리는 동안 해 볼 일 }
+export function waitHtml({ steps = STEPS.ai, first, since = Date.now(), compact = false, tip = "" } = {}) {
   const st = first ? [[0, first], ...steps.filter(([t]) => t > 0)] : steps;
   const secs = Math.max(0, Math.floor((Date.now() - since) / 1000));
   const msg = [...st].reverse().find(([t]) => secs >= t)?.[1] ?? st[0][1];
@@ -20,7 +20,7 @@ export function waitHtml({ steps = STEPS.ai, first, since = Date.now(), compact 
     <div class="wait-anim" aria-hidden="true"><span class="ring"></span><i></i><i></i><i></i></div>
     <div class="wait-text"><div class="wait-msg">${esc(msg)}</div>
       <div class="wait-sub"><span class="wait-sec">${secs}</span>초째 · 연결은 살아 있어요</div>
-      ${compact ? "" : `<div class="wait-bar" aria-hidden="true"><b></b></div>`}</div></div>`;
+      ${compact ? "" : `<div class="wait-bar" aria-hidden="true"><b></b></div>`}${tip ? `<div class="wait-tip">💡 ${esc(tip)}</div>` : ""}</div></div>`;
 }
 
 // 화면에 있는 모든 대기 표시의 시간·문구를 갱신한다(1초마다)
