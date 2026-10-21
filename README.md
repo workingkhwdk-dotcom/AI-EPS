@@ -129,6 +129,20 @@ firebase deploy
 ```
 배포가 끝나면 학생용 주소는 `https://knue-socialstudies-ai-eps.web.app/`, 교사용은 `/teacher.html`입니다.
 
+### 자동 배포 (권장)
+main 에 PR 을 합치면 CI(서버·보안 규칙·화면 테스트)가 돌고, **모두 통과한 바로 그 커밋**을 GitHub Actions(`.github/workflows/deploy.yml`)가 서버 함수·화면·보안 규칙까지 배포합니다. 맥(로컬 폴더)의 상태와 상관없이 늘 GitHub main 그대로 올라가므로, 로컬에서 `firebase deploy` 를 할 필요가 없습니다. 테스트가 하나라도 실패하면 배포하지 않습니다. 급할 때는 GitHub → Actions → **자동 배포** → *Run workflow* 로 지금의 main 을 바로 배포할 수 있습니다.
+
+처음 한 번만 저장소 Secrets(GitHub → Settings → Secrets and variables → Actions → *New repository secret*)에 두 값을 넣습니다. 없으면 배포를 건너뛰고 경고만 남깁니다.
+
+| 이름 | 넣을 값 |
+|---|---|
+| `FUNCTIONS_ENV` | 맥의 `functions/.env` 파일 내용 전체(교사 목록·교사 인증 문구·모델 이름 등). 값을 바꾸면 이 Secret 을 고치고 다시 배포합니다. |
+| `FIREBASE_SERVICE_ACCOUNT` | 배포용 서비스 계정 키(JSON 파일 내용 전체) |
+
+서비스 계정 만들기: Google Cloud 콘솔(프로젝트 `knue-socialstudies-ai-eps`) → IAM 및 관리자 → 서비스 계정 → *만들기*(예: `github-deploy`) → 아래 역할을 준 뒤 → 키 → *키 추가* → JSON.
+`Firebase 관리자`, `Cloud Functions 관리자`, `서비스 계정 사용자`, `Secret Manager 뷰어`, `Artifact Registry 관리자`, `Cloud Run 관리자`.
+배포가 권한 오류로 멈추면 Actions 로그에 빠진 권한 이름이 나오니 그 역할을 더해 주세요. 키 파일은 Secret 에 넣은 뒤 컴퓨터에서 지웁니다. OpenAI 키(`OPENAI_API_KEY`)는 이미 Secret Manager 에 있어 다시 넣을 필요가 없습니다.
+
 ### 교사 계정 관리
 교사 자격은 구글 계정의 이메일로 판정하며, 아래 **세 곳 중 한 곳에만 있어도** 교사입니다(대소문자 무시).
 1. **코드에 고정**: `functions/teachers.js`의 `ADMIN_EMAILS`(관리자 `working.khwdk@gmail.com`, 설정을 잘못해도 잠기지 않도록 항상 교사)와 `FIXED_TEACHERS`(`ccchoihy@gmail.com`). 바꾸려면 재배포가 필요합니다.
