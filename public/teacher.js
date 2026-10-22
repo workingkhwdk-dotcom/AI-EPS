@@ -1,6 +1,7 @@
 import { auth, db, call, esc, toast, toastAction, errMsg } from "./fb.js";
 import { waitHtml, startWaitTicker, STEPS } from "./wait.js";
 import { showModal, confirmModal } from "./modal.js";
+import { initTopics, loadTopics, topicClassTitle, topicReady } from "./topics.js";
 startWaitTicker();
 import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { collection, query, where, orderBy, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -110,6 +111,7 @@ function enterMain(u) {
   if (entered) return;
   entered = true;
   listSessions(u.uid); eventIds().forEach((id) => refreshCase(id).catch(() => {}));
+  loadTopics(); // 수업 만들기·점검의 사건 목록에 '내 주제'를 넣는다
 }
 onAuthStateChanged(auth, async (u) => {
   if (busySignup) return; // 이메일 가입 중에는 가입 처리가 화면을 정한다
@@ -129,8 +131,9 @@ onAuthStateChanged(auth, async (u) => {
 // ---------- 탭 ----------
 function showTab(name) {
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
-  for (const t of ["classes", "check"]) $(`#tab-${t}`).classList.toggle("hidden", t !== name);
+  for (const t of ["classes", "topics", "check"]) $(`#tab-${t}`).classList.toggle("hidden", t !== name);
   if (name === "check") loadCheck($("#check-event").value);
+  if (name === "topics") loadTopics();
 }
 $("#tabs").onclick = (e) => { const b = e.target.closest("[data-tab]"); if (b) showTab(b.dataset.tab); };
 
@@ -146,8 +149,36 @@ $("#ctabs").onclick = (e) => { const b = e.target.closest("[data-ctab]"); if (b)
 
 // ---------- 사건 고르기 ----------
 // 사건 목록은 수업 만들기 칸의 <select id="t-event"> 에 있다. 점검 탭의 사건 고르기도 같은 목록을 쓴다.
-const eventIds = () => [...$("#t-event").options].map((o) => o.value);
+// 내가 만든 주제는 'topic:<주제 ID>' 값으로 '내 주제' 묶음에 들어간다(수업에 쓸 수 있는 주제만).
+const eventIds = () => [...$("#t-event").options].map((o) => o.value).filter((v) => !v.startsWith("topic:"));
+const TOPIC = "topic:";
+const caseArgs = (v) => (String(v).startsWith(TOPIC) ? { topicId: v.slice(TOPIC.length) } : { eventId: v });
 $("#check-event").innerHTML = $("#t-event").innerHTML;
+function setTopicOptions(list) {
+  const ok = list.filter(topicReady);
+  for (const sel of [$("#t-event"), $("#check-event")]) {
+    const keep = sel.value;
+    sel.querySelector("optgroup[data-topics]")?.remove();
+    if (ok.length) {
+      const g = document.createElement("optgroup");
+      g.label = "내 주제"; g.dataset.topics = "1";
+      g.innerHTML = ok.map((t) => `<option value="${TOPIC}${esc(t.id)}" data-title="${esc(topicClassTitle(t))}">${esc(t.title)}</option>`).join("");
+      sel.appendChild(g);
+    }
+    if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
+    if (sel === $("#t-event")) [...sel.options].forEach((o) => defaultTitles.add(o.dataset.title));
+  }
+}
+// 내 주제 화면의 '이 주제로 수업 만들기': 수업 탭의 새 수업 칸을 그 주제로 열어 준다
+initTopics({
+  onList: setTopicOptions,
+  onMakeClass: (t) => {
+    showTab("classes"); closeSession(); toggleNew(true);
+    $("#t-event").value = TOPIC + t.id;
+    $("#t-title").value = topicClassTitle(t);
+    $("#new-form").scrollIntoView({ behavior: "smooth", block: "start" });
+  },
+});
 $("#check-event").onchange = () => loadCheck($("#check-event").value);
 // 사건을 바꾸면, 교사가 고치지 않은 수업 이름은 그 사건의 기본 이름으로 바꾼다
 const defaultTitles = new Set([...$("#t-event").options].map((o) => o.dataset.title));
@@ -165,10 +196,11 @@ $("#create-btn").onclick = async () => {
   btn.disabled = true;
   try {
     const title = $("#t-title").value;
-    const { data } = await call("createSession")({ title, eventId: $("#t-event").value, groupCount: Number($("#t-groups").value), chatLimit: Number($("#t-chatlimit").value) });
+    const ev = caseArgs($("#t-event").value);
+    const { data } = await call("createSession")({ title, ...ev, groupCount: Number($("#t-groups").value), chatLimit: Number($("#t-chatlimit").value) });
     toast(`수업을 만들었습니다. 코드: ${data.code}`);
     toggleNew(false);
-    openSession(data.code, title.trim() || "수업");
+    openSession(data.code, title.trim() || "수업", ev.topicId);
   } catch (e) { toast(errMsg(e), true); }
   finally { btn.disabled = false; }
 };
@@ -204,8 +236,10 @@ function progressOf(work) {
   ];
 }
 
-function openSession(code, title) {
+function openSession(code, title, topicId) {
   title = title || sessionRows.find((r) => r.code === code)?.title || "수업";
+  // 내가 만든 주제의 수업이면 그 수업의 인물 이름을 따로 불러와 현황 표에 쓴다
+  if (topicId || sessionRows.find((r) => r.code === code)?.topicId) call("getCase")({ code, admin: true }).then(({ data }) => { data.personas.forEach((p) => (personaLabels[p.id] = `${p.name} · ${p.label}`)); renderDash(); }).catch(() => {});
   current = code; curTitle = title; gFilter = "all"; conduct = []; logsBy = {}; workGid = null; mat.loaded = false; pe.loaded = false; assigns = {}; picked = new Set();
   unsubs.forEach((u) => u()); unsubs = [];
   clearInterval(tickTimer);
@@ -476,7 +510,7 @@ $("#csv-btn").onclick = async () => {
 // ---------- 점검 (교사 전용) ----------
 // 인물 ID → "이름 · 역할" 표를 채운다(수업 현황 화면에서 교사만 인물을 알아볼 수 있도록)
 async function refreshCase(eventId) {
-  const { data } = await call("getCase")({ eventId });
+  const { data } = await call("getCase")(caseArgs(eventId));
   data.personas.forEach((p) => (personaLabels[p.id] = `${p.name} · ${p.label}`));
   renderDash();
   return data;
@@ -791,6 +825,7 @@ function fillSettings() {
   $("#s-web").value = r.webSearch === false ? "0" : "1";
   $("#s-coach").value = r.coach === false ? "0" : "1";
   $("#s-auto").value = String(r.autoCloseHours || 0);
+  $("#s-topic-card").classList.toggle("hidden", !r.topicId);
   $("#s-guide").style.whiteSpace = "pre-wrap";
   $("#s-guide").textContent = studentGuide();
 }
@@ -803,6 +838,13 @@ $("#s-save").onclick = async () => {
     toast("저장했습니다");
     setTimeout(fillSettings, 400);
   } catch (e) { toast(errMsg(e), true); }
+};
+$("#s-sync").onclick = async () => {
+  if (!(await confirmModal("주제의 최신 내용으로 바꿀까요?", "내 주제에서 고친 인물·자료와 원문 확인 결과가 이 수업에 반영돼요. 이미 한 대화와 산출물은 그대로예요.", "바꾸기", "취소"))) return;
+  const b = $("#s-sync"); b.disabled = true;
+  try { await call("topics")({ action: "syncSession", code: current }); pe.loaded = false; mat.loaded = false; toast("최신 내용으로 바꿨어요"); }
+  catch (e) { toast(errMsg(e), true); }
+  finally { b.disabled = false; }
 };
 $("#s-copy-guide").onclick = async () => { try { await navigator.clipboard.writeText(studentGuide()); toast("안내문을 복사했어요"); } catch { toast("복사하지 못했습니다. 위 글을 직접 선택해 복사하세요.", true); } };
 $("#s-delete").onclick = async () => {
@@ -946,7 +988,7 @@ async function loadPersonaEdit() {
   if (pe.loaded) return renderPersonaEdit();
   $("#persona-edit").innerHTML = `<div class="card">${waitHtml({ steps: STEPS.load })}</div>`;
   try {
-    const [c, o] = await Promise.all([call("getCase")({ eventId: curRow()?.eventId || "jeju2018" }), call("getPersonaOverrides")({ code: current })]);
+    const [c, o] = await Promise.all([call("getCase")(curRow()?.topicId ? { code: current, admin: true } : { eventId: curRow()?.eventId || "jeju2018" }), call("getPersonaOverrides")({ code: current })]);
     Object.assign(pe, { personas: c.data.personas, overrides: o.data.overrides, loaded: true });
     renderPersonaEdit();
   } catch (e) { $("#persona-edit").innerHTML = `<div class="notice">${esc(errMsg(e))}</div>`; }

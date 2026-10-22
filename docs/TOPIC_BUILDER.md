@@ -31,10 +31,17 @@
 
 ## 서버 함수
 
-- `topicStore`(action): list / get / save(교사 수정) / verifySource / delete / rename.
-- `topicAi`(action): ideas / start / research / frame / personas(여러 번 나눠 부름) / extras(자료·사례·이후 전개) / review / regenPersona.
-  단계마다 따로 부르므로 한 번의 호출이 오래 걸리지 않고, 실패하면 그 단계만 다시 한다.
+- `topics` 함수 하나가 action 으로 나뉜다(Cloud Run CPU 한도 때문에 함수 수를 늘리지 않는다. `functions/topicApi.js`).
+  - 저장: list / get / save(교사 수정) / plan(구성안) / verifySource / delete / syncSession(수업 사본 갱신)
+  - AI: ideas / start / research / frame / personas(3명씩 여러 번) / extras / review / regenPersona
+- 단계마다 따로 부르므로 한 번의 호출이 오래 걸리지 않고(최대 540초), 실패하면 그 단계만 다시 한다. 화면을 닫아도 이어서 만들 수 있다.
 - 기존 함수는 `bundleOf(code, sess)` 로 주제를 읽는다(기본 주제면 코드, 교사 주제면 수업 사본).
+
+## 아직 확인하지 못한 것
+
+- 테스트는 가짜 AI 로 했다. 실제 OpenAI(gpt-5 + web_search)로 주제 하나를 끝까지 만들어 보며 걸리는 시간, 사실 은행의 크기(인용 링크가 붙는 비율),
+  인물 품질을 확인해야 한다. 인용이 적게 붙으면 조사 단계가 '기사를 충분히 찾지 못했어요'로 멈춘다(사실 20개 미만).
+- 실제 Firestore 에서는 `undefined` 값과 배열 안의 배열을 저장하지 못한다. 테스트의 가짜 저장소도 이를 거부하게 해 두었다.
 
 ## 진행 상황
 
@@ -44,5 +51,5 @@
 - [x] 4. 저장 함수(topicStore) + 규칙 + 테스트
 - [x] 5. 생성 파이프라인(topicBuild.js: 프롬프트·검색·사실 은행·조립) + 가짜 AI 테스트
 - [x] 6. topicAi 함수 + 한도 + 테스트
-- [ ] 7. 교사 화면(PC·모바일): 내 주제 탭, 만들기 안내 흐름, 구성안 확인, 검토·원문 확인, 수업 만들 때 고르기
-- [ ] 8. 화면 테스트, README·문서
+- [x] 7. 교사 화면(PC·모바일): 내 주제 탭, 만들기 안내 흐름, 구성안 확인, 검토·원문 확인, 수업 만들 때 고르기
+- [x] 8. 화면 테스트, README·문서

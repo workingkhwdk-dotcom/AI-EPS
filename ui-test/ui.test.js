@@ -1629,3 +1629,129 @@ test("체험: 단계마다 '데모라서' 줄이 맨 위에 항상 있고 단계
   assert.deepEqual(errors, []);
   await ctx.close();
 });
+
+// ---------- 내 주제(교사 주제 만들기) ----------
+function topicFixture() {
+  const st = teacherFixture();
+  const base = st.handler;
+  const ev = { id: "t0123456789", title: "거제 조선소 하청 노동 (2022~2025)", summary: "거제 조선소 하청 노동자와 지역 상권의 이야기.", teacherNote: "메모", now: "지금은 2025년 3월이다.",
+    axes: ["주민", "생업", "시민사회", "제도"], requiredAxis: "주민", background: [["배경 사실 하나", "T1", "사실"]],
+    ui: { letterSign: "2025년 3월, 거제에서", compareWith: "거제", afterSince: "2025년 3월", sceneHints: ["a", "b", "c"] } };
+  const T = { id: ev.id, title: "거제 조선소 하청 노동", status: "building", input: {}, build: { step: "start", calls: 0 }, plan: null, review: null, file: null,
+    research: { facts: [{ id: "F1", text: "근거 사실" }] }, check: null, usable: 0, requiredOk: false, maxCalls: 120 };
+  const persona = (s) => ({ id: s.id, axis: s.axis, name: s.name, label: s.label, stance: s.stance, setting: "쉰 살 남성. 아내와 산다.", voice: "해요체", habits: "음", inner: "걱정",
+    letter: [`저는 ${s.name}이에요.`, "둘째 문단"], views: ["생각"], story: ["이야기"], episodes: ["장면"], beliefs: [], limits: [], basis: "융합", claims: [["근거 사실", "T2", "증언"]] });
+  const copy = () => JSON.parse(JSON.stringify(T));
+  st.topic = T;
+  st.handler = async (name, data) => {
+    if (name !== "topics") return base(name, data);
+    st.calls.push(["topics:" + data.action, data]);
+    switch (data.action) {
+      case "list": return { topics: T.status === "review" ? [{ id: T.id, title: T.title, status: "review", usable: T.usable, personas: 2, sources: 2, verified: 0, errors: 0 }] : [], usage: { topics: 0, topicLimit: 3, ideas: 0, ideaLimit: 10 } };
+      case "ideas": return { candidates: [{ title: "거제 조선소 하청 노동 (2022~2025)", place: "거제", period: "2022~2025", summary: "조선소 하청 노동자의 임금과 지역 경제 이야기", conflict: "원청과 하청", stakeholders: ["노동자", "상인"], now: "2025년 3월", requiredWho: "하청 노동자", links: [{ url: "https://news.example/1", title: "기사" }] }], usage: { topics: 0, topicLimit: 3, ideas: 1, ideaLimit: 10 } };
+      case "start": T.input = data; return { topicId: T.id, usage: { topics: 1, topicLimit: 3, ideas: 1, ideaLimit: 10 } };
+      case "get": return copy();
+      case "research": T.build.step = "research"; return { step: "research", sources: 2, facts: 1 };
+      case "frame":
+        T.build.step = "frame";
+        T.plan = { sides: { A: "처우 개선", B: "고용 유지" }, balance: "고르다", links: [{ a: "p1", b: "p2", scene: "부두에서 만남", a_mark: "부두", b_mark: "부두" }],
+          personas: [{ id: "p1", axis: "주민", name: "김민수", label: "주민 1", role: "r", side: "A", stance: "입장 1", who: "50대 남성", brief: "주민", belief: "" },
+            { id: "p2", axis: "생업", name: "박영희", label: "상인 1", role: "r", side: "B", stance: "입장 2", who: "40대 여성", brief: "상인", belief: "" }] };
+        T.file = { SOURCES: { T1: { title: "기사 1", outlet: "테스트일보", date: "2025-01-01", url: "https://news.example/1", verified: false }, T2: { title: "기사 2", outlet: "테스트일보", date: "2025-01-02", url: "https://news.example/2", verified: false } },
+          EVENT: ev, PERSONAS: [], MATERIALS: [], POLICY_CASES: [], AFTERMATH: [], BRIEFS: {} };
+        return { step: "frame", plan: T.plan, event: ev };
+      case "plan": T.plan = data.plan; return copy();
+      case "personas": T.build.step = "personas"; T.file.PERSONAS = T.plan.personas.map(persona); T.file.BRIEFS = { p1: "주민", p2: "상인" }; return { step: "personas", done: 2, total: 2, made: ["김민수", "박영희"] };
+      case "extras": T.build.step = "extras"; T.file.MATERIALS = [{ id: "timeline", title: "사건 흐름", type: "timeline", items: [{ date: "2024. 1.", kind: "사실", text: "자료 문장", src: ["T1"], facts: ["F1"] }, { kind: "사실", text: "뺄 문장", src: ["T2"] }] }]; return { step: "extras", materials: 1, cases: 0, aftermath: 0 };
+      case "review": T.build.step = "review"; T.status = "review"; T.check = { errors: [], warnings: [{ where: "인물", msg: "인물이 2명입니다" }] }; T.review = { fixes: [], problems: {}, balance: { notes: ["입장이 고르다"] } }; return { step: "review" };
+      case "verifySource": {
+        data.sourceIds.forEach((id) => { T.file.SOURCES[id].verified = data.verified; });
+        const all = Object.values(T.file.SOURCES).every((s) => s.verified);
+        T.usable = all ? 2 : 0; T.requiredOk = all;
+        return { verified: data.verified, sourceIds: data.sourceIds, usable: T.usable, requiredOk: T.requiredOk, check: T.check };
+      }
+      case "save": T.file = data.file; return copy();
+      default: return {};
+    }
+  };
+  return st;
+}
+
+test("내 주제: 아이디어 → 사건 후보 → 구성안을 고치고 인물 만들기 → 원문 확인·고쳐 저장 → 이 주제로 수업 만들기", async () => {
+  const st = topicFixture();
+  const { pg, errors } = await openTeacher(st);
+  await pg.click('#tabs [data-tab="topics"]');
+  await pg.waitForSelector("#tp-list .cell");
+  assert.match(await pg.textContent("#tp-list"), /아직 만든 주제가 없어요/);
+  await pg.click("#tp-new");
+  await pg.fill("#tp-idea", "거제도 지역의 문제");
+  await pg.click('[data-w="find"]');
+  await pg.waitForSelector('[data-w="pick"]');
+  assert.match(await pg.textContent("#tp-cands"), /원청과 하청/);
+  await pg.click('[data-w="pick"]');
+  assert.equal(await pg.inputValue("#tp-c-title"), "거제 조선소 하청 노동 (2022~2025)");
+  assert.equal(await pg.inputValue("#tp-now"), "2025년 3월");
+  await pg.click('[data-w="start"]');
+  // 조사 → 사건 틀까지 하고 구성안에서 멈춘다
+  await pg.waitForSelector("#tp-make");
+  const acts = () => st.calls.filter(([n]) => n.startsWith("topics:")).map(([n]) => n.slice(7));
+  assert.deepEqual(acts().filter((a) => a !== "get" && a !== "list"), ["ideas", "start", "research", "frame"]);
+  assert.equal(st.topic.input.idea, "거제도 지역의 문제");
+  await pg.fill('[data-slot="p2"] [data-k="name"]', "박나래");
+  await pg.click("#tp-make");
+  await pg.waitForSelector("[data-verify]");
+  assert.equal(st.topic.plan.personas[1].name, "박나래", "고친 구성안을 먼저 저장했다");
+  assert.deepEqual(acts().filter((a) => !["get", "list", "ideas", "start", "research", "frame"].includes(a)), ["plan", "personas", "extras", "review"]);
+  assert.ok(await pg.isDisabled("#tp-class"), "원문 확인 전에는 수업을 만들 수 없다");
+  assert.match(await pg.textContent("#tp-detail"), /입장이 고르다/);
+  await pg.check('[data-verify="T1"]');
+  await pg.waitForFunction(() => document.querySelector('[data-verify="T2"]') && document.querySelector(".tp-kpis b").textContent === "0/2");
+  await pg.check('[data-verify="T2"]');
+  await pg.waitForFunction(() => document.querySelector(".tp-kpis b")?.textContent === "2/2");
+  assert.equal(await pg.isDisabled("#tp-class"), false);
+  // 인물 편지를 고치고 자료 한 줄을 빼서 저장
+  await pg.click('details[data-pid="p1"] > summary');
+  await pg.fill('[data-path="PERSONAS.0.letter"]', "저는 김민수예요. 선생님이 고쳤어요.\n둘째 문단");
+  assert.ok(await pg.isDisabled("#tp-class"), "저장 전에는 수업 만들기를 막는다");
+  await pg.click('#tp-detail details.fold:has([data-drop="MATERIALS.0.items.1"]) > summary');
+  await pg.click('[data-drop="MATERIALS.0.items.1"]');
+  assert.ok(await pg.isVisible('[data-path="MATERIALS.0.items.0.text"]'), "다시 그려도 펼친 칸은 그대로");
+  await pg.click("#tp-save");
+  await pg.waitForFunction(() => document.querySelector("#tp-save")?.disabled === true && document.querySelector("#tp-class")?.disabled === false);
+  assert.deepEqual(st.topic.file.PERSONAS[0].letter, ["저는 김민수예요. 선생님이 고쳤어요.", "둘째 문단"]);
+  assert.deepEqual(st.topic.file.MATERIALS[0].items.map((i) => i.text), ["자료 문장"]);
+  // 이 주제로 수업 만들기: 수업 탭의 새 수업 칸이 이 주제로 열린다
+  await pg.click("#tp-class");
+  await pg.waitForSelector("#new-form:not(.hidden)");
+  await pg.waitForFunction(() => [...document.querySelectorAll("#t-event option")].some((o) => o.value === "topic:t0123456789"));
+  assert.equal(await pg.inputValue("#t-event"), "topic:t0123456789");
+  assert.match(await pg.inputValue("#t-title"), /^거제 조선소 하청 노동, 갈등 해결 방안 제안하기$/);
+  await pg.click("#create-btn");
+  await pg.waitForFunction(() => window.__log.includes("createSession"));
+  const create = st.calls.find(([n]) => n === "createSession")[1];
+  assert.equal(create.topicId, "t0123456789");
+  assert.equal(create.eventId, undefined);
+  assert.deepEqual(errors, []);
+});
+
+test("내 주제(휴대폰): 구성안·검토 화면이 가로로 넘치지 않는다", async () => {
+  const st = topicFixture();
+  const { pg, errors } = await openTeacher(st, { page: "m-teacher.html", ctxOpts: phone });
+  await pg.click("#back-btn"); // 휴대폰에서는 수업을 연 동안 위쪽 탭이 숨는다
+  await pg.click('#tabs [data-tab="topics"]');
+  await pg.click("#tp-new");
+  await pg.fill("#tp-idea", "거제");
+  await pg.click('[data-w="find"]');
+  await pg.click('[data-w="pick"]');
+  await pg.click('[data-w="start"]');
+  await pg.waitForSelector("#tp-make");
+  const wide = () => pg.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  assert.ok((await wide()) <= 0, "구성안 화면이 넘친다");
+  await shot(pg, "m-topic-plan");
+  await pg.click("#tp-make");
+  await pg.waitForSelector("[data-verify]");
+  await pg.click('details[data-pid="p1"] > summary');
+  assert.ok((await wide()) <= 0, "검토 화면이 넘친다");
+  await shot(pg, "m-topic-review");
+  assert.deepEqual(errors, []);
+});

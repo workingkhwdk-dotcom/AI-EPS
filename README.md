@@ -25,7 +25,9 @@ functions/         Cloud Functions (서울 리전)
   guard.js         감독자 AI의 검사 프롬프트와 판정 해석, 위반 시 학생용 안내문
   scripts/         export-sources.js: 원문 대조 점검표(docs/PERSONA_SOURCES.md) 생성
 docs/PERSONA_SOURCES.md  인물별 근거 진술과 출처 점검표 (수업 전 원문 대조용)
-  index.js         createSession, joinSession, getCase, aiRequest
+  topicCheck.js    주제 구조 검사(기본 주제와 교사 주제에 같은 기준)
+  topicBuild.js, topicCompose.js, topicApi.js, topicData.js  교사 주제 만들기(아래 '내 주제')
+  index.js         createSession, joinSession, getCase, aiRequest, topics
 firestore.rules    학생은 자기 모둠의 work만 수정, AI 로그는 서버만 기록
 ```
 
@@ -36,6 +38,16 @@ firestore.rules    학생은 자기 모둠의 work만 수정, AI 로그는 서�
 - 화면 맨 아래 **PC 화면으로 보기**를 누르면 그 기기에서는 PC 화면을 기억하고, PC 화면 아래의 **모바일 화면으로 보기**로 되돌립니다.
 - 학습 활동 공간을 넓히기 위해 모바일 학생 화면은 머리글·아래 막대를 얇게 하고, **아래로 스크롤하면 둘 다 숨고 위로 스크롤하면 다시 나옵니다**(교사 화면은 숨기지 않음). 1단계 대화는 대화창이 화면 대부분을 쓰고, 알아낼 것(누구인지·힘든 것·바라는 것)이 한 줄 칩으로, 남은 질문 수가 입력창 위에 항상 보입니다. 2단계 실제 사건 자료는 펼친 채로 시작합니다.
 - 두 화면은 같은 id 를 써야 합니다. 한쪽 HTML에 칸을 추가하면 다른 쪽에도 넣으세요(화면 테스트가 확인합니다).
+
+### 내 주제 — 교사가 웹앱 안에서 새 수업 주제 만들기
+- 교사 화면 위쪽 **내 주제** 탭. 다루고 싶은 지역·주제(예: '거제도 지역의 문제')를 적으면 AI가 **실제로 보도된 사건** 후보를 찾아 주고, 고른 사건(또는 직접 적은 사건)으로 기본 주제와 같은 구성(출처·사건 개요·공통 배경·범위·화면 문구·인물 9명·2단계 자료·4단계 사례·7단계 이후 전개)을 만든다. 만든 주제는 **그 교사 계정에만** 속한다.
+- 단계: ① 기사 조사(여러 각도로 웹 검색, **인용 링크가 붙은 문장만** 사실 은행에 넣음) → ② 사건 틀·인물 구성안(입장 분포·스치는 장면. 교사가 보고 고치거나 다시 짜기) → ③ 인물(한 명씩, 기본 주제 인물을 본보기로) → ④ 자료·사례·이후 전개 → ⑤ AI 점검(근거에 없는 중요 사실·실존 인물 이름·비하·메타 표현·입장 균형을 점검해 고쳐 쓰고 기록) → 검토.
+- **근거 진술과 공통 배경은 기사 문장 그대로**다(AI는 사실 ID만 고른다). 출처마다 '이 출처로 쓴 문장'을 보여 주고, 교사가 **원문 확인**을 체크한 출처만 학생에게 보이는 인물·자료에 쓰인다(기본 주제의 verified 원칙과 같다). 구조 검사(`topicCheck.js`)에 오류가 없고 꼭 있어야 하는 축의 인물이 확인되어야 수업을 만들 수 있다.
+- 검토 화면에서 인물의 편지·말투·이야기·생각, 사건 개요·화면 문구, 자료·사례·이후 전개를 고치거나 빼고, 인물 하나를 바랄 점을 적어 다시 만들 수 있다.
+- 수업을 만들면 그때의 주제가 수업에 복사된다(`sessions/{code}/private/topic`). 원본 주제를 고치거나 지워도 진행 중인 수업은 그대로이고, 수업 설정의 **주제의 최신 내용으로 바꾸기**로만 바뀐다. 수업 복제 때 사본도 함께 간다.
+- 한도: 새 주제는 교사 한 명당 하루 3개(`TOPIC_DAILY_LIMIT`), 사건 후보 찾기는 하루 10번, 주제 하나당 AI 호출 120번, 교사당 주제 30개. 모델은 `TOPIC_MODEL`(기본 gpt-5), 웹 조사는 `TOPIC_SEARCH_MODEL`(비우면 TOPIC_MODEL). 주제 하나를 만드는 데 AI 호출이 대략 30번 들고 10~20분 걸린다.
+- 저장: `teacherTopics/{id}`(주제), `teacherTopics/{id}/parts/research`(사실 은행), `topicUsage/{uid}`(하루 횟수). 모두 서버(`topics` 함수)만 읽고 쓴다. 체험(demo) 페이지에는 나오지 않는다. 설계와 판단 근거는 `docs/TOPIC_BUILDER.md`.
+- 배포: `firebase deploy --only functions:topics,functions:createSession,functions:cloneSession,functions:getCase,functions:joinSession,functions:choosePersona,functions:aiRequest,hosting,firestore:rules` (또는 전체 배포).
 
 ### 체험하기(demo) — 서버 없이 학생 화면을 혼자 해 보기
 - 주소: `/demo.html`. 5개 주제(사건) 중 하나를 골라 학생 화면을 처음부터 끝까지 혼자 체험한다. 입장·로그인 없이 바로 열린다.
