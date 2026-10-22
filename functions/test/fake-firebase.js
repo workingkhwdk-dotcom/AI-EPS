@@ -21,12 +21,22 @@ function applyUpdate(cur, data) {
   }
   return out;
 }
+// 실제 Firestore 처럼 undefined 값과 배열 안의 배열은 저장하지 못하게 한다(가짜 저장소가 놓치는 오류를 테스트에서 잡는다)
+function assertStorable(v, path = "", inArray = false) {
+  if (v === undefined) throw new Error(`Firestore 에 undefined 를 저장할 수 없음: ${path}`);
+  if (Array.isArray(v)) {
+    if (inArray) throw new Error(`Firestore 는 배열 안의 배열을 저장할 수 없음: ${path}`);
+    v.forEach((x, i) => assertStorable(x, `${path}[${i}]`, true));
+  } else if (v && typeof v === "object" && !v.__inc && !v.__del && v !== TS) {
+    for (const [k, x] of Object.entries(v)) assertStorable(x, path ? `${path}.${k}` : k, false);
+  }
+}
 let autoId = 0;
 const docRef = (path) => ({
   path,
   async get() { const d = store.get(path); return { exists: d !== undefined, data: () => (d === undefined ? undefined : JSON.parse(JSON.stringify(d))), id: path.split("/").pop() }; },
-  async set(d) { store.set(path, d); },
-  async update(d) { store.set(path, applyUpdate(store.get(path) || {}, d)); },
+  async set(d) { assertStorable(d, path); store.set(path, d); },
+  async update(d) { assertStorable(d, path); store.set(path, applyUpdate(store.get(path) || {}, d)); },
   async delete() { store.delete(path); },
   collection: (name) => collRef(`${path}/${name}`),
 });

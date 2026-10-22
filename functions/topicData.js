@@ -64,7 +64,7 @@ function sanitizeFile(input, prev) {
     const url = str(s.url, L.url);
     const okUrl = /^https?:\/\//i.test(url) ? url : old.url;
     SOURCES[id] = {
-      title: str(s.title, L.srcTitle) || old.title, outlet: str(s.outlet, L.outlet) || old.outlet, date: str(s.date, L.srcDate),
+      title: str(s.title, L.srcTitle) || old.title || "", outlet: str(s.outlet, L.outlet) || old.outlet || "", date: str(s.date, L.srcDate),
       url: okUrl, check: str(s.check, L.check),
       verified: okUrl === old.url ? old.verified === true : false,
       ...(old.verifiedAt && okUrl === old.url ? { verifiedAt: old.verifiedAt } : {}),

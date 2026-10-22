@@ -234,7 +234,7 @@ function toPersona(out, slot, research) {
   const ids = claimIds.length >= 4 ? claimIds : [...new Set([...claimIds, ...slot.facts])];
   return {
     persona: {
-      id: slot.id, events: undefined, axis: slot.axis, name: slot.name,
+      id: slot.id, axis: slot.axis, name: slot.name,
       label: clip(out.label, 120) || slot.label, role: clip(out.role, 300) || slot.role, stance: clip(out.stance, 300) || slot.stance,
       setting: clip(out.setting, 800), voice: clip(out.voice, 400), habits: clip(out.habits, 300), inner: clip(out.inner, 500), basis: clip(out.basis, 500),
       letter: L(out.letter, 12, 700), views: L(out.views, 10, 400), story: L(out.story, 12, 500), episodes: L(out.episodes, 12, 500),
