@@ -1,0 +1,33 @@
+{
+  "id": "/teacher",
+  "name": "AI-EPS 교사용",
+  "short_name": "AI-EPS 교사",
+  "description": "확장된 경험 기반 문제해결학습 모형 — 교사",
+  "lang": "ko",
+  "start_url": "/teacher.html",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#06226B",
+  "background_color": "#06226B",
+  "icons": [
+    {
+      "src": "icons/teacher-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/teacher-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/teacher-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

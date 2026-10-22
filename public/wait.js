@@ -6,13 +6,14 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 
 // 기본 안내: [몇 초부터, 문구]
 export const STEPS = {
-  chat: [[0, "인물이 답을 생각하는 중이에요"], [8, "자료를 확인하고 있어요. 모르는 내용은 찾아보느라 조금 더 걸릴 수 있어요"], [25, "평소보다 오래 걸리고 있어요. 서버는 일하는 중이니 조금만 더 기다려 주세요"], [70, "아직 답이 오지 않았어요. 최대 5분까지 기다리고, 그래도 안 오면 오류로 알려 드려요. 화면을 닫지 마세요"]],
-  ai: [[0, "AI가 답을 만드는 중이에요"], [10, "생각을 정리하는 중이에요"], [30, "평소보다 오래 걸리고 있어요. 서버는 일하는 중이니 조금만 더 기다려 주세요"], [90, "아직 답이 오지 않았어요. 최대 5분까지 기다리고, 그래도 안 오면 오류로 알려 드려요. 화면을 닫지 마세요"]],
-  load: [[0, "불러오는 중이에요"], [10, "조금 오래 걸리고 있어요. 서버는 일하는 중이에요"], [40, "아직 답이 오지 않았어요. 연결을 확인해 주세요"]],
+  chat: [[0, "답을 생각하는 중이에요"], [10, "어떻게 말할지 고르는 중이에요"], [25, "조금 오래 걸려요. 기다려 주세요"], [70, "곧 와요. 화면을 닫지 마세요"]],
+  ai: [[0, "AI가 답을 만드는 중이에요"], [10, "정리하는 중이에요"], [30, "조금 오래 걸려요. 기다려 주세요"], [90, "곧 와요. 화면을 닫지 마세요"]],
+  join: [[0, "입장하는 중이에요"], [4, "내 자리를 준비하고 있어요"], [10, "친구들이 함께 들어오는 중이라 조금 걸려요"], [25, "계속 안 되면 선생님께 알려 주세요"]],
+  load: [[0, "불러오는 중이에요"], [10, "조금 오래 걸려요"], [40, "연결을 확인해 주세요"]],
 };
 
-// opts: { steps: [[sec, text]], first: 첫 문구 바꾸기, since: 시작 시각(ms), compact: 작은 한 줄 }
-export function waitHtml({ steps = STEPS.ai, first, since = Date.now(), compact = false } = {}) {
+// opts: { steps: [[sec, text]], first: 첫 문구 바꾸기, since: 시작 시각(ms), compact: 작은 한 줄, tip: 기다리는 동안 해 볼 일 }
+export function waitHtml({ steps = STEPS.ai, first, since = Date.now(), compact = false, tip = "" } = {}) {
   const st = first ? [[0, first], ...steps.filter(([t]) => t > 0)] : steps;
   const secs = Math.max(0, Math.floor((Date.now() - since) / 1000));
   const msg = [...st].reverse().find(([t]) => secs >= t)?.[1] ?? st[0][1];
@@ -20,7 +21,7 @@ export function waitHtml({ steps = STEPS.ai, first, since = Date.now(), compact 
     <div class="wait-anim" aria-hidden="true"><span class="ring"></span><i></i><i></i><i></i></div>
     <div class="wait-text"><div class="wait-msg">${esc(msg)}</div>
       <div class="wait-sub"><span class="wait-sec">${secs}</span>초째 · 연결은 살아 있어요</div>
-      ${compact ? "" : `<div class="wait-bar" aria-hidden="true"><b></b></div>`}</div></div>`;
+      ${compact ? "" : `<div class="wait-bar" aria-hidden="true"><b></b></div>`}${tip ? `<div class="wait-tip">💡 ${esc(tip)}</div>` : ""}</div></div>`;
 }
 
 // 화면에 있는 모든 대기 표시의 시간·문구를 갱신한다(1초마다)

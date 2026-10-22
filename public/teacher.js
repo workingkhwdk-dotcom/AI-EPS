@@ -1,12 +1,12 @@
-import { auth, db, call, esc, toast, errMsg } from "./fb.js";
+import { auth, db, call, esc, toast, toastAction, errMsg } from "./fb.js";
 import { waitHtml, startWaitTicker, STEPS } from "./wait.js";
 import { showModal, confirmModal } from "./modal.js";
 startWaitTicker();
-import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { collection, query, where, orderBy, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const $ = (s) => document.querySelector(s);
-const STAGE_NAMES = ["", "사건 경험", "원인 탐색", "검증", "대안 구상", "미래 시나리오", "행동계획", "공유·성찰"];
+const STAGE_NAMES = ["", "이야기 듣기", "원인 찾기", "사실 확인", "해결책 만들기", "미래 그려 보기", "실천 계획", "돌아보기"]; // 학생 화면과 같은 이름
 const ONLINE_MS = 75 * 1000; // 학생 화면은 30초마다 접속 신호를 보낸다
 const fmt = (ts) => (ts?.toDate ? ts.toDate().toLocaleString("ko-KR") : "");
 // 외부(검색 결과 등)에서 온 주소는 http(s) 만 링크로 쓴다(javascript: 같은 주소 차단)
@@ -14,32 +14,123 @@ const safeUrl = (u) => (/^https?:\/\//i.test(String(u || "")) ? String(u) : "#")
 const hasKeys = (o) => o && typeof o === "object" && Object.keys(o).length > 0;
 const filled = (v) => (typeof v === "string" ? v.trim() !== "" : hasKeys(v));
 
-let picked = new Set(), assigns = {}, current = null, curTitle = "", unsubs = [], members = [], groups = [], gFilter = "all";
+let picked = new Set(), conduct = [], assigns = {}, current = null, curTitle = "", unsubs = [], members = [], groups = [], gFilter = "all";
 let logsBy = {}, cmpStage = 1, workGid = null; // 모둠별 AI 기록, 단계별 모아 보기 단계, 열어 둔 모둠 산출물
 let tickTimer = null;
 
 // ---------- 로그인 ----------
 // 휴대폰 브라우저가 팝업을 막으면 같은 창에서 구글 로그인으로 넘어갔다가 돌아온다
-$("#login-btn").onclick = () => signInWithPopup(auth, new GoogleAuthProvider()).catch((e) => {
+const googleLogin = () => signInWithPopup(auth, new GoogleAuthProvider()).catch((e) => {
   if (["auth/popup-blocked", "auth/operation-not-supported-in-this-environment", "auth/cancelled-popup-request"].includes(e?.code)) return signInWithRedirect(auth, new GoogleAuthProvider());
   toast(errMsg(e), true);
 });
+$("#login-btn").onclick = googleLogin;
+// 이메일·비밀번호 교사 계정(관리자가 만든 계정이나 교사용 계정 만들기에서 만든 계정)
+$("#pw-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const email = $("#pw-email").value.trim(), pass = $("#pw-pass").value;
+  if (!email || !pass) { toast("이메일과 비밀번호를 입력하세요.", true); return; }
+  const b = $("#pw-btn"); b.disabled = true;
+  try { await signInWithEmailAndPassword(auth, email, pass); $("#pw-pass").value = ""; }
+  catch (err) {
+    const bad = ["auth/invalid-credential", "auth/wrong-password", "auth/user-not-found", "auth/invalid-email"].includes(err?.code);
+    toast(bad ? "이메일 또는 비밀번호가 맞지 않습니다." : err?.code === "auth/too-many-requests" ? "여러 번 틀려 잠시 막혔습니다. 조금 뒤에 다시 시도하세요." : errMsg(err), true);
+  } finally { b.disabled = false; }
+};
 $("#t-logout").onclick = () => signOut(auth).then(() => location.reload());
-let listUnsub = null;
-onAuthStateChanged(auth, (u) => {
+
+// 로그인 화면 ↔ 교사용 계정 만들기 화면. 주소에 #signup 이 있으면 계정 만들기부터 보여 준다.
+// u 가 있으면(로그인했지만 아직 교사가 아닌 계정) 인증 문구 입력 칸만 보여 준다.
+let wantSignup = location.hash === "#signup", signupOpen = true, busySignup = false;
+function showAuth(view, u) {
+  $("#main").classList.add("hidden");
+  $("#login").classList.toggle("hidden", view !== "login");
+  $("#signup").classList.toggle("hidden", view !== "signup");
+  $("#su-new").classList.toggle("hidden", !!u);
+  $("#su-approve").classList.toggle("hidden", !u);
+  $("#to-login").classList.toggle("hidden", !!u);
+  $("#su-who").textContent = u?.email || "";
+  if (u && !signupOpen) $("#su-approve .desc").textContent = `${u.email} 계정은 교사로 등록되어 있지 않아요. 지금은 교사 가입을 받지 않으니 관리자에게 문의하세요.`;
+}
+const setHash = (h) => history.replaceState(null, "", h ? "#" + h : location.pathname + location.search);
+$("#to-signup").onclick = () => { wantSignup = true; setHash("signup"); showAuth("signup", null); };
+$("#to-login").onclick = () => { wantSignup = false; setHash(""); showAuth("login", null); };
+$("#su-google").onclick = googleLogin;
+$("#su-switch").onclick = () => { wantSignup = true; signOut(auth).then(() => showAuth("signup", null)); };
+
+const signupError = (err) => ({
+  "auth/email-already-in-use": "이미 있는 이메일이에요. 로그인 화면에서 그 계정으로 로그인한 뒤 인증 문구를 넣으세요.",
+  "auth/invalid-email": "이메일 주소를 다시 확인하세요.",
+  "auth/weak-password": "비밀번호가 너무 쉬워요. 8자 이상으로 더 길게 만들어 주세요.",
+  "auth/operation-not-allowed": "이메일 가입이 꺼져 있어요. 구글 계정으로 가입하거나 관리자에게 문의하세요.",
+}[err?.code] || errMsg(err));
+// 이메일·비밀번호로 가입: 계정을 만들고 바로 인증 문구로 승인받는다. 문구가 틀리면 방금 만든 계정을 지운다.
+$("#su-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const email = $("#su-email").value.trim(), p1 = $("#su-pass").value, p2 = $("#su-pass2").value, code = $("#su-code").value.trim();
+  if (!email) return toast("이메일을 입력하세요.", true);
+  if (p1.length < 8) return toast("비밀번호는 8자 이상으로 만들어 주세요.", true);
+  if (p1 !== p2) return toast("비밀번호 확인이 맞지 않아요.", true);
+  if (!code) return toast("교사 인증 문구를 입력하세요.", true);
+  const b = $("#su-btn"); b.disabled = true; busySignup = true;
+  try {
+    const cred = await createUserWithEmailAndPassword(auth, email, p1);
+    try { await call("registerTeacher")({ code }); }
+    catch (err) { await cred.user.delete().catch(() => signOut(auth)); throw err; }
+    $("#su-pass").value = $("#su-pass2").value = $("#su-code").value = "";
+    busySignup = false; setHash("");
+    toast("교사 계정이 만들어졌어요. 다음부터는 이 이메일과 비밀번호로 로그인하세요.");
+    enterMain(auth.currentUser);
+  } catch (err) {
+    busySignup = false;
+    toast(signupError(err), true);
+    showAuth("signup", null);
+  } finally { b.disabled = false; }
+};
+// 로그인은 했지만 교사가 아닌 계정(처음 쓰는 구글 계정 등): 인증 문구로 승인
+$("#su-approve-btn").onclick = async () => {
+  const code = $("#su-code2").value.trim();
+  if (!code) return toast("교사 인증 문구를 입력하세요.", true);
+  const b = $("#su-approve-btn"); b.disabled = true;
+  try {
+    await call("registerTeacher")({ code });
+    $("#su-code2").value = ""; setHash("");
+    toast("교사로 승인됐어요.");
+    enterMain(auth.currentUser);
+  } catch (err) { toast(errMsg(err), true); }
+  finally { b.disabled = false; }
+};
+
+let listUnsub = null, entered = false;
+function enterMain(u) {
+  $("#login").classList.add("hidden"); $("#signup").classList.add("hidden");
+  $("#main").classList.remove("hidden");
+  $("#t-logout").classList.remove("hidden");
+  $("#who").textContent = u.email || "";
+  if (entered) return;
+  entered = true;
+  listSessions(u.uid); eventIds().forEach((id) => refreshCase(id).catch(() => {}));
+}
+onAuthStateChanged(auth, async (u) => {
+  if (busySignup) return; // 이메일 가입 중에는 가입 처리가 화면을 정한다
   const ok = u && !u.isAnonymous;
-  $("#login").classList.toggle("hidden", !!ok);
-  $("#main").classList.toggle("hidden", !ok);
   $("#t-logout").classList.toggle("hidden", !ok);
   $("#who").textContent = ok ? u.email : "";
-  if (ok) { listSessions(u.uid); refreshCase("jeju2018").catch(() => {}); }
+  if (!ok) return showAuth(wantSignup ? "signup" : "login", null);
+  // 로그인했어도 교사로 승인된 계정인지 서버에 묻는다. 아니면 인증 문구 입력으로.
+  // 확인 자체가 안 되면(네트워크 등) 교사 화면을 보여 주고, 권한은 서버가 호출마다 다시 확인한다.
+  let teacher = true;
+  try { const r = (await call("teacherStatus")()).data || {}; teacher = r.teacher !== false; signupOpen = r.signupOpen !== false; } catch {}
+  if (auth.currentUser?.uid !== u.uid) return; // 확인하는 사이 계정이 바뀌었다
+  if (!teacher) return showAuth("signup", u);
+  enterMain(u);
 });
 
 // ---------- 탭 ----------
 function showTab(name) {
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
   for (const t of ["classes", "check"]) $(`#tab-${t}`).classList.toggle("hidden", t !== name);
-  if (name === "check") loadCheck($("#t-event").value);
+  if (name === "check") loadCheck($("#check-event").value);
 }
 $("#tabs").onclick = (e) => { const b = e.target.closest("[data-tab]"); if (b) showTab(b.dataset.tab); };
 
@@ -52,6 +143,18 @@ function showCTab(name) {
   if (name === "settings") fillSettings();
 }
 $("#ctabs").onclick = (e) => { const b = e.target.closest("[data-ctab]"); if (b) showCTab(b.dataset.ctab); };
+
+// ---------- 사건 고르기 ----------
+// 사건 목록은 수업 만들기 칸의 <select id="t-event"> 에 있다. 점검 탭의 사건 고르기도 같은 목록을 쓴다.
+const eventIds = () => [...$("#t-event").options].map((o) => o.value);
+$("#check-event").innerHTML = $("#t-event").innerHTML;
+$("#check-event").onchange = () => loadCheck($("#check-event").value);
+// 사건을 바꾸면, 교사가 고치지 않은 수업 이름은 그 사건의 기본 이름으로 바꾼다
+const defaultTitles = new Set([...$("#t-event").options].map((o) => o.dataset.title));
+$("#t-event").onchange = () => {
+  const o = $("#t-event").selectedOptions[0];
+  if (!$("#t-title").value.trim() || defaultTitles.has($("#t-title").value)) $("#t-title").value = o.dataset.title;
+};
 
 // ---------- 수업 만들기·목록 ----------
 const toggleNew = (open) => $("#new-form").classList.toggle("hidden", !open);
@@ -77,7 +180,7 @@ function listSessions(uid) {
     sessionRows = s.docs.map((d) => ({ code: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
     $("#sessions").innerHTML = sessionRows.map((r) =>
       `<div class="cell cls"><div class="grow"><b>${esc(r.title)}</b>${r.closed ? ` <span class="tag r">닫힘</span>` : r.started === false ? ` <span class="tag y">대기 중</span>` : ` <span class="tag">진행 중</span>`}<br><span class="meta-line"><span class="code">${r.code}</span> · ${r.groupCount}모둠 · ${fmt(r.createdAt)}</span></div><button class="btn btn-tinted btn-sm" data-code="${r.code}">열기</button></div>`
-    ).join("") || `<div class="cell meta-line">아직 만든 수업이 없습니다. 위의 '＋ 새 수업 만들기'로 시작하세요.</div>`;
+    ).join("") || `<div class="cell meta-line">아직 수업이 없어요. '＋ 새 수업 만들기'로 시작하세요.</div>`;
     if (current) {
       const cur = sessionRows.find((r) => r.code === current);
       if (cur) { curTitle = cur.title; $("#d-title").textContent = cur.title; renderOpen(); }
@@ -97,13 +200,13 @@ function progressOf(work) {
     hasKeys(w.s4?.proposals) || filled(w.s4?.final),
     hasKeys(w.s5?.selection) || filled(w.s5?.newProblem),
     hasKeys(w.s6?.plan),
-    filled(w.s7?.reflection) || hasKeys(w.s7?.checks),
+    filled(w.s7?.reflection) || filled(w.s7?.compare) || hasKeys(w.s7?.checks),
   ];
 }
 
 function openSession(code, title) {
   title = title || sessionRows.find((r) => r.code === code)?.title || "수업";
-  current = code; curTitle = title; gFilter = "all"; logsBy = {}; workGid = null; mat.loaded = false; pe.loaded = false; assigns = {}; picked = new Set();
+  current = code; curTitle = title; gFilter = "all"; conduct = []; logsBy = {}; workGid = null; mat.loaded = false; pe.loaded = false; assigns = {}; picked = new Set();
   unsubs.forEach((u) => u()); unsubs = [];
   clearInterval(tickTimer);
   $("#class-list-view").classList.add("hidden");
@@ -112,8 +215,16 @@ function openSession(code, title) {
   $("#detail").classList.add("hidden");
   $("#d-title").textContent = title;
   $("#d-code").textContent = code;
+  for (const k of Object.keys(changedAt)) delete changedAt[k];
+  renderQr();
   renderOpen();
   piiBy = {};
+  unsubs.push(onSnapshot(query(collection(db, `sessions/${code}/alerts`), orderBy("createdAt", "desc")), (s) => {
+    const before = conduct.length;
+    conduct = s.docs.map((d) => ({ id: d.id, ...d.data() }));
+    if (before && conduct.length > before) toast("⚠ 대화 규칙 위반 신호가 새로 들어왔습니다", true);
+    renderDash();
+  }));
   unsubs.push(onSnapshot(collection(db, `sessions/${code}/guardlog`), (s) => { piiBy = {}; s.docs.forEach((d) => { const x = d.data(); if ((x.pii || []).length) piiBy[x.uid] = (piiBy[x.uid] || 0) + 1; }); renderDash(); }));
   unsubs.push(onSnapshot(collection(db, `sessions/${code}/assign`), (s) => { assigns = Object.fromEntries(s.docs.map((d) => [d.id, d.data().personaId])); renderDash(); }));
   unsubs.push(onSnapshot(collection(db, `sessions/${code}/members`), (s) => { members = s.docs.map((d) => ({ uid: d.id, ...d.data() })); renderDash(); }));
@@ -135,6 +246,7 @@ function openSession(code, title) {
 }
 
 function closeSession() {
+  closePresent();
   unsubs.forEach((u) => u()); unsubs = [];
   clearInterval(tickTimer);
   current = null; members = []; groups = []; logsBy = {};
@@ -147,15 +259,41 @@ const isOnline = (m) => m.lastSeen?.toMillis && Date.now() - m.lastSeen.toMillis
 const ago = (m) => { const t = m.lastSeen?.toMillis?.(); if (!t) return "기록 없음"; const s = Math.max(0, Math.round((Date.now() - t) / 1000)); return s < 60 ? `${s}초 전` : s < 3600 ? `${Math.round(s / 60)}분 전` : `${Math.round(s / 3600)}시간 전`; };
 const personaLabels = {}; // 인물 ID → 교사용 역할명 (getCase 로 채움)
 
+// 현황 숫자 칸의 선 아이콘(24칸 기준)
+const kpiSvg = (d) => `<svg class="kpi-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const KPI_ICON = {
+  online: kpiSvg('<circle cx="12" cy="12" r="3"/><path d="M6.3 6.3a8 8 0 0 0 0 11.4M17.7 6.3a8 8 0 0 1 0 11.4"/>'),
+  people: kpiSvg('<circle cx="9" cy="8.5" r="3"/><path d="M3.5 20c0-3 2.5-5.5 5.5-5.5s5.5 2.5 5.5 5.5"/><circle cx="16.5" cy="9.5" r="2.3"/><path d="M16 14.6c2.6.3 4.5 2.5 4.5 5.1"/>'),
+  ai: kpiSvg('<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H10l-4.5 3.5V16A1.5 1.5 0 0 1 4 14.5z"/><path d="M8.5 9h7M8.5 12h4.5"/>'),
+  guard: kpiSvg('<path d="M12 3l7 3v5.5c0 4.3-2.9 7.8-7 9.5-4.1-1.7-7-5.2-7-9.5V6z"/><path d="M12 8.5v4M12 15.5v.01"/>'),
+  flag: kpiSvg('<path d="M5 21V4"/><path d="M5 4.5h11l-2 4 2 4H5"/>'),
+  pause: kpiSvg('<circle cx="12" cy="12" r="8.5"/><path d="M10 9v6M14 9v6"/>'),
+};
 function renderDash() {
   if (!current) return;
+  trackChanges();
   renderLobby();
   renderAlerts();
+  renderPresent();
+  renderNoticeCard();
   const online = members.filter(isOnline).length;
   const ai = members.reduce((n, m) => n + (m.aiCount || 0), 0); // 인물 대화 + 3~5단계
   const guard = groups.reduce((n, g) => n + (g.guardCount || 0), 0);
-  $("#kpis").innerHTML = [["접속 중", `${online}명`], ["참여 학생", `${members.length}명`], ["AI 호출", `${ai}회`], ["감독자 개입", `${guard}회`]]
-    .map(([k, v]) => `<div class="kpi"><b>${v}</b><span>${k}</span></div>`).join("");
+  const lockedN = members.filter((m) => m.chatLocked).length;
+  $("#kpis").innerHTML = [["접속 중", `${online}명`, "", "online"], ["참여 학생", `${members.length}명`, "", "people"], ["AI 호출", `${ai}회`, "", "ai"], ["감독자 개입", `${guard}회`, "", "guard"],
+    ["규칙 위반 신호", `${conduct.length}건`, conduct.length ? "warn" : "", "flag"], ["대화 멈춤", `${lockedN}명`, lockedN ? "warn" : "", "pause"]]
+    .map(([k, v, c, ic]) => `<div class="kpi ${c || ""}">${KPI_ICON[ic]}<div><b>${v}</b><span>${k}</span></div></div>`).join("");
+
+  // 규칙 위반 신호: 최근 것부터. 대화가 멈춘 학생은 다시 열 수 있다
+  $("#conduct-card").classList.toggle("hidden", !conduct.length);
+  $("#conduct-list").innerHTML = conduct.slice(0, 30).map((a) => {
+    const m = members.find((x) => x.uid === a.uid);
+    return `<div class="alert-row"><div class="grow">
+      <div><span class="tag r">${esc(CONDUCT_LABELS[a.category] || a.category)}</span> <b>${esc(a.nickname)}</b> <span class="meta-line">· ${esc((a.groupId || "").replace("g", ""))}모둠 · ${esc(personaLabels[a.personaId] || "")} · ${fmt(a.createdAt)} · 경고 ${a.strikes}/3${a.by === "rule" ? " · 규칙 검사" : " · 감독자 판정"}</span></div>
+      <div class="alert-msg">“${esc(a.input)}”</div></div>
+      <div class="row"><button class="btn btn-tinted btn-sm" data-chat="${a.uid}">대화 보기</button>
+      ${m?.chatLocked ? `<button class="btn btn-danger btn-sm" data-unlock="${a.uid}">대화 다시 열기</button>` : ""}</div></div>`;
+  }).join("");
 
   $("#g-filter").innerHTML = [`<button class="chip sm ${gFilter === "all" ? "on" : ""}" data-g="all">전체</button>`,
     ...groups.map((g) => `<button class="chip sm ${gFilter === g.id ? "on" : ""}" data-g="${g.id}">${esc(g.name)}</button>`)].join("");
@@ -167,20 +305,22 @@ function renderDash() {
     <td><b>${esc(m.nickname)}</b></td><td>${esc(m.groupId.replace("g", ""))}모둠</td>
     <td>${esc(personaLabels[assigns[m.uid] || m.personaId] || assigns[m.uid] || m.personaId || "")}</td>
     <td><span class="pill">${m.stage || 1}. ${STAGE_NAMES[m.stage || 1]}</span></td>
-    <td><span class="dot ${isOnline(m) ? "on" : ""}"></span>${isOnline(m) ? "접속 중" : `자리 비움 · ${ago(m)}`}</td>
+    <td><span class="dot ${isOnline(m) ? "on" : ""}"></span>${isOnline(m) ? "접속 중" : `자리 비움 · ${ago(m)}`}
+      ${m.chatLocked ? ` <span class="tag r">대화 멈춤</span>` : m.conduct?.total ? ` <span class="tag y" title="누적 위반">⚠ ${m.conduct.total}</span>` : ""}</td>
     <td>${m.chatCount || 0} / ${curRow()?.chatLimit || 5}번</td>
-    <td class="row" style="flex-wrap:nowrap"><button class="btn btn-tinted btn-sm" data-chat="${m.uid}">대화 보기</button><button class="btn btn-plain btn-sm" data-reset="${m.uid}" data-nick="${esc(m.nickname)}">비번 초기화</button><button class="btn btn-plain btn-sm" data-move="${m.uid}" data-nick="${esc(m.nickname)}" data-g="${esc(m.groupId)}">모둠 이동</button></td></tr>`).join("");
+    <td class="row" style="flex-wrap:nowrap"><button class="btn btn-tinted btn-sm" data-chat="${m.uid}">대화 보기</button><button class="btn btn-plain btn-sm" data-reset="${m.uid}" data-nick="${esc(m.nickname)}">비번 초기화</button><button class="btn btn-plain btn-sm" data-move="${m.uid}" data-nick="${esc(m.nickname)}" data-g="${esc(m.groupId)}">모둠 이동</button>${assigns[m.uid] || m.personaId ? `<button class="btn btn-plain btn-sm" data-unpick="${m.uid}" data-nick="${esc(m.nickname)}">인물 풀기</button>` : ""}</td></tr>`).join("");
   renderBulk();
-  $("#no-students").textContent = rows.length ? "" : "아직 입장한 학생이 없습니다. 위의 수업 코드와 모둠 번호를 학생에게 알려 주세요.";
+  $("#no-students").textContent = rows.length ? "" : "아직 입장한 학생이 없어요. 위 수업 코드를 알려 주세요.";
 
   $("#groups").innerHTML = groups.map((g) => {
     const ms = members.filter((m) => m.groupId === g.id);
     const pr = progressOf(g.work);
     const cur = ms.length ? Math.max(...ms.map((m) => m.stage || 1)) : 0;
-    return `<tr><td><b>${esc(g.name)}</b></td><td>${ms.length}명 <span class="meta-line">(접속 ${ms.filter(isOnline).length})</span></td>
+    const st = stuckMin(g);
+    return `<tr><td><b>${esc(g.name)}</b>${st ? ` <span class="tag y" title="산출물·대화가 ${st}분째 그대로예요">${st}분째 그대로</span>` : ""}</td><td>${ms.length}명 <span class="meta-line">(접속 ${ms.filter(isOnline).length})</span></td>
       <td><span class="dots">${pr.map((f, i) => `<i class="${f ? "on" : ""} ${cur === i + 1 ? "cur" : ""}" title="${i + 1}단계 ${STAGE_NAMES[i + 1]}"></i>`).join("")}</span></td>
       <td>${g.aiCount || 0}회${g.lastAiError ? ` <span class="tag r" title="${esc(g.lastAiError.message)}">오류</span>` : ""}</td>
-      <td>${g.guardCount || 0}회</td>
+      <td>${g.guardCount || 0}회${g.conductCount ? ` <span class="tag r">위반 ${g.conductCount}</span>` : ""}</td>
       <td class="row" style="flex-wrap:nowrap"><button class="btn btn-tinted btn-sm" data-gwork="${g.id}">산출물</button><button class="btn btn-plain btn-sm" data-glog="${g.id}">AI 기록</button></td></tr>`;
   }).join("");
 }
@@ -210,6 +350,11 @@ async function loadGuardLogs(uidFilter) {
 }
 const piiTag = (pii) => (pii || []).length ? ` <span class="tag r" title="학생이 입력에 개인정보를 적었습니다">개인정보 의심 · ${pii.map(esc).join(", ")}</span>` : "";
 
+// 검색 교차 확인 결과(원문 대조 전 참고용)
+const CROSS = { ok: ["", "교차 확인"], partial: ["y", "일부 확인"], fixed: ["b", "고쳐 씀"], todo: ["x", "확인 못 함"] };
+const crossTag = (s) => s.crossCheck ? `<div class="meta-line" style="margin-top:2px"><span class="tag ${CROSS[s.crossCheck.status]?.[0] ?? "x"}">${CROSS[s.crossCheck.status]?.[1] || esc(s.crossCheck.status)}</span> ${esc(s.crossCheck.note)}</div>` : "";
+const CONDUCT_LABELS = { mockery: "조롱·모욕", sexual: "성적 희롱" };
+
 async function loadChat(uid) {
   workGid = null;
   const m = members.find((x) => x.uid === uid);
@@ -220,7 +365,7 @@ async function loadChat(uid) {
     const gl = glogs[l.id] || {};
     const g = gl.guard || l.guard;
     return `<div class="logline">
-    <div class="q">학생 ${esc(l.input)}${piiTag(gl.pii)}</div>
+    <div class="q">학생 ${esc(l.input)}${piiTag(gl.pii)}${gl.conduct ? ` <span class="tag r">${esc(CONDUCT_LABELS[gl.conduct.category] || "규칙 위반")} · 경고 ${gl.conduct.strikes}/3 · ${gl.conduct.by === "rule" ? "규칙 검사" : "감독자 판정"}</span>` : ""}</div>
     <div class="a">${esc(m?.nickname || "")} ↔ ${esc(personaLabels[pid] || pid || "")}: ${esc(l.output)}${guardTag(g)}</div>
     ${lookupHtml(l.lookups)}
     ${g && (!g.ok || g.trimmed) ? `<details><summary class="meta-line">감독자 판정 보기</summary><div class="meta-line">사유: ${esc(g.reason)}<br>인물의 원래 응답: ${esc(g.original || "")}</div></details>` : ""}
@@ -234,6 +379,7 @@ const prettyLog = (l) => {
   try {
     const j = JSON.parse(l.output);
     if (j.reviews) body = j.reviews.map((r) => `[${r.label}]\n${r.text}`).join("\n\n");
+    else if (j.question) body = `[생각 도우미${j.kind ? ` · ${j.kind}` : ""}] ${j.question}`;
     else if (j.scenarios) body = j.scenarios.map((s) => `■ ${s.title}\n${s.story}\n작동 기제: ${s.mechanism || ""}`).join("\n\n");
   } catch {}
   return body;
@@ -243,8 +389,8 @@ async function loadGroupLogs(gid) {
   const g = groups.find((x) => x.id === gid);
   const html = (g?.lastAiError ? `<div class="notice">최근 AI 오류 (${g.lastAiError.stage}단계): ${esc(g.lastAiError.message)}</div>` : "") +
     (snap.docs.map((d) => d.data()).map((l) => `<div class="logline"><div class="meta-line">${l.stage}단계 · ${esc(l.nickname)} · ${fmt(l.createdAt)} · ${esc(l.model)}</div>
-      <div class="q">${esc(l.input)}</div><div class="a">${esc(prettyLog(l))}</div></div>`).join("") || `<div class="meta-line">3~5단계 AI 기록이 없습니다.</div>`);
-  showDetail(`${g?.name || gid} 3~5단계 AI 기록`, html);
+      <div class="q">${esc(l.input)}</div><div class="a">${esc(prettyLog(l))}</div></div>`).join("") || `<div class="meta-line">2~5단계 AI 기록이 없습니다.</div>`);
+  showDetail(`${g?.name || gid} 2~5단계 AI 기록`, html);
 }
 function renderBulk() {
   const n = picked.size;
@@ -260,22 +406,37 @@ $("#stu-all").onchange = (e) => {
   document.querySelectorAll("#students [data-pick]").forEach((c) => { c.checked = e.target.checked; e.target.checked ? picked.add(c.dataset.pick) : picked.delete(c.dataset.pick); });
   renderBulk();
 };
+const PW_RESET_BODY = "<p>학생이 같은 별명으로 다시 입장하면서 새 비밀번호를 정해요. 하던 내용은 그대로 이어져요.</p>";
 $("#bulk-reset").onclick = async () => {
-  if (!picked.size || !confirm(`선택한 ${picked.size}명의 비밀번호를 지울까요?\n각 학생이 같은 별명으로 다시 입장하면서 새 비밀번호를 정합니다. 하던 내용은 그대로 이어집니다.`)) return;
+  if (!picked.size || !(await confirmModal(`${picked.size}명의 비밀번호를 지울까요?`, PW_RESET_BODY, "비밀번호 지우기", "취소"))) return;
   try { const { data } = await call("resetStudentPassword")({ code: current, uids: [...picked] }); toast(`${data.count}명의 비밀번호를 초기화했습니다.`); picked.clear(); renderDash(); }
   catch (err) { toast(errMsg(err), true); }
 };
 $("#students").onclick = async (e) => {
+  const up = e.target.closest("[data-unpick]");
+  if (up) {
+    if (!(await confirmModal("고른 인물을 풀까요?", `<p><b>${esc(up.dataset.nick)}</b> 학생이 고른 인물을 풀어 다시 고르게 합니다. 이 학생의 <b>대화 기록은 지워지고</b> 질문 횟수도 처음으로 돌아갑니다.</p>`, "풀기", "취소", true))) return;
+    try { await call("resetPersonaChoice")({ code: current, uid: up.dataset.unpick }); toast(`'${up.dataset.nick}' 학생의 인물 선택을 풀었습니다.`); }
+    catch (err) { toast(errMsg(err), true); }
+    return;
+  }
   const mv = e.target.closest("[data-move]");
   if (mv) return moveDialog(mv.dataset.move, mv.dataset.nick, mv.dataset.g);
   const r = e.target.closest("[data-reset]");
   if (r) {
-    if (!confirm(`'${r.dataset.nick}' 학생의 비밀번호를 지울까요?\n학생이 같은 별명으로 다시 입장하면서 새 비밀번호를 정합니다. 하던 내용은 그대로 이어집니다.`)) return;
+    if (!(await confirmModal(`'${esc(r.dataset.nick)}' 학생의 비밀번호를 지울까요?`, PW_RESET_BODY, "비밀번호 지우기", "취소"))) return;
     try { await call("resetStudentPassword")({ code: current, uid: r.dataset.reset }); toast(`'${r.dataset.nick}' 비밀번호를 초기화했습니다.`); }
     catch (err) { toast(errMsg(err), true); }
     return;
   }
   const b = e.target.closest("[data-chat]"); if (b) loadChat(b.dataset.chat).catch((err) => toast(errMsg(err), true));
+};
+$("#conduct-list").onclick = async (e) => {
+  const c = e.target.closest("[data-chat]"); if (c) return loadChat(c.dataset.chat).catch((err) => toast(errMsg(err), true));
+  const u = e.target.closest("[data-unlock]"); if (!u) return;
+  u.disabled = true;
+  try { await call("unlockChat")({ code: current, uid: u.dataset.unlock }); toast("대화를 다시 열었습니다"); }
+  catch (err) { toast(errMsg(err), true); u.disabled = false; }
 };
 $("#groups").onclick = (e) => {
   const w = e.target.closest("[data-gwork]");
@@ -323,11 +484,12 @@ async function refreshCase(eventId) {
 async function loadCheck(eventId) {
   try {
     const data = await refreshCase(eventId);
-    $("#check-mode").innerHTML = data.allowUnverified ? `<div class="notice yellow">리허설 모드: 원문 대조 전 인물·자료도 학생에게 보입니다 (ALLOW_UNVERIFIED_PERSONAS=true). 실제 수업 전에는 false로 바꾸세요.</div>` : "";
+    $("#check-mode").innerHTML = data.allowUnverified ? `<div class="notice yellow">리허설 모드: 확인 전 인물·자료도 학생에게 보여요. 실제 수업 전에 꺼 주세요.</div>` : "";
     $("#check-note").innerHTML = `<div class="notice muted">교사 메모: ${esc(data.event.teacherNote)}</div>
       <div class="notice muted"><b>모든 인물이 아는 사건 공통 배경</b> (인물은 자기 진술과 이 배경에 있는 핵심 사실만 말합니다)${(data.event.background || []).map((c) =>
         `<div style="margin-top:4px"><span class="tag ${c.kind === "주장" || c.kind === "의견" ? "y" : ""}">${esc(c.kind)}</span> ${esc(c.text)} <span class="tag ${c.verified ? "" : "x"}">${esc(c.src)}</span></div>`).join("")}</div>
-      <div class="notice muted">인물 ${data.personas.length}명은 네 축(당사자·도민·시민사회·제도)으로 나뉩니다. 학생이 입장하면 모둠 안에서 축이 겹치지 않게 무작위로 배정됩니다. 배정은 수업 현황의 '인물(교사용)' 열에서 봅니다.</div>`;
+      <div class="notice muted">인물 ${data.personas.length}명은 네 축(${esc((data.event.axes || []).join("·"))})으로 나뉩니다. 학생은 1단계에서 모든 인물의 편지를 읽고 모둠이 상의해 한 명씩 직접 고릅니다(모둠 안에서 겹치지 않고, ${esc(data.event.requiredAxis || "당사자")} 인물은 모둠에 꼭 한 명). 누가 누구를 골랐는지는 수업 현황의 '인물(교사용)' 열에서 봅니다. 잘못 골랐으면 그 줄의 '인물 풀기'로 다시 고르게 할 수 있습니다.</div>`;
+    $("#persona-count").textContent = data.personas.length;
     $("#persona-check").innerHTML = data.personas.map((p) => {
       const ok = p.sources.every((s) => s.verified);
       return `<details class="fold"><summary><span><span class="tag b">${esc(p.axis || "")}</span> ${esc(p.name)} <span class="meta-line">· ${esc(p.label)}</span></span> <span class="tag ${ok ? "" : "y"}">${ok ? "원문 대조 완료" : "대조 필요"}</span></summary><div class="inner">
@@ -337,16 +499,29 @@ async function loadCheck(eventId) {
           ${(p.story || []).map((v) => `<div class="meta-line" style="color:var(--ink);margin-top:4px">· ${esc(v)}</div>`).join("")}
           <div style="margin-top:8px"><b>기억나는 장면</b></div>${(p.episodes || []).map((v) => `<div class="meta-line" style="color:var(--ink);margin-top:4px">· ${esc(v)}</div>`).join("")}
           <div class="meta-line" style="margin-top:8px">마음속 고민: ${esc(p.inner || "")}</div><div class="meta-line">말버릇: ${esc(p.habits || "")}</div></details>
+        ${(p.beliefs || []).length ? `<div class="notice yellow" style="margin-top:10px"><b>이 인물이 사실이라고 믿는 것 (틀리거나 과장일 수 있음)</b><div class="meta-line">학생이 다른 인물의 말·자료와 견주어 3단계에서 검증하도록 넣은 장치입니다.</div>${p.beliefs.map((b) => `<div style="margin-top:6px">· ${esc(b.text)}<div class="meta-line">실제: ${esc(b.note)}</div></div>`).join("")}</div>` : ""}
         ${(p.limits || []).length ? `<div class="notice yellow" style="margin-top:10px"><b>조심할 이야기</b>${p.limits.map((v) => `<div style="margin-top:4px">· ${esc(v)}</div>`).join("")}</div>` : ""}
         <div style="margin-top:10px"><b>학생에게 보이는 편지</b><div class="ai-out">${p.letter.map(esc).join("\n\n")}</div></div>
         <div style="margin-top:10px"><b>근거 진술</b>${p.claims.map((c) => `<div class="meta-line" style="color:var(--ink);margin-top:4px"><span class="tag ${c.kind === "주장" || c.kind === "의견" ? "y" : ""}">${esc(c.kind)}</span> ${esc(c.text)} <span class="tag x">${esc(c.src)}</span></div>`).join("")}</div>
         <div style="margin-top:10px"><b>출처 (원문을 열어 진술과 대조)</b>${p.sources.map((s) => `<div style="margin-top:8px"><span class="tag ${s.verified ? "" : "x"}">${s.id}</span>
           <a href="${esc(safeUrl(s.url))}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a>${s.titleIsDescriptive ? ' <span class="meta-line">(제목은 설명 문구, 실제 제목 확인)</span>' : ""}
-          <div class="meta-line">${esc(s.outlet)} · ${esc(s.date)}</div><div class="meta-line">확인할 것: ${esc(s.check)}</div></div>`).join("")}</div></div></details>`;
+          <div class="meta-line">${esc(s.outlet)} · ${esc(s.date)}</div><div class="meta-line">확인할 것: ${esc(s.check)}</div>${crossTag(s)}</div>`).join("")}</div></div></details>`;
     }).join("");
     $("#material-check").innerHTML = data.materials.map((c) => `<details class="fold"><summary>${esc(c.title)} <span class="meta-line">· ${c.items.length}개</span></summary><div class="inner">
       ${c.items.map((it) => `<div class="logline"><span class="kind k-${esc(it.kind)}">${esc(it.kind)}</span> ${it.date ? `<b>${esc(it.date)}</b> ` : ""}${esc(it.text)}
         <div class="meta-line">${it.src.map((id) => `<span class="tag ${it.verified ? "" : "x"}">${id}</span>`).join(" ")} 학생에게 보이는 캡션: ${esc(it.caption)}${it.verified ? "" : " · 미검증"}</div></div>`).join("")}</div></details>`).join("");
+    const srcList = (sources) => sources.map((s) => `<div style="margin-top:8px"><span class="tag ${s.verified ? "" : "x"}">${s.id}</span>
+      <a href="${esc(safeUrl(s.url))}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a>${s.titleIsDescriptive ? ' <span class="meta-line">(제목은 설명 문구, 실제 제목 확인)</span>' : ""}
+      <div class="meta-line">${esc(s.outlet)} · ${esc(s.date)}</div><div class="meta-line">확인할 것: ${esc(s.check)}</div>${crossTag(s)}</div>`).join("");
+    $("#case-check").innerHTML = (data.cases || []).map((c) => `<details class="fold"><summary><span>${esc(c.country)} <span class="meta-line">· ${esc(c.title)}</span></span> <span class="tag ${c.verified ? "" : "y"}">${c.verified ? "원문 대조 완료" : "대조 필요"}</span></summary><div class="inner">
+      <div class="meta-line" style="color:var(--ink)"><b>무엇을 했나</b> ${esc(c.what)}</div>
+      <div class="meta-line" style="color:var(--ink);margin-top:4px"><b>어떻게 되었나</b> ${esc(c.result)}</div>
+      <div class="meta-line" style="margin-top:4px"><b>생각해 볼 점</b> ${esc(c.think)}</div>
+      <div style="margin-top:10px"><b>출처</b>${srcList(c.sources)}</div></div></details>`).join("");
+    $("#after-check").innerHTML = `<details class="fold"><summary>이후 전개 <span class="meta-line">· ${(data.aftermath || []).length}개</span></summary><div class="inner">
+      ${(data.aftermath || []).map((it) => `<div class="logline"><span class="kind k-${esc(it.kind)}">${esc(it.kind)}</span> ${esc(it.text)}
+        <div class="meta-line">${it.src.map((id) => `<span class="tag ${it.verified ? "" : "x"}">${id}</span>`).join(" ")} ${esc(it.caption)}${it.verified ? "" : " · 미검증"}</div></div>`).join("")}
+      <div style="margin-top:10px"><b>출처</b>${srcList([...new Map((data.aftermath || []).flatMap((a) => a.sources).map((s) => [s.id, s])).values()])}</div></div></details>`;
   } catch (e) { $("#persona-check").innerHTML = `<div class="notice">${esc(errMsg(e))}</div>`; }
 }
 
@@ -368,17 +543,21 @@ function stageSections(n, g) {
       return [
         { title: "개인 제출 (모둠원이 만난 인물)", rows: listOf(w.s1?.findings).map((f) => [
           `${f.nick || "모둠원"} → ${f.persona || "인물"}${f.submitted === false ? " (수정 중·미제출)" : ""}`,
-          joinLines(["누구", f.who], ["힘든 것", f.hard], ["바라는 것", f.want], ["기억에 남는 말", f.quote], ["확인할 말", f.doubt], ["", f.text]), f.nick]) },
+          joinLines(["대화 전 내 생각", f.prior], ["누구", f.who], ["힘든 것", f.hard], ["바라는 것", f.want], ["'어?' 했던 순간", f.surprise], ["기억에 남는 말", f.quote], ["정말 그럴까?", f.doubt], ["", f.text]), f.nick]) },
         { title: "모둠 문제 정의", rows: [
-          ["같은 점", pb.common], ["부딪히는 점", pb.conflict], ["문제 상황", pb.situation], ["우리가 풀 질문", pb.hmw],
+          ["같은 점", pb.common], ["서로 다르게 말한 것", pb.disputes], ["부딪히는 점", pb.conflict], ["문제 상황", pb.situation], ["우리가 풀 질문", pb.hmw],
           ["점검표", hasKeys(pb.checks) ? `${countTrue(pb.checks)} / ${PROBLEM_CHECK_N}` : ""]].filter(([, v]) => tx(v)) },
       ];
     }
     case 2: return [
-      { title: "나·우리와의 연결고리", rows: listOf(w.s2?.links).map((r) => [r.level, joinLines(["처지", r.situation], ["이어지는 점", r.point], ["확인 방법", r.confirm]), r.nick]) },
-      { title: "원인 가설", rows: listOf(w.s2?.causes).map((c) => [c.level || "원인", c.text, c.nick]) },
+      { title: "처음 내 생각 돌아보기", rows: listOf(w.s2?.links).map((r) => [r.angle || r.level || "연결", joinLines(
+        ["처음 생각", r.prior], ["흔들린 순간", r.surprise], ["처음 생각의 이유", r.source], ["내 생활의 비슷한 순간", r.scene], ["더 알고 싶은 것", r.question],
+        ["처지", r.situation], ["이어지는 점", r.point], ["확인 방법", r.confirm],
+        ...ofStage(2).filter((l) => l.payload?.linkId === r.id).map((l) => ["생각 도우미", prettyLog(l)]), ["더 생각한 것", w.s2?.linkMore?.[r.id]]), r.nick]) },
+      { title: "원인 추측", rows: [...listOf(w.s2?.causes).map((c) => [c.level || "원인", c.text, c.nick]),
+        ...ofStage(2).filter((l) => l.payload?.focus === "cause").map((l) => ["생각 도우미", prettyLog(l), l.nickname])] },
       { title: "검증 질문", rows: listOf(w.s2?.checks).map((c) => [`확인할 말: ${c.heard || ""}`, joinLines(
-        ["관련 원인 가설", c.causeId ? listOf(w.s2?.causes).find((x) => x.id === c.causeId)?.text || "(삭제됨)" : ""],
+        ["관련 원인 추측", c.causeId ? listOf(w.s2?.causes).find((x) => x.id === c.causeId)?.text || "(삭제됨)" : ""],
         ["검증 질문", c.question], ["확인할 자료", c.srcType], ["자료 비교", c.real]), c.nick]) },
     ];
     case 3: {
@@ -396,7 +575,7 @@ function stageSections(n, g) {
     case 4: {
       const props = listOf(w.s4?.proposals);
       return [
-        { title: "모둠 대안", rows: props.map((p) => ["대안", p.text, p.nick]) },
+        { title: "모둠 대안", rows: props.map((p) => ["대안", joinLines(["", p.text], ["겨냥하는 원인", p.cause], ["참고한 사례", p.ref]), p.nick]) },
         { title: "AI 검토와 모둠 판단", rows: ofStage(4).map((l) => {
           const p = props.find((x) => x.id === l.payload?.proposalId), d = w.s4?.decisions?.[l.id] || {};
           return [`검토 대상: ${(p?.text || l.input).slice(0, 60)}`, joinLines(["판단", d.choice], ["공통 지적", d.compare], ["이유", d.reason],
@@ -419,7 +598,7 @@ function stageSections(n, g) {
       const p = w.s6?.plan || {};
       return [{ title: p.type === "patch" ? "대안 보완안" : "행동 계획", rows: [["대상", p.target], ["내용", p.content], ["방법", p.method], ["기대 효과", p.effect], ["어려움과 대응", p.difficulty]].filter(([, v]) => tx(v)) }];
     }
-    case 7: return [{ title: "공유·성찰", rows: [["발표 정리", w.s7?.share], ["AI 활용 점검", hasKeys(w.s7?.checks) ? `${countTrue(w.s7.checks)} / ${REFLECT_N}` : ""], ["성찰", w.s7?.reflection]].filter(([, v]) => tx(v)) }];
+    case 7: return [{ title: "돌아보기", rows: [["발표 정리", w.s7?.share], ["실제 전개와 비교", w.s7?.compare], ["AI 활용 점검", hasKeys(w.s7?.checks) ? `${countTrue(w.s7.checks)} / ${REFLECT_N}` : ""], ["성찰", w.s7?.reflection]].filter(([, v]) => tx(v)) }];
   }
   return [];
 }
@@ -468,14 +647,17 @@ async function loadMats(force = false) {
 }
 
 // 서버에 저장하고, 서버가 정리한 목록(id 부여, 길이 제한)으로 화면을 맞춘다. 실패하면 서버의 값으로 되돌린다.
-async function saveMats(okMsg = "저장했습니다") {
+// undo: 바꾸기 전 목록. 주면 알림에 '되돌리기'가 붙고, 누르면 그 목록을 다시 저장한다.
+async function saveMats(okMsg = "저장했습니다", undo = null) {
   try {
     const { data } = await call("saveMaterials")({ code: current, categories: mat.cats });
     Object.assign(mat, { cats: data.categories, isDefault: false, editItem: null, editCat: null });
-    toast(okMsg);
+    if (undo) toastAction(okMsg, "되돌리기", () => { mat.cats = undo; saveMats("되돌렸습니다"); }, 8000);
+    else toast(okMsg);
   } catch (e) { toast(errMsg(e), true); await loadMats(true); return; }
   renderMats();
 }
+const matsCopy = () => JSON.parse(JSON.stringify(mat.cats));
 
 const kindOptions = (sel) => KINDS.map((k) => `<option ${k === sel ? "selected" : ""}>${k}</option>`).join("");
 function itemForm(c, it) {
@@ -495,7 +677,7 @@ function catForm(c) {
   const isNew = !c;
   const v = c || { title: "", type: "list" };
   return `<div class="mform" data-form="${isNew ? "newcat" : "editcat:" + esc(c.id)}">
-    <div class="two"><div><label class="lbl" style="margin-top:0">분류 이름</label><input type="text" data-f="title" maxlength="40" placeholder="예) 제주 도민의 목소리" value="${esc(v.title)}" /></div>
+    <div class="two"><div><label class="lbl" style="margin-top:0">분류 이름</label><input type="text" data-f="title" maxlength="40" placeholder="예) 현지 주민의 목소리" value="${esc(v.title)}" /></div>
       <div><label class="lbl" style="margin-top:0">보여 주는 방식</label><select data-f="type"><option value="list" ${v.type === "list" ? "selected" : ""}>목록</option><option value="timeline" ${v.type === "timeline" ? "selected" : ""}>시간 순 흐름 (시점 입력)</option></select></div></div>
     <div class="row" style="margin-top:10px"><button class="btn btn-primary btn-sm" data-m="${isNew ? "cat-add" : "cat-save"}" ${isNew ? "" : `data-c="${esc(c.id)}"`}>${isNew ? "분류 만들기" : "저장"}</button>
       ${isNew ? "" : `<button class="btn btn-plain btn-sm" data-m="item-cancel">취소</button>`}</div></div>`;
@@ -549,10 +731,11 @@ $("#cpane-materials").onclick = async (e) => {
       Object.assign(it, { kind: v.kind, date: v.date ?? it.date, text: v.text, caption: v.caption || "" });
       return saveMats("자료를 고쳤습니다");
     }
-    case "item-del":
-      if (!confirm("이 자료를 삭제할까요? 학생 화면에서도 사라집니다.")) return;
+    case "item-del": {
+      const before = matsCopy();
       c.items = c.items.filter((x) => x.id !== id);
-      return saveMats("자료를 삭제했습니다");
+      return saveMats("자료를 삭제했어요", before);
+    }
     case "item-up": case "item-down": {
       const i = c.items.findIndex((x) => x.id === id);
       if (swap(c.items, i, act === "item-up" ? i - 1 : i + 1)) return saveMats("순서를 바꿨습니다");
@@ -571,22 +754,25 @@ $("#cpane-materials").onclick = async (e) => {
       Object.assign(c, { title: v.title, type: v.type });
       return saveMats("분류를 고쳤습니다");
     }
-    case "cat-del":
-      if (!confirm(`'${c.title}' 분류와 안의 자료 ${c.items.length}개를 모두 삭제할까요?`)) return;
+    case "cat-del": {
+      const before = matsCopy();
       mat.cats = mat.cats.filter((x) => x.id !== c.id);
-      return saveMats("분류를 삭제했습니다");
+      return saveMats(`'${c.title}' 분류(자료 ${c.items.length}개)를 삭제했어요`, before);
+    }
     case "cat-up": case "cat-down": {
       const i = mat.cats.findIndex((x) => x.id === c.id);
       if (swap(mat.cats, i, act === "cat-up" ? i - 1 : i + 1)) return saveMats("순서를 바꿨습니다");
       return;
     }
-    case "reset":
-      if (!confirm("이 수업에서 고친 자료를 모두 버리고 기본 자료로 되돌릴까요? 되돌릴 수 없습니다.")) return;
+    case "reset": { // 고친 자료를 들고 있다가, '되돌리기'를 누르면 이 수업만의 자료로 다시 저장한다
+      const before = matsCopy();
       try {
         const { data } = await call("resetMaterials")({ code: current });
         Object.assign(mat, { cats: data.categories, isDefault: true, editItem: null, editCat: null });
-        toast("기본 자료로 되돌렸습니다"); renderMats();
+        toastAction("기본 자료로 바꿨어요", "되돌리기", () => { mat.cats = before; saveMats("고친 자료로 되돌렸습니다"); }, 8000);
+        renderMats();
       } catch (err) { toast(errMsg(err), true); }
+    }
   }
 };
 
@@ -603,6 +789,7 @@ function fillSettings() {
   $("#s-ailimit").value = r.aiLimit || 150;
   $("#s-chatlimit").value = r.chatLimit || 5;
   $("#s-web").value = r.webSearch === false ? "0" : "1";
+  $("#s-coach").value = r.coach === false ? "0" : "1";
   $("#s-auto").value = String(r.autoCloseHours || 0);
   $("#s-guide").style.whiteSpace = "pre-wrap";
   $("#s-guide").textContent = studentGuide();
@@ -611,7 +798,7 @@ $("#s-save").onclick = async () => {
   try {
     await call("updateSession")({
       code: current, title: $("#s-title").value, groupCount: Number($("#s-groups").value),
-      aiLimit: Number($("#s-ailimit").value), chatLimit: Number($("#s-chatlimit").value), webSearch: $("#s-web").value === "1", autoCloseHours: Number($("#s-auto").value),
+      aiLimit: Number($("#s-ailimit").value), chatLimit: Number($("#s-chatlimit").value), webSearch: $("#s-web").value === "1", coach: $("#s-coach").value === "1", autoCloseHours: Number($("#s-auto").value),
     });
     toast("저장했습니다");
     setTimeout(fillSettings, 400);
@@ -619,12 +806,28 @@ $("#s-save").onclick = async () => {
 };
 $("#s-copy-guide").onclick = async () => { try { await navigator.clipboard.writeText(studentGuide()); toast("안내문을 복사했어요"); } catch { toast("복사하지 못했습니다. 위 글을 직접 선택해 복사하세요.", true); } };
 $("#s-delete").onclick = async () => {
-  const typed = prompt(`'${curTitle}' 수업을 삭제합니다. 모든 기록이 지워지고 되돌릴 수 없습니다.\n계속하려면 수업 코드(${current})를 입력하세요.`);
-  if (typed === null) return;
-  if (typed.trim().toUpperCase() !== current) return toast("수업 코드가 맞지 않아 삭제하지 않았습니다.", true);
+  // 되돌릴 수 없으므로 수업 코드를 직접 쳐야 삭제 버튼이 눌린다
+  const ok = await deleteDialog();
+  if (!ok) return;
   try { await call("deleteSession")({ code: current }); toast("수업을 삭제했습니다"); closeSession(); }
   catch (e) { toast(errMsg(e), true); }
 };
+
+function deleteDialog() {
+  const p = showModal({
+    title: `'${esc(curTitle)}' 수업을 삭제할까요?`, dismissible: true,
+    body: `<p>모둠 산출물, AI 기록, 학생 대화가 모두 지워지고 되돌릴 수 없어요. 필요하면 먼저 <button class="link" type="button" id="del-csv">기록 CSV</button>를 받아 두세요.</p>
+      <label class="lbl" for="del-code">확인을 위해 수업 코드 <b>${esc(current)}</b>를 입력하세요</label>
+      <input type="text" id="del-code" maxlength="10" autocomplete="off" autocapitalize="characters" spellcheck="false" />`,
+    actions: [{ label: "삭제", value: true, kind: "btn-danger", disabled: true }, { label: "취소", value: false }],
+  });
+  const input = document.querySelector("#del-code"), btn = document.querySelector('.modal .btn-danger');
+  input.oninput = () => { input.value = input.value.toUpperCase().replace(/[^A-Z0-9]/g, ""); btn.disabled = input.value !== current; };
+  input.onkeydown = (e) => { if (e.key === "Enter" && !e.isComposing && !btn.disabled) btn.click(); };
+  document.querySelector("#del-csv").onclick = () => $("#csv-btn").click();
+  input.focus();
+  return p.then((v) => v === true);
+}
 
 // ---------- 수업 열기/닫기 ----------
 // 닫으면 새로 입장할 수도, 이미 들어와 있던 학생이 이어서 쓸 수도 없다(수업이 끝난 뒤 접속 차단). 언제든 다시 열 수 있다.
@@ -636,11 +839,12 @@ function renderOpen() {
   b.className = "btn btn-sm " + (closed ? "btn-primary" : "btn-danger");
   const waiting = !closed && r?.started === false;
   $("#open-note").innerHTML = closed
-    ? `<span class="tag r">닫힘</span> <span class="meta-line">학생은 입장할 수 없고, 들어와 있던 학생도 더 쓸 수 없습니다.</span>`
+    ? `<span class="tag r">닫힘</span> <span class="meta-line">학생 접속이 막혀 있어요</span>`
     : waiting
-      ? `<span class="tag y">대기 중</span> <span class="meta-line">학생이 모두 들어오면 아래 '수업 시작하기'를 누르세요.</span>`
-      : `<span class="tag">진행 중</span> <span class="meta-line">수업이 끝나면 '수업 닫기'를 눌러 추가 접속을 막으세요.</span>`;
+      ? `<span class="tag y">대기 중</span> <span class="meta-line">모두 들어오면 아래 '수업 시작하기'</span>`
+      : `<span class="tag">진행 중</span> <span class="meta-line">끝나면 '수업 닫기'</span>`;
   renderLobby();
+  renderNoticeCard();
 }
 
 // ---------- 대기실: 모두 들어왔는지 확인하고 수업 시작 ----------
@@ -675,7 +879,7 @@ $("#start-btn").onclick = async () => {
 async function moveDialog(uid, nick, fromId) {
   const to = await showModal({
     title: `${esc(nick)} 학생을 옮길 모둠`, dismissible: true, grid: true,
-    body: `<p class="meta-line">지금은 ${esc(String(fromId).replace("g", ""))}모둠이에요. 인물·대화·개인 정리·비밀번호가 함께 옮겨지고, 학생 화면은 새 모둠으로 저절로 바뀝니다.</p>`,
+    body: `<p class="meta-line">지금은 ${esc(String(fromId).replace("g", ""))}모둠이에요. 인물·대화·비밀번호가 함께 옮겨져요.</p>`,
     actions: [...groups.map((g) => ({ label: `${esc(g.name)} <small>(${members.filter((m) => m.groupId === g.id).length}명)</small>`, value: g.id, kind: g.id === fromId ? "btn-tinted" : "btn-plain", disabled: g.id === fromId })), { label: "취소", value: null }],
   });
   if (!to) return;
@@ -684,13 +888,20 @@ async function moveDialog(uid, nick, fromId) {
 }
 $("#open-btn").onclick = async () => {
   const closing = !sessionRows.find((x) => x.code === current)?.closed;
-  if (closing && !confirm("수업을 닫을까요? 학생이 더 이상 입장하거나 AI를 쓸 수 없습니다. 기록은 그대로 보존되고 언제든 다시 열 수 있습니다.")) return;
+  if (closing) {
+    // 닫기 전에 아직 남은 상황(접속 중인 학생, 7단계를 마치지 않은 모둠)을 보여 준다
+    const online = members.filter(isOnline).length;
+    const unfinished = groups.filter((g) => members.some((m) => m.groupId === g.id) && !filled(g.work?.s7?.share)).map((g) => g.name);
+    const warn = [online && `지금 접속 중인 학생이 ${online}명 있어요.`, unfinished.length && `7단계 발표 준비를 아직 쓰지 않은 모둠: ${unfinished.join(", ")}`].filter(Boolean);
+    const ok = await confirmModal("수업을 닫을까요?", `<p>학생이 더 이상 입장하거나 AI를 쓸 수 없어요. 기록은 남고, 언제든 다시 열 수 있어요.</p>${warn.map((w) => `<p class="notice yellow">${esc(w)}</p>`).join("")}`, "수업 닫기", "아직이요", true);
+    if (!ok) return;
+  }
   try { await call("updateSession")({ code: current, closed: closing }); toast(closing ? "수업을 닫았습니다" : "수업을 열었습니다"); }
   catch (e) { toast(errMsg(e), true); }
 };
 
 $("#s-clone").onclick = async () => {
-  if (!confirm("이 수업을 복제할까요? 새 수업 코드가 만들어집니다.")) return;
+  if (!(await confirmModal("이 수업을 복제할까요?", "<p>이름·모둠 수·설정과 고친 자료·인물을 가져와 새 수업 코드를 만들어요. 학생과 기록은 가져오지 않아요.</p>", "복제", "취소"))) return;
   try {
     const { data } = await call("cloneSession")({ code: current });
     toast(`복제했습니다. 새 코드: ${data.code}`);
@@ -708,6 +919,7 @@ function renderAlerts() {
     if ((g.aiCount || 0) >= lim * 0.8) out.push(["y", `${g.name}: AI 사용 ${g.aiCount}/${lim}회 — 한도가 가깝습니다 (수업 설정에서 늘릴 수 있어요)`]);
     if ((g.guardCount || 0) >= 3) out.push(["y", `${g.name}: 감독자가 ${g.guardCount}번 개입했습니다 — 학생 질문을 확인해 보세요`]);
   }
+  for (const g of groups) { const st = stuckMin(g); if (st) out.push(["y", `${g.name}: ${st}분째 산출물·대화가 그대로예요 — 막혔는지 살펴보세요`]); }
   for (const [uid, n] of Object.entries(piiBy)) {
     const m = members.find((x) => x.uid === uid);
     out.push(["r", `${m?.nickname || "학생"}: 개인정보로 보이는 입력 ${n}건 — 대화 보기에서 확인하고 안내해 주세요`]);
@@ -734,7 +946,7 @@ async function loadPersonaEdit() {
   if (pe.loaded) return renderPersonaEdit();
   $("#persona-edit").innerHTML = `<div class="card">${waitHtml({ steps: STEPS.load })}</div>`;
   try {
-    const [c, o] = await Promise.all([call("getCase")({ eventId: "jeju2018" }), call("getPersonaOverrides")({ code: current })]);
+    const [c, o] = await Promise.all([call("getCase")({ eventId: curRow()?.eventId || "jeju2018" }), call("getPersonaOverrides")({ code: current })]);
     Object.assign(pe, { personas: c.data.personas, overrides: o.data.overrides, loaded: true });
     renderPersonaEdit();
   } catch (e) { $("#persona-edit").innerHTML = `<div class="notice">${esc(errMsg(e))}</div>`; }
@@ -763,14 +975,23 @@ $("#cpane-personas").onclick = async (e) => {
       const { data } = await call("savePersonaOverride")({ code: current, personaId: pid, fields });
       pe.overrides = data.overrides; toast("저장했습니다. 이 수업의 새 대화부터 적용됩니다.");
     } else {
-      if (!confirm("이 인물을 원래 내용으로 되돌릴까요?")) return;
+      const before = pe.overrides[pid];
       const { data } = await call("resetPersonaOverride")({ code: current, personaId: pid });
-      pe.overrides = data.overrides; toast("원래대로 되돌렸습니다.");
+      pe.overrides = data.overrides;
+      toastAction("원래 내용으로 바꿨어요", "되돌리기", async () => {
+        try { const { data: d } = await call("savePersonaOverride")({ code: current, personaId: pid, fields: before }); pe.overrides = d.overrides; toast("고친 내용으로 되돌렸습니다."); }
+        catch (err) { return toast(errMsg(err), true); }
+        redrawPersonas(open);
+      }, 8000);
     }
   } catch (err) { return toast(errMsg(err), true); }
+  redrawPersonas(open);
+};
+// 다시 그려도 펼쳐 둔 인물은 펼친 채로
+function redrawPersonas(open) {
   renderPersonaEdit();
   open.forEach((id) => document.querySelector(`#persona-edit details[data-pid="${id}"]`)?.setAttribute("open", ""));
-};
+}
 
 // ---------- 수업 전 연결 점검 ----------
 $("#health-btn").onclick = async () => {
@@ -787,3 +1008,96 @@ $("#health-btn").onclick = async () => {
   } catch (e) { $("#health-out").innerHTML = `<div class="notice">${esc(errMsg(e))}</div>`; }
   finally { btn.disabled = false; }
 };
+
+// ---------- 입장 안내: QR·크게 띄우기 ----------
+// QR 을 찍으면 수업 코드가 채워진 입장 화면이 열린다(학생은 모둠·별명·비밀번호만 쓰면 된다)
+const joinUrl = () => `${location.origin}/?code=${current}`;
+function qrSvg(text) {
+  if (!window.qrcode) return "";
+  const q = window.qrcode(0, "M"); q.addData(text); q.make();
+  return q.createSvgTag({ cellSize: 4, margin: 8, scalable: true, title: "수업 입장 QR" });
+}
+function renderQr() {
+  const svg = current ? qrSvg(joinUrl()) : "";
+  $("#d-qr").innerHTML = svg;
+  $("#d-qr").classList.toggle("hidden", !svg);
+}
+const presentOpen = () => !$("#present").classList.contains("hidden");
+function openPresent() {
+  $("#present").classList.remove("hidden");
+  document.body.classList.add("presenting");
+  renderPresent();
+  $("#present-close").focus();
+  document.documentElement.requestFullscreen?.().catch(() => {});
+}
+function closePresent() {
+  if (!presentOpen()) return;
+  $("#present").classList.add("hidden");
+  document.body.classList.remove("presenting");
+  if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  $("#present-btn")?.focus();
+}
+function renderPresent() {
+  if (!presentOpen() || !current) return;
+  const online = members.filter(isOnline).length;
+  $("#p-title").textContent = curTitle;
+  $("#p-url").textContent = `${location.host}/`;
+  $("#p-code").textContent = current;
+  if (!$("#p-qr").dataset.code || $("#p-qr").dataset.code !== current) { $("#p-qr").innerHTML = qrSvg(joinUrl()); $("#p-qr").dataset.code = current; }
+  $("#p-count").innerHTML = `<b>${members.length}명</b> 입장${members.length ? ` · 접속 중 ${online}명` : ""}`;
+}
+$("#present-btn").onclick = openPresent;
+$("#d-qr").onclick = openPresent;
+$("#present-close").onclick = closePresent;
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && presentOpen()) closePresent(); });
+
+// ---------- 학생에게 한마디 ----------
+const QUICK_NOTICES = ["5분 남았어요", "잠깐 화면을 봐 주세요", "모둠끼리 이야기해 보세요", "다음 단계로 넘어가요"];
+$("#n-quick").innerHTML = QUICK_NOTICES.map((t) => `<button class="chip sm" type="button" data-nq="${esc(t)}">${esc(t)}</button>`).join("");
+// 빠른 문구는 칸에 채우기만 한다(눌러서 바로 나가는 실수를 막고, 고쳐서 보낼 수 있게)
+$("#n-quick").onclick = (e) => { const b = e.target.closest("[data-nq]"); if (b) { $("#n-text").value = b.dataset.nq; $("#n-text").focus(); } };
+function renderNoticeCard() {
+  const sel = $("#n-target");
+  const opts = `<option value="">모든 모둠</option>${groups.map((g) => `<option value="${g.id}">${esc(g.name)}</option>`).join("")}`;
+  if (sel.dataset.opts !== opts) { const keep = sel.value; sel.innerHTML = opts; sel.dataset.opts = opts; sel.value = groups.some((g) => g.id === keep) ? keep : ""; }
+  const n = curRow()?.notice;
+  const to = n?.groups?.length ? n.groups.map((g) => groups.find((x) => x.id === g)?.name || g).join(", ") : "모든 모둠";
+  $("#n-cur").innerHTML = n?.text ? `<div class="notice muted n-now"><span>지금 학생 화면에 보이는 말 (${esc(to)}): <b>${esc(n.text)}</b></span><button class="link" type="button" id="n-clear">내리기</button></div>` : "";
+}
+async function sendNotice(text, groupsTo) {
+  try {
+    await call("updateSession")({ code: current, notice: { text, groups: groupsTo } });
+    toast(text ? "학생 화면에 띄웠어요" : "내렸어요");
+  } catch (e) { toast(errMsg(e), true); }
+}
+$("#n-send").onclick = async () => {
+  const text = $("#n-text").value.trim();
+  if (!text) { $("#n-text").focus(); return toast("보낼 말을 쓰세요.", true); }
+  const g = $("#n-target").value;
+  $("#n-send").disabled = true;
+  await sendNotice(text, g ? [g] : []);
+  $("#n-send").disabled = false;
+  $("#n-text").value = "";
+};
+$("#n-text").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) $("#n-send").click(); });
+$("#n-cur").onclick = (e) => { if (e.target.closest("#n-clear")) sendNotice("", []); };
+
+// ---------- 오래 멈춘 모둠 ----------
+// 모둠 산출물·AI 사용·인물 대화 수가 STUCK_MIN 분 넘게 그대로이면 표시한다(교사 화면을 연 뒤부터 센다).
+const STUCK_MIN = 10;
+const changedAt = {}; // 모둠 ID → { sig, t }
+function trackChanges() {
+  for (const g of groups) {
+    const { live, ...work } = g.work || {};
+    const chats = members.filter((m) => m.groupId === g.id).reduce((n, m) => n + (m.chatCount || 0), 0);
+    const sig = `${JSON.stringify(work)}|${g.aiCount || 0}|${chats}`;
+    if (changedAt[g.id]?.sig !== sig) changedAt[g.id] = { sig, t: Date.now() };
+  }
+}
+function stuckMin(g) {
+  const r = curRow(), c = changedAt[g.id];
+  if (!c || !r || r.closed || r.started === false || filled(g.work?.s7?.share)) return 0;
+  if (!members.some((m) => m.groupId === g.id && isOnline(m))) return 0; // 아무도 없는 모둠은 멈춘 것이 아니다
+  const min = Math.floor((Date.now() - c.t) / 60000);
+  return min >= STUCK_MIN ? min : 0;
+}

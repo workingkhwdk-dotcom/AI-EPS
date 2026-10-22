@@ -52,7 +52,6 @@ body.m.typing{ padding-bottom:16px; }
 .m .m-nav .stage-tab span{ font-size:10px; font-weight:700; line-height:1.2; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .m .m-nav .stage-tab.on{ background:transparent; color:var(--accent); }
 .m .m-nav .stage-tab.on b{ background:var(--grad); color:#fff; box-shadow:0 4px 10px -4px rgba(6,34,107,0.7); }
-@media (prefers-color-scheme: dark){ .m .m-nav .stage-tab.on, .m .m-nav .stage-tab.on b{ color:#fff; } .m .m-nav .stage-tab.on span{ color:var(--accent); } }
 
 /* 학생: 1단계 대화 — 입력창은 아래 막대 바로 위에 붙는다 */
 .m .letter{ padding:14px 16px; }
@@ -67,10 +66,6 @@ body.m.typing{ padding-bottom:16px; }
 .m .composer{ bottom:var(--navh); padding:8px 10px; border-radius:0 0 18px 18px; }
 .m.typing .composer{ bottom:0; padding-bottom:calc(8px + env(safe-area-inset-bottom)); }
 .m .subnav{ position:sticky; top:52px; z-index:6; padding:6px 0; margin:-6px 0 8px; background:var(--bg); }
-.m .role{ padding:10px 12px; font-size:13px; }
-.m .role-g{ gap:2px; margin-top:6px; }
-.m .role-g > div{ background:transparent; padding:2px 0; }
-.m .role-g .me{ box-shadow:none; font-weight:700; }
 .m .problem-bar{ padding:11px 14px; }
 .m .nav-foot{ flex-direction:column-reverse; align-items:stretch; }
 .m .nav-foot .btn-primary{ margin-left:0; }
@@ -118,7 +113,7 @@ body.m.typing{ padding-bottom:16px; }
 .m-teacher .tbl.stu td:nth-child(6){ grid-area:stat; font-size:12.5px; }
 .m-teacher .tbl.stu td:nth-child(7){ grid-area:cnt; font-size:12.5px; justify-self:end; white-space:nowrap; }
 .m-teacher .tbl.stu td:nth-child(7)::before{ content:"질문 "; font-weight:800; color:var(--ink-3); }
-.m-teacher .tbl.stu td:nth-child(8){ grid-area:act; display:grid !important; grid-template-columns:repeat(3,1fr); gap:6px; }
+.m-teacher .tbl.stu td:nth-child(8){ grid-area:act; display:grid !important; grid-template-columns:repeat(2,1fr); gap:6px; }
 .m-teacher .tbl.stu td:nth-child(8) .btn{ padding:8px 4px; font-size:12.5px; }
 
 /* 표 → 카드: 모둠 진행 */
@@ -134,24 +129,15 @@ body.m.typing{ padding-bottom:16px; }
 .m-teacher .tbl.grp td:nth-child(6){ grid-area:act; display:grid !important; grid-template-columns:1fr 1fr; gap:6px; }
 .m-teacher .dots i{ width:14px; height:14px; }
 
-/* ---------- 좁은 화면: 활동과 직접 관련 없는 글은 줄여서 활동 칸을 먼저 보여 준다 ----------
-   - 설명(.desc), 안내(.tip), 도움말(p.meta-line)은 한 줄로 줄이고 끝에 '…'. 누르면 펼쳐진다(device.js)
-   - AI 역할 상자는 한 줄 요약, 실제 사건 자료는 접어 둔 채로 시작, 활동과 무관한 줄(.m-hide)은 숨긴다 */
-.m .desc, .m .tip, .m p.meta-line{ display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:1; line-clamp:1; overflow:hidden; cursor:pointer; }
-.m .desc{ margin-bottom:8px; }
-.m .desc.open, .m .tip.open, .m p.meta-line.open{ display:block; -webkit-line-clamp:unset; line-clamp:none; overflow:visible; }
-/* 줄인 상자는 위아래 여백을 투명 테두리로 줘서 둘째 줄이 여백 사이로 비치지 않게 한다 */
-.m .notice.tip, .m .example.tip{ padding:0 12px; border-block:8px solid transparent; }
+/* ---------- 좁은 화면 ----------
+   설명·안내·질문 글은 자르지 않고 끝까지 보여 준다(한 줄로 줄이면 질문이 '…'로 잘려 무엇을 묻는지 알 수 없다).
+   활동과 무관한 줄(.m-hide)만 숨긴다. */
+.m .desc{ margin-bottom:10px; }
 .m .m-hide{ display:none !important; }
-.m .m-role{ padding:8px 12px; margin-bottom:10px; }
-.m .m-role summary{ list-style:none; cursor:pointer; display:flex; align-items:center; gap:6px; white-space:nowrap; overflow:hidden; }
-.m .m-role summary::-webkit-details-marker{ display:none; }
-.m .m-role summary b{ overflow:hidden; text-overflow:ellipsis; font-size:13.5px; }
-.m .m-role summary::after{ content:"자세히"; margin-left:auto; font-size:11.5px; font-weight:700; color:var(--ink-3); }
-.m .m-role[open] summary::after{ content:"접기"; }
+.m .next{ padding:8px 12px; margin-bottom:8px; font-size:13.5px; }
 .m .problem-bar{ padding:9px 13px; margin-bottom:10px; }
 .m .problem-bar .pb-s{ display:none; }
-.m .problem-bar .pb-q{ font-size:14.5px; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
+.m .problem-bar .pb-q{ font-size:14.5px; }
 .m .card h3{ font-size:15.5px; }
 .m details.fold{ padding:12px 14px; }
 /* 교사: 수업 상태 줄의 설명은 숨기고 '진행 중/닫힘' 표시만 */
@@ -159,11 +145,7 @@ body.m.typing{ padding-bottom:16px; }
 
 /* 대기실·안내 팝업 (모바일): 아래 막대 없이 한 화면에 다 보이도록 촘촘하게 */
 .m .wait-hero{ padding:12px 6px 6px; } .m .wait-hero h2{ font-size:23px; margin:6px 0 4px; }
-.m .journey{ gap:9px; } .m .journey li{ gap:10px; } .m .journey .jn{ width:24px; height:24px; font-size:12px; }
-.m .journey b{ font-size:14px; } .m .journey small{ font-size:12.5px; }
 .m .help-btn{ width:26px; height:26px; }
-/* 알림 창 안의 글은 줄이지 않는다 */
-.m .modal .desc, .m .modal .tip, .m .modal p.meta-line{ display:block; -webkit-line-clamp:unset; line-clamp:none; overflow:visible; cursor:auto; }
 
 /* ---------- 학습 활동 공간 극대화 ----------
    머리글·아래 막대를 얇게 하고, 아래로 스크롤하면 둘 다 숨겨 활동 내용이 화면을 거의 다 쓰게 한다(위로 스크롤하면 다시 나온다, device.js).
@@ -183,10 +165,12 @@ body.m{ --navh:calc(54px + env(safe-area-inset-bottom)); --hdrh:calc(41px + env(
 .m .net-banner{ top:var(--hdrh); }
 .m .m-nav{ min-height:var(--navh); padding-top:3px; transition:transform .22s var(--ease); }
 .m .m-nav .stage-tab b{ width:24px; height:24px; font-size:12.5px; }
+.m .m-nav .stage-tab.done b{ box-shadow:inset 0 0 0 2px var(--green); }
+.m .m-nav .stage-tab.done b::after{ content:none; }
 .m .m-nav .stage-tab span{ font-size:9.5px; }
 .m .toast{ bottom:calc(var(--navh) + 10px); }
-.m .wrap{ padding:8px 10px 4px; }
-.m .card{ padding:14px 13px; margin-bottom:10px; }
+.m .wrap{ padding:12px 12px 8px; }
+.m .card{ padding:16px 15px; margin-bottom:18px; }
 .m.chrome-hidden .hdr{ transform:translateY(-100%); }
 .m.chrome-hidden .m-nav{ transform:translateY(100%); }
 .m.chrome-hidden .subnav{ top:0; }
@@ -194,11 +178,10 @@ body.m{ --navh:calc(54px + env(safe-area-inset-bottom)); --hdrh:calc(41px + env(
 .m.chrome-hidden .toast{ bottom:16px; }
 
 /* 1단계: 작은 단계 막대는 한 줄로 */
-.m .subnav{ top:var(--hdrh); gap:5px; padding:4px 0; margin:-4px 0 6px; transition:top .22s var(--ease); }
+.m .subnav{ top:var(--hdrh); gap:5px; padding:4px 0; margin:-4px 0 12px; transition:top .22s var(--ease); }
 .m .subnav button{ padding:8px 4px; font-size:12.5px; border-radius:10px; }
 .m .subnav button small{ display:inline; margin-left:3px; font-size:10.5px; }
-.m .role{ margin-bottom:8px; }
-.m .letter{ padding:11px 14px; margin-bottom:8px; border-radius:6px 16px 16px 6px; }
+.m .letter{ padding:11px 14px; margin-bottom:14px; border-radius:6px 16px 16px 6px; }
 .m .letter summary{ font-size:14.5px; }
 
 /* 1단계 대화: 대화창이 남는 화면을 채운다 */
@@ -215,7 +198,46 @@ body.m{ --navh:calc(54px + env(safe-area-inset-bottom)); --hdrh:calc(41px + env(
 .m .composer{ gap:5px 8px; }
 .m .composer .chat-left{ padding:0 6px; font-size:12px; }
 /* 우리 모둠의 문제 띠: 질문은 그대로 읽히되 높이는 줄인다 */
-.m .problem-bar{ padding:8px 12px; margin-bottom:8px; border-radius:14px; }
+.m .problem-bar{ padding:8px 12px; margin-bottom:14px; border-radius:14px; }
 .m .problem-bar .pb-k{ font-size:11px; }
 .m .problem-bar .pb-q{ font-size:14px; line-height:1.4; margin-top:1px; }
-.m .role.m-role{ margin-bottom:8px; }
+/* ---------- 휴대폰 인물 대화(body.chat-mode) ----------
+   대화창 높이를 고정하지 않는다: 말풍선이 쌓일수록 대화 상자가 길어지고, 학생은 화면 전체를 자유롭게 스크롤해 앞의 대화를 본다.
+   입력창은 화면 아래(단계 막대 바로 위)에 붙어 있어 어디까지 스크롤했든 바로 쓸 수 있다. */
+.m.chat-mode .msgs{ overflow:visible; }
+.m.chat-mode .composer input{ font-size:16px; } /* 16px 미만이면 iOS 가 입력할 때 화면을 확대한다 */
+.m.chat-mode .chat-head .chat-tools{ margin-left:auto; display:flex; gap:6px; }
+.m.chat-mode .chat-head [data-act="dl-chat"]{ display:none; }
+/* 대화에 방해되는 것은 숨긴다: 편지는 머리의 '편지' 버튼, 이동은 아래 막대와 위 작은 단계 막대 */
+.m.chat-mode .role, .m.chat-mode .m-role, .m.chat-mode .letter, .m.chat-mode .nav-foot,
+.m.chat-mode .m-switch, .m.chat-mode #panel > .meta-line, .m.chat-mode .chat-rule { display:none !important; }
+.m .chat-tools{ display:flex; gap:6px; margin-left:auto; }
+.m .composer input, .m .composer input#msg{ font-size:16px; }
+.m .msgs{ scroll-behavior:auto; }
+.m .subnav button{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.m .subnav button small{ display:none; }
+
+/* PC 넓은 화면에서 좌우로 나누는 묶음(.split)은 휴대폰에서는 없는 것처럼 둔다(대화 화면의 세로 배치를 그대로 유지) */
+.m .split, .m .split-side, .m .split-main{ display:contents; }
+
+/* 글을 쓰는 동안(대화 화면 밖): 머리글과 1단계 작은 단계 막대도 접어, 키보드 위에 쓰는 칸이 넉넉히 보이게 한다.
+   길게 쓰는 칸은 보이는 화면의 40%까지만 늘어나게 해서 칸 이름과 위아래 맥락이 가려지지 않게 한다. */
+.m.typing .hdr{ transform:translateY(-100%); }
+.m.typing .subnav, .m.chat-mode.typing .goal-chips, .m.chat-mode.typing .starters{ display:none; }
+.m.typing:not(.chat-mode) textarea:focus{ max-height:calc(var(--vvh, 100dvh) * .4); }
+
+/* 섹션 사이 여백: 카드·접는 상자·안내 사이가 붙어 보이지 않게 */
+.m details.fold, .m .notice, .m .goal-chips{ margin-bottom:14px; }
+.m .card > h3, .m .card > h2{ margin-bottom:10px; }
+.m .card .lbl{ margin-top:12px; }
+
+/* 휴대폰에서 예시가 긴 칸은 두 줄 칸으로 보여 예시 글이 잘리지 않게 한다(app.js fld) */
+.m textarea.short{ min-height:64px; }
+
+/* 선생님 한마디 띠: 머리글 바로 아래 */
+.m .t-notice{ top:calc(var(--hdrh) + 6px); margin:8px 0 10px; font-size:14px; }
+.m.chrome-hidden .t-notice{ top:6px; }
+/* 휴대폰에서 글자를 크게 키워도 아래 막대의 숫자 동그라미·글자가 잘리지 않게 */
+.m .m-nav .stage-tab b{ min-width:24px; min-height:24px; width:auto; height:auto; aspect-ratio:1; padding:0 2px; }
+.m .m-nav .stage-tab span{ max-width:100%; }
+.m .qr-mini{ width:56px; height:56px; }
