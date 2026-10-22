@@ -1395,6 +1395,16 @@ test("체험: 메뉴에 주제 5개, 시작하면 입장 없이 학생 화면이
   const { pg, ctx, errors, hits } = await demoPage();
   await pg.goto(`${base}/demo.html`);
   await pg.waitForSelector(".topic");
+  // 처음 들어오면 체험이 무엇인지(실제 수업과 다른 점, 체험용 AI) 한 번 알려 준다. 다시 열어도 또 뜨지 않는다
+  await pg.waitForSelector(".modal.about-pop");
+  assert.match(await pg.locator(".modal.about-pop").innerText(), /수업 코드로 입장[\s\S]*주제 하나를 골라[\s\S]*더 고성능 AI/);
+  await pg.click(".modal.about-pop .btn-primary");
+  await pg.reload(); await pg.waitForSelector(".topic"); await pg.waitForTimeout(300);
+  assert.equal(await pg.locator(".modal").count(), 0);
+  // 독립된 주제 5개가 한 화면에(PC는 한 줄로) 보이고, 카드 어디를 눌러도 열린다
+  assert.match(await pg.locator(".topics-head").innerText(), /독립된 주제 5개/);
+  const tops = await pg.locator(".topic").evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
+  assert.equal(new Set(tops).size, 1, "넓은 화면에서는 다섯 주제가 한 줄");
   assert.equal(await pg.locator(".topic").count(), 5);
   assert.equal(await pg.locator('.topic a.btn-primary[href^="demo-play.html?t="]').count(), 5);
   await pg.locator(".topic a.btn-primary").first().click();
@@ -1455,12 +1465,9 @@ test("체험: 주제마다 저장이 따로이고(메뉴에 '이어서 하기'),
   assert.ok(await pg.locator("#join").isHidden());
   // 안내 팝업을 닫고 인물 하나를 고르면 이 주제에만 저장이 생긴다
   if (await pg.locator(".modal").count()) await pg.click('.modal .btn:has-text("이해했어요")');
-  // 휴대폰: 체험 안내는 한 줄, '데모라서'는 접힌 한 줄이고 누르면 다른 점이 펼쳐진다
+  // 휴대폰: 체험 안내는 한 줄, 실제 수업과 다른 점은 화면에 띠로 두지 않고 단계 안내 창이 알려 준다
   assert.ok((await pg.locator(".demo-note").boundingBox()).height < 40, "체험 안내는 한 줄");
-  const dd = pg.locator("#panel > .demo-diff");
-  assert.ok((await dd.boundingBox()).height < 40 && await dd.locator(".dd-t").isHidden(), "'데모라서'는 접혀 있다");
-  await dd.locator("summary").click();
-  assert.ok(await dd.locator(".dd-t").isVisible());
+  assert.equal(await pg.locator(".demo-diff").count(), 0);
   // 휴대폰에서도 카드를 누르면 편지가 아래에서 올라오는 창으로 뜨고, 고르는 버튼이 창 안에 보인다
   await pg.locator('.pcard [data-act="read-letter"]').first().click();
   await pg.waitForTimeout(400); // 아래에서 올라오는 움직임이 끝난 뒤에 잰다
@@ -1475,6 +1482,10 @@ test("체험: 주제마다 저장이 따로이고(메뉴에 '이어서 하기'),
   await pg.click("#demo-home");
   await pg.waitForURL(/demo\.html$/);
   await pg.waitForSelector(".topic");
+  // 휴대폰: 다섯 주제가 한 화면 안에 다 보인다
+  if (await pg.locator(".modal.about-pop").count()) await pg.click(".modal.about-pop .btn-primary");
+  const last = await pg.locator(".topic").last().boundingBox();
+  assert.ok(last.y + last.height <= 844, `다섯째 주제까지 첫 화면에 보인다(${Math.round(last.y + last.height)}px)`);
   assert.equal(await pg.locator(".topic .saved").count(), 1, "하던 주제 하나만 표시");
   assert.match(await pg.locator(".topic:has(.saved) a.btn-primary").innerText(), /이어서 하기/);
   assert.deepEqual(errors, []);
@@ -1618,30 +1629,36 @@ test("체험: 3·4·5단계 AI 단추는 모둠이 쓴 글을 서버로 보내�
   await ctx.close();
 });
 
-test("체험: 단계마다 '데모라서' 줄이 맨 위에 항상 있고 단계가 바뀌면 따라 바뀌며, 준비된 예시 답에는 데모라서 그렇다는 표시가 붙는다", async () => {
+test("체험: 실제 수업과 다른 점은 화면의 띠가 아니라 단계에 들어갈 때 뜨는 안내 창이 알려 주고, 준비된 예시 답에는 데모라서 그렇다는 표시가 붙는다", async () => {
   const { pg, ctx, errors } = await demoPage({}, null); // 연결 안 됨 → 준비된 답
   await pickAndChat(pg, "jeju2018", "고향이 어디예요?");
   await pg.waitForSelector(".msg.ai:not(.typing) .bubble");
   assert.match(await pg.locator(".msg.ai .bubble").last().innerText(), /데모라서 준비된 예시 답/);
-  assert.match(await pg.locator("#panel > .demo-diff").innerText(), /데모라서.*5번까지.*웹 검색을 하지 않고/);
-  assert.equal(await pg.locator("#panel > .demo-diff").count(), 1);
+  assert.equal(await pg.locator(".demo-diff").count(), 0, "화면 위 '데모라서' 띠는 없다");
+  // 1단계 ① 대화: '안내 다시 보기'로 다시 열어도 체험에서 다른 점(체험용 AI)이 함께 보인다
+  await pg.click('[data-act="help"]');
+  await pg.waitForSelector(".modal .help-demo");
+  assert.match(await pg.locator(".modal .help-demo").innerText(), /체험에서는.*체험용 가벼운 AI.*고성능.*5번까지/s);
+  await dismissHelp(pg);
   const stageText = {};
   for (const n of [2, 3, 4, 5, 6, 7]) {
-    await pg.click(`#tabs .stage-tab[data-stage="${n}"]`); await dismissHelp(pg);
-    await pg.waitForFunction((n) => document.querySelector("#panel > .demo-diff")?.dataset.key === String(n), n);
-    stageText[n] = await pg.locator("#panel > .demo-diff").innerText();
-    assert.equal(await pg.locator("#panel > .demo-diff").count(), 1);
-    assert.equal(await pg.evaluate(() => document.querySelector("#panel").firstElementChild.className), "demo-diff");
+    await pg.click(`#tabs .stage-tab[data-stage="${n}"]`);
+    await pg.waitForSelector(".modal .help-demo");
+    stageText[n] = await pg.locator(".modal .help-demo").innerText();
+    await dismissHelp(pg);
   }
   assert.match(stageText[3], /웹 검색 없이/);
+  assert.match(stageText[2], /체험용 가벼운 AI/);
   // 1단계 작은 단계도 각각
   await pg.click('#tabs .stage-tab[data-stage="1"]'); await dismissHelp(pg);
-  await pg.click('.subnav button[data-sub="group"]'); await dismissHelp(pg);
-  await pg.waitForFunction(() => document.querySelector("#panel > .demo-diff")?.dataset.key === "1-group");
-  assert.match(await pg.locator("#panel > .demo-diff").innerText(), /혼자 문제를 정해요/);
+  await pg.click('.subnav button[data-sub="group"]');
+  await pg.waitForSelector(".modal .help-demo");
+  assert.match(await pg.locator(".modal .help-demo").innerText(), /혼자 문제를 정해요/);
+  await dismissHelp(pg);
   assert.deepEqual(errors, []);
   await ctx.close();
 });
+
 
 test("체험(PC 1366×768): 머리 부분이 낮아 활동이 화면 위쪽에서 보이고, 편지는 넓은 창에 스크롤 없이 뜨며, 처음 내 생각 칸은 대화창 위에 있다", async () => {
   const { pg, ctx, errors } = await demoPage({ viewport: { width: 1366, height: 768 } });

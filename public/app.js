@@ -436,13 +436,15 @@ async function maybeHelp(force = false) {
   const key = helpKeyNow();
   if (!HELP[key] || (!force && seenList().includes(key))) return;
   helpBusy = true;
+  // 체험(demo) 화면은 '실제 수업과 다른 점'을 안내 끝에 덧붙인다(demo/boot.js 가 정한다)
+  const extra = window.EPS_HELP_EXTRA?.(key) || "";
   try {
     for (;;) {
-      const v = await showModal({ title: esc(HELP[key].title), body: helpSimple(key, esc, S.chatLimit, ui()),
+      const v = await showModal({ title: esc(HELP[key].title), body: helpSimple(key, esc, S.chatLimit, ui()) + extra,
         actions: [{ label: "이해했어요", value: "ok", kind: "btn-primary" }, { label: "이해 못했어요", value: "more" }] });
       if (v === null) return; // 다른 창이 먼저 떠서 밀려난 경우: 본 것으로 치지 않는다
       if (v === "ok") break;
-      const d = await showModal({ title: esc(HELP[key].title), body: helpDetail(key, esc, S.chatLimit, ui()), wide: true,
+      const d = await showModal({ title: esc(HELP[key].title), body: helpDetail(key, esc, S.chatLimit, ui()) + extra, wide: true,
         actions: [{ label: "이해했어요", value: "ok", kind: "btn-primary" }, { label: "← 간단히 보기", value: "back" }] });
       if (d === null) return;
       if (d === "ok") break;
