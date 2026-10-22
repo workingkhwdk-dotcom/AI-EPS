@@ -40,9 +40,9 @@
 
 - [x] 1. 주제 묶음(bundle) 계층: case.js 를 묶음 단위 함수로 바꾸고 기존 동작 유지(테스트 통과)
 - [x] 2. 구조 검사(topicCheck.js) + 기본 주제 다섯 개 통과 테스트
-- [ ] 3. index.js 가 수업의 주제를 bundleOf 로 읽기(교사 주제 수업 사본), createSession/cloneSession/getCase 확장
-- [ ] 4. 저장 함수(topicStore) + 규칙 + 테스트
-- [ ] 5. 생성 파이프라인(topicBuild.js: 프롬프트·검색·사실 은행·조립) + 가짜 AI 테스트
-- [ ] 6. topicAi 함수 + 한도 + 테스트
+- [x] 3. index.js 가 수업의 주제를 bundleOf 로 읽기(교사 주제 수업 사본), createSession/cloneSession/getCase 확장
+- [x] 4. 저장 함수(topicStore) + 규칙 + 테스트
+- [x] 5. 생성 파이프라인(topicBuild.js: 프롬프트·검색·사실 은행·조립) + 가짜 AI 테스트
+- [x] 6. topicAi 함수 + 한도 + 테스트
 - [ ] 7. 교사 화면(PC·모바일): 내 주제 탭, 만들기 안내 흐름, 구성안 확인, 검토·원문 확인, 수업 만들 때 고르기
 - [ ] 8. 화면 테스트, README·문서

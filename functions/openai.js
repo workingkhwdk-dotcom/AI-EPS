@@ -75,6 +75,34 @@ function parseResponses(data) {
   return { text, sources: sources.slice(0, 5) };
 }
 
+// 인용 위치까지 꺼낸다: 글 전체(text)와, 글 안에서 각 인용 링크가 붙은 위치(start·end). 주제 만들기의 사실 은행이
+// '인용 링크가 붙은 문장'만 받아들이는 데 쓴다. 메시지가 여러 개면 줄바꿈으로 잇고 위치를 그만큼 민다.
+function parseCited(data) {
+  const parts = (data.output || []).filter((o) => o.type === "message").flatMap((o) => o.content || []).filter((c) => c.type === "output_text");
+  let text = "";
+  const cites = [];
+  for (const c of parts) {
+    if (text) text += "\n";
+    const base = text.length;
+    for (const a of c.annotations || []) {
+      if (a.type !== "url_citation" || !a.url) continue;
+      cites.push({ url: a.url, title: String(a.title || "").slice(0, 200), start: base + (a.start_index ?? 0), end: base + (a.end_index ?? a.start_index ?? 0) });
+    }
+    text += c.text || "";
+  }
+  return { text, cites };
+}
+
+async function respondCited(opts) {
+  const res = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${opts.apiKey}` },
+    body: JSON.stringify(buildResponsesBody(opts)),
+  });
+  if (!res.ok) throw new Error(`OpenAI responses ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  return parseCited(await res.json());
+}
+
 async function respond(opts) {
   const res = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -85,4 +113,4 @@ async function respond(opts) {
   return parseResponses(await res.json());
 }
 
-module.exports = { chat, chatMessage, respond, buildBody, buildResponsesBody, parseResponses, extractJson, isReasoning, headroom };
+module.exports = { chat, chatMessage, respond, respondCited, parseCited, buildBody, buildResponsesBody, parseResponses, extractJson, isReasoning, headroom };

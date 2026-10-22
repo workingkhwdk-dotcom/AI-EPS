@@ -63,7 +63,8 @@ const AFTERMATH = Object.fromEntries(CASE_FILES.map((c) => [c.EVENT.id, c.AFTERM
 const BRIEFS = Object.assign({}, ...CASE_FILES.map((c) => c.BRIEFS || {}));
 
 const fmtDate = (d) => { const m = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(d); return m ? `${m[1]}.${+m[2]}${m[3] ? "." + +m[3] : ""}` : ""; };
-const srcOf = (b, id) => b.sources[id] || SOURCES[id];
+// 교사 주제는 자기 출처만 본다(없는 ID 가 기본 주제의 같은 ID 출처로 잘못 이어지지 않게)
+const srcOf = (b, id) => (b.custom ? b.sources[id] : b.sources[id] || SOURCES[id]);
 const captionIn = (b, src) => [...new Set(src.map((id) => { const x = srcOf(b, id); return x ? `${x.outlet.replace(/\(.*\)/, "").trim()} ${fmtDate(x.date)}`.trim() : ""; }).filter(Boolean))].slice(0, 2).join(" · ");
 const verifiedIn = (b, src) => src.every((id) => srcOf(b, id)?.verified === true);
 
@@ -81,7 +82,7 @@ function materialsFor(eventId, allowUnverified = false) {
 const materialsAdmin = (eventId) => { const b = B(eventId); return b.materials.map((c) => ({ ...c, items: c.items.map((it) => ({ ...it, caption: captionIn(b, it.src) })) })); };
 
 // 학생용 출처 표시: 매체·날짜·링크
-const linkIn = (b, id) => { const x = srcOf(b, id); return { title: x.title, outlet: x.outlet, date: x.date, url: x.url }; };
+const linkIn = (b, id) => { const x = srcOf(b, id) || {}; return { title: x.title || "", outlet: x.outlet || "", date: x.date || "", url: x.url || "" }; };
 // 학생용 사례 카드(검증된 것만) / 교사용 전체
 const casesFor = (eventId, allowUnverified = false) => { const b = B(eventId); return b.cases.filter((c) => allowUnverified || verifiedIn(b, c.src))
   .map(({ src, ...c }) => ({ ...c, links: src.map((id) => linkIn(b, id)) })); };
@@ -91,7 +92,7 @@ const aftermathFor = (eventId, allowUnverified = false) => { const b = B(eventId
 const aftermathAdmin = (eventId) => { const b = B(eventId); return b.aftermath.map((it) => ({ ...it, caption: captionIn(b, it.src), verified: verifiedIn(b, it.src) })); };
 
 function toPublicSource(id, bundle) {
-  const s = bundle ? srcOf(B(bundle), id) : SOURCES[id];
+  const s = (bundle ? srcOf(B(bundle), id) : SOURCES[id]) || { title: "(없는 출처)", outlet: "", date: "", url: "", verified: false, check: "" };
   return { id, title: s.title, titleIsDescriptive: !!s.titleIsDescriptive, outlet: s.outlet, date: s.date, url: s.url, verified: s.verified === true, check: s.check, crossCheck: s.crossCheck || null };
 }
 
