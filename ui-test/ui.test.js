@@ -1361,3 +1361,150 @@ test("교사: 수업 복제는 화면 안의 확인 창, 수업 삭제는 수업
   await pg.waitForFunction(() => window.__log.includes("deleteSession"));
   assert.equal(dialogs, 0, "브라우저 기본 창을 쓰지 않는다");
 });
+
+// ---------- 체험(demo): 서버 없이 이 기기에 저장하며 학생 화면을 혼자 해 본다 ----------
+async function demoPage(ctxOpts = {}) {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, ...ctxOpts });
+  const pg = await ctx.newPage();
+  const errors = [];
+  pg.on("pageerror", (e) => errors.push(e.message));
+  // 체험은 Firebase 를 아예 부르지 않아야 한다
+  const hits = [];
+  await pg.route(/gstatic\.com\/firebasejs|cloudfunctions|firestore\.googleapis/, (r) => { hits.push(r.request().url()); r.abort(); });
+  await pg.route(/fonts\.(googleapis|gstatic)|cdn\.jsdelivr/, (r) => r.abort());
+  return { pg, ctx, errors, hits };
+}
+
+const dismissHelp = async (pg) => { await pg.waitForTimeout(500); while (await pg.locator('.modal .btn:has-text("이해했어요")').count()) { await pg.click('.modal .btn:has-text("이해했어요")'); await pg.waitForTimeout(400); } };
+
+test("체험: 메뉴에 주제 5개, 시작하면 입장 없이 학생 화면이 열리고 홈·초기화 단추가 있다(Firebase 호출 없음)", async () => {
+  const { pg, ctx, errors, hits } = await demoPage();
+  await pg.goto(`${base}/demo.html`);
+  await pg.waitForSelector(".topic");
+  assert.equal(await pg.locator(".topic").count(), 5);
+  assert.equal(await pg.locator('.topic a.btn-primary[href^="demo-play.html?t="]').count(), 5);
+  await pg.locator(".topic a.btn-primary").first().click();
+  await pg.waitForSelector("#app:not(.hidden)");
+  assert.match(pg.url(), /demo-play\.html\?t=jeju2018$/);
+  assert.ok(await pg.locator("#join").isHidden() && await pg.locator("#logout").isHidden());
+  assert.ok(await pg.locator("#demo-home").isVisible() && await pg.locator("#demo-reset").isVisible());
+  assert.match(await pg.locator(".demo-note").innerText(), /이 기기에만 저장/);
+  assert.deepEqual(hits, [], "Firebase 서버를 부르지 않는다");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("체험: 인물 고르기 → 대화 → 새로고침해도 이어지고, 초기화하면 처음부터, 홈은 메뉴로", async () => {
+  const { pg, ctx, errors } = await demoPage();
+  await pg.goto(`${base}/demo-play.html?t=junam2025`);
+  await pg.waitForSelector("#app:not(.hidden)");
+  if (await pg.locator(".modal").count()) await pg.click('.modal .btn:has-text("이해했어요")');
+  // 처음에는 모든 인물의 편지가 보인다
+  await pg.waitForSelector(".pcard");
+  assert.equal(await pg.locator(".pcard").count(), 9);
+  await pg.locator(".pcard summary").first().click();
+  await pg.locator('.pcard [data-act="choose"]').first().click();
+  await pg.click('.modal .btn-primary');
+  await pg.click('.notice.ok [data-sub="chat"]'); // 고른 뒤 '대화하러 가기'
+  await pg.waitForSelector(".chat-card");
+  await pg.fill("#prior-in", "잘 모르겠다");
+  await pg.fill("#msg", "안녕하세요, 어떤 일을 하세요?"); await pg.press("#msg", "Enter");
+  await pg.waitForSelector(".msg.ai:not(.typing) .bubble");
+  assert.match(await pg.locator("#chat-left").innerText(), /4/ );
+  // 새로고침해도 대화·남은 질문이 이어진다(이 기기에 저장)
+  await pg.waitForTimeout(300);
+  await pg.reload();
+  await pg.waitForSelector(".msg.ai:not(.typing) .bubble");
+  assert.match(await pg.locator("#chat-left").innerText(), /4/);
+  await dismissHelp(pg); // 대화 단계 안내 팝업
+  // 초기화: 확인 뒤 처음부터
+  pg.once("dialog", (d) => d.accept());
+  await pg.click("#demo-reset");
+  await pg.waitForSelector(".pcard");
+  assert.equal(await pg.locator(".msg").count(), 0);
+  const saved = await pg.evaluate(() => localStorage.getItem("eps_demo_v1_junam2025") || "");
+  assert.ok(!/\/chat\/|\/assign\//.test(saved), "초기화하면 고른 인물·대화 저장이 지워진다");
+  // 홈(초기화하면 단계 안내도 처음처럼 다시 뜬다)
+  await dismissHelp(pg);
+  await pg.click("#demo-home");
+  await pg.waitForURL(/demo\.html$/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("체험: 주제마다 저장이 따로이고(메뉴에 '이어서 하기'), 폰으로 열면 모바일 체험 화면으로 옮겨 간다", async () => {
+  const { pg, ctx, errors } = await demoPage({ ...phone });
+  await pg.goto(`${base}/demo-play.html?t=waste2019`);
+  await pg.waitForURL(/demo-play-m\.html\?t=waste2019$/);
+  await pg.waitForSelector("#app:not(.hidden)");
+  assert.ok(await pg.locator("body.m").count());
+  assert.ok(await pg.locator("#demo-home").isVisible());
+  assert.ok(await pg.locator("#join").isHidden());
+  // 안내 팝업을 닫고 인물 하나를 고르면 이 주제에만 저장이 생긴다
+  if (await pg.locator(".modal").count()) await pg.click('.modal .btn:has-text("이해했어요")');
+  await pg.locator(".pcard summary").first().click();
+  await pg.locator('.pcard [data-act="choose"]').first().click();
+  await pg.click(".modal .btn-primary");
+  await pg.click('.notice.ok [data-sub="chat"]');
+  await pg.waitForSelector(".chat-card");
+  await pg.waitForTimeout(200);
+  await dismissHelp(pg);
+  await pg.evaluate(() => window.scrollTo(0, 0)); // 위로 올리면 머리글이 다시 나온다
+  await pg.click("#demo-home");
+  await pg.waitForURL(/demo\.html$/);
+  await pg.waitForSelector(".topic");
+  assert.equal(await pg.locator(".topic .saved").count(), 1, "하던 주제 하나만 표시");
+  assert.match(await pg.locator(".topic:has(.saved) a.btn-primary").innerText(), /이어서 하기/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("체험: 데모 화면은 학생 화면과 같은 id 를 모두 가진다", () => {
+  const ids = (f) => new Set([...fs.readFileSync(path.join(ROOT, f), "utf8").matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
+  for (const [demo, src] of [["demo-play.html", "index.html"], ["demo-play-m.html", "m.html"]]) {
+    const d = ids(demo);
+    for (const id of ids(src)) assert.ok(d.has(id), `${demo} 에 #${id} 가 없습니다. node tools/build-demo-data.js 를 다시 실행하세요.`);
+  }
+});
+
+test("체험: 2~5단계의 AI 단추(생각 도우미·검색 도우미·AI 의견·미래 이야기)에 준비된 답이 나오고 화면이 깨지지 않는다", async () => {
+  const { pg, ctx, errors } = await demoPage();
+  await pg.goto(`${base}/demo-play.html?t=junam2025`);
+  await pg.waitForSelector("#app:not(.hidden)");
+  await dismissHelp(pg);
+  const G = "sessions/JUNAM2025/groups/g1";
+  // 모둠이 앞 단계에서 쓴 것을 이 기기 저장소에 미리 넣어 둔다
+  await pg.evaluate(async ([G]) => {
+    const st = await import("/demo/store.js");
+    const by = { by: "demo-student", nick: "체험" };
+    st.update(G, {
+      "work.s1.problem.hmw": "어떻게 하면 저수지 곁 주민의 생계를 지키면서도 철새 서식지를 보전할 수 있을까?",
+      "work.s2.causes.k1": { level: "제도·정책", text: "개발 제한만 있고 주민 몫은 부족한 제도", t: 1, ...by },
+      "work.s2.checks.c1": { heard: "박상규: 습지보호지역에 반대한다", question: "주남저수지 습지보호지역 지정 논의는 어떻게 진행됐나?", srcType: "언론 보도", t: 1, ...by },
+      "work.s3.chain.cause": "개발 제한의 부담은 주민이 지고 보상은 부족한 제도가 핵심 원인이다",
+      "work.s4.proposals.p1": { text: "철새 먹이 농사 보상을 올리고 생태관광 수익을 저수지 곁 마을에 돌려주는 기금을 만든다", cause: "보상 부족", t: 2, ...by },
+      "work.s4.final": "철새 먹이 농사 보상을 올리고 생태관광 수익을 마을 기금으로 돌려주는 방법을 시범 마을에서 먼저 한다",
+      "work.s5.predictions.a": { stakeholder: "주민", text: "보상이 늘면 환영하지만 시행이 늦을까 걱정할 것이다", t: 3, ...by },
+      "work.s5.predictions.b": { stakeholder: "환경단체", text: "보전 기금이라면 찬성하되 개발 허용이 늘 수 있다고 볼 것이다", t: 4, ...by },
+    });
+  }, [G]);
+  const tab = async (n) => { await pg.click(`#tabs .stage-tab[data-stage="${n}"]`); await dismissHelp(pg); };
+  // 3단계: 검색 도우미(수업 자료에서 찾아 줌, 판정은 학생 몫)
+  await tab(3);
+  await pg.click('[data-act="ask-check"]');
+  await pg.waitForSelector(".ai-out");
+  assert.match(await pg.locator(".ai-out").first().innerText(), /판정하지 않아요/);
+  // 4단계: 세 가지 관점의 AI 의견
+  await tab(4);
+  await pg.click('[data-act="ask-feedback"]');
+  await pg.waitForFunction(() => document.querySelectorAll(".card.flat .ai-out").length >= 3, null, { timeout: 15000 });
+  assert.match(await pg.locator(".card.flat .tag").allInnerTexts().then((x) => x.join(" ")), /실행 가능성.*이해관계자 영향.*부작용/);
+  // 5단계: 두 가지 미래 이야기
+  await tab(5);
+  await pg.click('[data-act="ask-scenario"]');
+  await pg.waitForSelector(".scn", { timeout: 15000 });
+  assert.equal(await pg.locator(".scn").count(), 2);
+  assert.deepEqual(errors, []);
+  if (process.env.SHOT) await pg.screenshot({ path: process.env.SHOT, fullPage: true });
+  await ctx.close();
+});

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<!-- 체험 화면: index.html 에서 tools/build-demo-data.js 가 만든다. 직접 고치지 말고 그 스크립트를 고치세요. -->
+<script src="demo/boot.js"></script>
+<script type="importmap">{"imports": {"https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js": "./demo/stubs/firebase-app.js", "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js": "./demo/stubs/firebase-auth.js", "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js": "./demo/stubs/firebase-firestore.js", "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js": "./demo/stubs/firebase-functions.js"}}</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#06226B" />
+<meta name="color-scheme" content="light" />
+<title>AI-EPS 체험</title>
+<link rel="icon" type="image/png" sizes="32x32" href="icons/student-32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="icons/student-16.png" />
+<link rel="shortcut icon" href="icons/student.ico" />
+<link rel="apple-touch-icon" sizes="180x180" href="icons/student-180.png" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="AI-EPS" />
+<!-- 휴대폰이면 모바일 전용 화면(m.html)으로 옮긴다 -->
+<script src="device.js" data-mobile="demo-play-m.html"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gowun+Batang&display=swap" rel="stylesheet">
+<!-- 글꼴: Pretendard(본문), 고운바탕(편지) -->
+<!-- 글꼴은 화면을 막지 않게 받는다(학교망에서 막혀도 기본 글꼴로 바로 보인다) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" media="print" onload="this.media='all'" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="demo/demo.css" />
+</head>
+<body>
+<a class="skip" href="#main">본문으로 건너뛰기</a>
+<header class="hdr"><div class="hdr-in">
+  <div class="brand"><img class="mark" src="knue-mark.webp" srcset="knue-mark.webp 1x, knue-mark@2x.webp 2x" width="40" height="40" alt="한국교원대학교 마크" fetchpriority="high" decoding="async" /><div class="brand-t"><span class="logo">AI-EPS</span><span class="model">확장된 경험 기반 문제해결학습 모형</span><small>한국교원대학교<span class="tot"> · Teacher of Teachers</span></small></div></div>
+  <div class="hdr-right"><span class="net hidden" id="net" role="status" aria-live="polite"></span><span class="who" id="who"></span><button class="btn-out hidden" id="logout" type="button">로그아웃</button></div>
+</div></header>
+
+<main class="wrap" id="main">
+  <section id="join" class="card">
+    <h2>수업 입장</h2>
+    <label class="lbl" for="j-code">수업 코드</label>
+    <input type="text" id="j-code" maxlength="10" autocapitalize="characters" autocomplete="off" />
+    <label class="lbl" for="j-group">모둠 번호</label>
+    <input type="number" id="j-group" min="1" max="12" inputmode="numeric" />
+    <label class="lbl" for="j-nick">별명</label>
+    <input type="text" id="j-nick" maxlength="12" autocomplete="off" placeholder="실명 말고 별명" />
+    <label class="lbl" for="j-pw">비밀번호</label>
+    <input type="password" id="j-pw" maxlength="40" autocomplete="off" placeholder="4자 이상" />
+    <p class="meta-line" style="margin:6px 0 0">처음이면 지금 정한 비밀번호로 다음에 이어서 해요.</p>
+    <div style="margin-top:16px"><button class="btn btn-primary" id="j-btn">입장하기</button></div>
+  </section>
+
+  <!-- 대기실: 선생님이 수업을 시작하기 전에 보여 주는 화면 -->
+  <section id="wait" class="hidden"></section>
+
+  <section id="app" class="hidden">
+    <div class="stages" id="tabs"></div>
+    <div id="panel"></div>
+  </section>
+  <p class="m-switch hidden" id="to-mobile"><a href="m.html?view=m">모바일 화면으로 보기</a></p>
+</main>
+
+<script type="module" src="app.js"></script>
+<script type="module" src="demo/ui.js"></script>
+</body>
+</html>
