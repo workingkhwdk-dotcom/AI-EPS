@@ -1455,10 +1455,13 @@ test("체험: 주제마다 저장이 따로이고(메뉴에 '이어서 하기'),
   assert.ok(await pg.locator("#join").isHidden());
   // 안내 팝업을 닫고 인물 하나를 고르면 이 주제에만 저장이 생긴다
   if (await pg.locator(".modal").count()) await pg.click('.modal .btn:has-text("이해했어요")');
-  await pg.locator(".pcard summary").first().click();
-  await pg.locator('.pcard [data-act="choose"]').first().click();
-  await pg.click(".modal .btn-primary");
-  await pg.click('.notice.ok [data-sub="chat"]');
+  // 휴대폰에서도 카드를 누르면 편지가 아래에서 올라오는 창으로 뜨고, 고르는 버튼이 창 안에 보인다
+  await pg.locator('.pcard [data-act="read-letter"]').first().click();
+  await pg.waitForTimeout(400); // 아래에서 올라오는 움직임이 끝난 뒤에 잰다
+  const sheet = await pg.evaluate(() => { const m = document.querySelector(".modal.letter-pop"), b = m.querySelector(".btn-primary").getBoundingClientRect(); return { w: m.offsetWidth, vw: innerWidth, btnIn: b.bottom <= innerHeight && b.top >= 0 }; });
+  assert.ok(sheet.w <= sheet.vw && sheet.btnIn, "편지 창이 화면 안에 있고 고르는 버튼이 보인다: " + JSON.stringify(sheet));
+  await pg.click(".modal.letter-pop .btn-primary");
+  await pg.click('.modal .btn-primary:has-text("대화하러 가기")');
   await pg.waitForSelector(".chat-card");
   await pg.waitForTimeout(200);
   await dismissHelp(pg);

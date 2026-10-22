@@ -966,3 +966,31 @@ input[type=email]{ font:inherit; font-size:16px; width:100%; padding:11px 13px; 
   body:not(.m):has(#app:not(.hidden)) .stages::before{ top:25px; }
 }
 @media (min-width:700px) and (max-width:1099px){ body:not(.m) .pcards{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
+/* 휴대폰(아래에서 올라오는 창): 편지는 창 안에서 스크롤하고, 고르는 버튼은 창 아래에 늘 보인다 */
+@media (max-width:600px){
+  .modal.letter-pop{ display:flex; flex-direction:column; padding:16px 16px calc(12px + env(safe-area-inset-bottom)); overflow:hidden; }
+  .letter-pop h3{ flex:none; margin-bottom:10px; }
+  .letter-pop .modal-body{ flex:1 1 auto; min-height:0; overflow-y:auto; overscroll-behavior:contain; margin:0 -4px; padding:0 4px; }
+  .lp-letter{ padding:16px 18px; font-size:15.5px; }
+  .letter-pop .modal-acts{ flex:none; margin-top:12px; flex-direction:row; }
+  .letter-pop .modal-acts .btn{ flex:1 1 0; width:auto; }
+  .letter-pop .modal-acts .btn-plain{ flex:0 0 34%; }
+  .pc-open{ padding:11px 12px; }
+  .pc-open .pc-more{ font-size:12px; }
+}
+/* 고르기 + 입력 + 추가 한 줄: 좁은 화면에서는 고르기를 윗줄에 두어 입력 칸이 좁아지지 않게 한다 */
+@media (max-width:600px){
+  .row.add-row{ flex-wrap:wrap; }
+  .row.add-row > select{ flex:1 1 100%; width:100% !important; }
+  .pc-open .pc-more{ font-size:0; } .pc-open .pc-more::after{ font-size:20px; content:"›"; }
+}
+/* 이름과 긴 값을 한 칸에 놓는 줄: 좁으면 값을 아랫줄로 */
+.cell.stack{ flex-wrap:wrap; }
+.cell.stack > span:last-child{ flex:1 1 auto; text-align:right; }
+@media (max-width:600px){ .cell.stack > span:last-child{ flex-basis:100%; text-align:left; color:var(--ink-2); } }
+/* PC 넓은 화면에서는 편지가 대화창 옆에 펼쳐져 있으니 '편지' 버튼을 숨긴다 */
+@media (min-width:1100px){ body:not(.m) .chat-tools .m-only{ display:none; } }
+@media (min-width:601px){
+  .row.add-row > select{ flex:0 1 auto; max-width:38%; }
+  .cell.stack > span:first-child{ white-space:nowrap; flex:0 0 auto; }
+}
