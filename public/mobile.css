@@ -241,3 +241,5 @@ body.m{ --navh:calc(54px + env(safe-area-inset-bottom)); --hdrh:calc(41px + env(
 .m .m-nav .stage-tab b{ min-width:24px; min-height:24px; width:auto; height:auto; aspect-ratio:1; padding:0 2px; }
 .m .m-nav .stage-tab span{ max-width:100%; }
 .m .qr-mini{ width:56px; height:56px; }
+/* 대화 중 알림은 화면 위쪽에 띄워 아래 입력창을 가리지 않는다 */
+.m.chat-mode .toast{ top:calc(60px + env(safe-area-inset-top)); bottom:auto; }

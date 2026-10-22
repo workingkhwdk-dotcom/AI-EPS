@@ -551,6 +551,33 @@ test("휴대폰에서 'PC 화면으로 보기'를 고르면 기억하고, '모�
   await s.pg.waitForURL(/\/m\.html$/);
 });
 
+test("휴대폰인데 UA 에 휴대폰 표시가 없어도(데스크톱 사이트 요청·앱 안 브라우저) 터치 작은 화면이면 모바일 화면으로 옮겨 간다", async () => {
+  const desktopUa = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15";
+  const s = await openStudent(studentFixture(), { ctxOpts: { ...phone, userAgent: desktopUa } });
+  assert.match(s.pg.url(), /\/m\.html$/);
+  await s.ctx.close();
+});
+
+test("학생: 좁은 화면에서 PC 화면을 봐도 머리글이 한 줄로 줄고 닉네임이 줄바꿈되지 않으며, 단계 막대가 낮아 활동 내용이 위쪽에 보인다", async () => {
+  const s = await openStudent(studentFixture(), { ctxOpts: { viewport: { width: 390, height: 844 } } });
+  await login(s.pg);
+  await s.pg.waitForSelector(".stages .stage-now");
+  const m = await s.pg.evaluate(() => {
+    const r = (q) => document.querySelector(q).getBoundingClientRect();
+    return { hdr: r(".hdr").height, who: r("#who").height, whoFont: parseFloat(getComputedStyle(document.querySelector("#who")).lineHeight) || 20,
+      help: r("#help-btn"), stages: r(".stages").height, panel: r("#panel").top, now: document.querySelector(".stage-now").textContent, over: document.documentElement.scrollWidth > innerWidth };
+  });
+  assert.ok(m.hdr < 56, `머리글 높이 ${m.hdr}`);
+  assert.ok(m.who < m.whoFont * 1.6, "닉네임은 한 줄");
+  assert.ok(Math.abs(m.help.width - m.help.height) < 2, "? 버튼은 찌그러지지 않는다");
+  assert.ok(m.stages < 80, `단계 막대 높이 ${m.stages}`);
+  assert.match(m.now, /1단계 · /, "지금 단계 이름이 보인다");
+  assert.ok(m.panel < 170, `활동 내용 위치 ${m.panel}`);
+  assert.ok(!m.over, "가로로 넘치지 않는다");
+  if (process.env.SHOT) await s.pg.screenshot({ path: process.env.SHOT });
+  await s.ctx.close();
+});
+
 test("학생 모바일: 입장 → 아래 단계 막대로 이동, 글을 쓰는 동안 막대를 숨기고, 남은 질문이 보인다", async () => {
   const s = await openStudent(studentFixture(), { ctxOpts: phone, member: { chatCount: 1 } });
   assert.ok(await s.pg.locator(".m-hero").isVisible());
@@ -1081,14 +1108,21 @@ test("학생: 인물을 아직 안 골랐으면 모든 인물의 편지가 보�
   assert.ok(await pg.locator('.subnav button[data-sub="chat"]').isDisabled(), "고르기 전에는 대화로 갈 수 없다");
   assert.match(await pg.locator(".notice.yellow").innerText(), /예멘에서 온 분/);
   assert.match(await pg.locator(".pcard.taken").innerText(), /나래 선택/);
-  assert.ok(await pg.locator('.pcard.taken [data-act="choose"]').isDisabled() === true || (await pg.locator('.pcard.taken [data-act="choose"]').count()) === 1);
   assert.ok(await pg.locator(".nav-foot .btn:has-text('다음')").isDisabled());
-  // 편지를 펼쳐 읽고 고른다
-  await pg.click('.pcard[data-keep="pc-p1"] summary');
-  assert.match(await pg.locator('.pcard[data-keep="pc-p1"] .pc-body').innerText(), /안녕하세요/);
-  await pg.click('[data-act="choose"][data-id="p1"]');
-  await pg.click(".modal .btn-primary");
+  // 모둠원이 고른 인물: 편지 창은 열리지만 고르는 버튼이 눌리지 않는다
+  await pg.click('.pcard.taken [data-act="read-letter"]');
+  assert.ok(await pg.locator(".modal.letter-pop .btn-primary").isDisabled());
+  await pg.click(".modal.letter-pop .btn-plain");
+  // 카드를 누르면 편지가 창으로 뜨고(펼쳐지지 않는다), 창에서 바로 고른다
+  await pg.click('[data-act="read-letter"][data-id="p1"]');
+  assert.match(await pg.locator(".modal.letter-pop .lp-letter").innerText(), /안녕하세요[\s\S]*김씨 드림/);
+  assert.equal(await pg.locator(".pcard details, .pcard .pc-body").count(), 0, "PC 화면에는 접었다 펴는 편지가 없다");
+  await pg.click(".modal.letter-pop .btn-primary");
+  // 고르면 곧바로 '대화하러 가기'가 보인다
+  await pg.waitForSelector('.modal:not(.letter-pop) .btn-primary:has-text("대화하러 가기")');
+  await pg.click(".modal .btn-plain"); // 편지 더 보기
   await pg.waitForSelector(".pcard.mine");
+  assert.ok(await pg.locator('.pcard.mine .btn-primary[data-sub="chat"]').isVisible(), "고른 카드에도 '대화하러 가기'가 있다");
   assert.equal(st.chose.personaId, "p1");
   assert.match(await pg.locator(".notice.ok").innerText(), /김씨/);
   assert.equal(await pg.locator(".notice.yellow").count(), 0, "당사자를 골랐으니 안내가 사라진다");
@@ -1116,9 +1150,8 @@ test("학생: 인물 고르기 규칙 위반(겹침 등)은 서버 메시지를 
   const { pg } = await openStudent(st, { picks: {} });
   await login(pg);
   await pg.waitForSelector(".pcards");
-  await pg.click('.pcard[data-keep="pc-p2"] summary');
-  await pg.click('[data-act="choose"][data-id="p2"]');
-  await pg.click(".modal .btn-primary");
+  await pg.click('[data-act="read-letter"][data-id="p2"]');
+  await pg.click(".modal.letter-pop .btn-primary");
   await pg.waitForSelector(".toast.err");
   assert.match(await pg.locator(".toast.err").innerText(), /이미 고른/);
   assert.equal(await pg.locator(".pcard.mine").count(), 0);
@@ -1333,4 +1366,329 @@ test("교사: 수업 복제는 화면 안의 확인 창, 수업 삭제는 수업
   await pg.click(".modal .btn-danger");
   await pg.waitForFunction(() => window.__log.includes("deleteSession"));
   assert.equal(dialogs, 0, "브라우저 기본 창을 쓰지 않는다");
+});
+
+// ---------- 체험(demo): 서버 없이 이 기기에 저장하며 학생 화면을 혼자 해 본다 ----------
+async function demoPage(ctxOpts = {}, ai = null) {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, ...ctxOpts });
+  const pg = await ctx.newPage();
+  const errors = [];
+  pg.on("pageerror", (e) => errors.push(e.message));
+  // 체험은 Firebase SDK 를 아예 부르지 않는다. 서버의 AI(demoRequest)만 부르고, 시험에서는 ai 로 대신 답한다(없으면 연결 실패).
+  const hits = [], asked = [];
+  await pg.route(/gstatic\.com\/firebasejs|firestore\.googleapis/, (r) => { hits.push(r.request().url()); r.abort(); });
+  const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "*", "Access-Control-Allow-Methods": "POST, OPTIONS" };
+  await pg.route(/cloudfunctions\.net\/demoRequest/, async (r) => {
+    if (!ai) return r.abort();
+    if (r.request().method() === "OPTIONS") return r.fulfill({ status: 204, headers: cors });
+    const body = JSON.parse(r.request().postData()).data; asked.push(body);
+    const out = await ai(body);
+    r.fulfill({ status: out.status || 200, headers: cors, contentType: "application/json", body: JSON.stringify(out.json) });
+  });
+  await pg.route(/fonts\.(googleapis|gstatic)|cdn\.jsdelivr/, (r) => r.abort());
+  return { pg, ctx, errors, hits, asked };
+}
+
+const dismissHelp = async (pg) => { await pg.waitForTimeout(500); while (await pg.locator('.modal .btn:has-text("이해했어요")').count()) { await pg.click('.modal .btn:has-text("이해했어요")'); await pg.waitForTimeout(400); } };
+
+test("체험: 메뉴에 주제 5개, 시작하면 입장 없이 학생 화면이 열리고 홈·초기화 단추가 있다(Firebase 호출 없음)", async () => {
+  const { pg, ctx, errors, hits } = await demoPage();
+  await pg.goto(`${base}/demo.html`);
+  await pg.waitForSelector(".topic");
+  // 처음 들어오면 체험이 무엇인지(실제 수업과 다른 점, 체험용 AI) 한 번 알려 준다. 다시 열어도 또 뜨지 않는다
+  await pg.waitForSelector(".modal.about-pop");
+  assert.match(await pg.locator(".modal.about-pop").innerText(), /수업 코드로 입장[\s\S]*주제 하나를 골라[\s\S]*더 고성능 AI/);
+  await pg.click(".modal.about-pop .btn-primary");
+  await pg.reload(); await pg.waitForSelector(".topic"); await pg.waitForTimeout(300);
+  assert.equal(await pg.locator(".modal").count(), 0);
+  // 독립된 주제 5개가 한 화면에(PC는 한 줄로) 보이고, 카드 어디를 눌러도 열린다
+  assert.match(await pg.locator(".topics-head").innerText(), /독립된 주제 5개/);
+  const tops = await pg.locator(".topic").evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
+  assert.equal(new Set(tops).size, 1, "넓은 화면에서는 다섯 주제가 한 줄");
+  assert.equal(await pg.locator(".topic").count(), 5);
+  assert.equal(await pg.locator('.topic a.btn-primary[href^="demo-play.html?t="]').count(), 5);
+  await pg.locator(".topic a.btn-primary").first().click();
+  await pg.waitForSelector("#app:not(.hidden)");
+  assert.match(pg.url(), /demo-play\.html\?t=jeju2018$/);
+  assert.ok(await pg.locator("#join").isHidden() && await pg.locator("#logout").isHidden());
+  assert.ok(await pg.locator("#demo-home").isVisible() && await pg.locator("#demo-reset").isVisible());
+  assert.match(await pg.locator(".demo-note").textContent(), /이 기기에만 저장/);
+  assert.deepEqual(hits, [], "Firebase 서버를 부르지 않는다");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("체험: 인물 고르기 → 대화 → 새로고침해도 이어지고, 초기화하면 처음부터, 홈은 메뉴로", async () => {
+  const { pg, ctx, errors } = await demoPage();
+  await pg.goto(`${base}/demo-play.html?t=junam2025`);
+  await pg.waitForSelector("#app:not(.hidden)");
+  if (await pg.locator(".modal").count()) await pg.click('.modal .btn:has-text("이해했어요")');
+  // 처음에는 모든 인물의 편지가 보인다
+  await pg.waitForSelector(".pcard");
+  assert.equal(await pg.locator(".pcard").count(), 9);
+  await pg.locator('.pcard [data-act="read-letter"]').first().click();
+  await pg.click(".modal.letter-pop .btn-primary");
+  await pg.click('.modal .btn-primary:has-text("대화하러 가기")'); // 고르자마자 뜨는 '대화하러 가기'
+  await pg.waitForSelector(".chat-card");
+  await pg.fill("#prior-in", "잘 모르겠다");
+  await pg.fill("#msg", "안녕하세요, 어떤 일을 하세요?"); await pg.press("#msg", "Enter");
+  await pg.waitForSelector(".msg.ai:not(.typing) .bubble");
+  assert.match(await pg.locator("#chat-left").innerText(), /4/ );
+  // 새로고침해도 대화·남은 질문이 이어진다(이 기기에 저장)
+  await pg.waitForTimeout(300);
+  await pg.reload();
+  await pg.waitForSelector(".msg.ai:not(.typing) .bubble");
+  assert.match(await pg.locator("#chat-left").innerText(), /4/);
+  await dismissHelp(pg); // 대화 단계 안내 팝업
+  // 초기화: 확인 뒤 처음부터
+  pg.once("dialog", (d) => d.accept());
+  await pg.click("#demo-reset");
+  await pg.waitForSelector(".pcard");
+  assert.equal(await pg.locator(".msg").count(), 0);
+  const saved = await pg.evaluate(() => localStorage.getItem("eps_demo_v1_junam2025") || "");
+  assert.ok(!/\/chat\/|\/assign\//.test(saved), "초기화하면 고른 인물·대화 저장이 지워진다");
+  // 홈(초기화하면 단계 안내도 처음처럼 다시 뜬다)
+  await dismissHelp(pg);
+  await pg.click("#demo-home");
+  await pg.waitForURL(/demo\.html$/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("체험: 주제마다 저장이 따로이고(메뉴에 '이어서 하기'), 폰으로 열면 모바일 체험 화면으로 옮겨 간다", async () => {
+  const { pg, ctx, errors } = await demoPage({ ...phone });
+  await pg.goto(`${base}/demo-play.html?t=waste2019`);
+  await pg.waitForURL(/demo-play-m\.html\?t=waste2019$/);
+  await pg.waitForSelector("#app:not(.hidden)");
+  assert.ok(await pg.locator("body.m").count());
+  assert.ok(await pg.locator("#demo-home").isVisible());
+  assert.ok(await pg.locator("#join").isHidden());
+  // 안내 팝업을 닫고 인물 하나를 고르면 이 주제에만 저장이 생긴다
+  if (await pg.locator(".modal").count()) await pg.click('.modal .btn:has-text("이해했어요")');
+  // 휴대폰: 체험 안내는 한 줄, 실제 수업과 다른 점은 화면에 띠로 두지 않고 단계 안내 창이 알려 준다
+  assert.ok((await pg.locator(".demo-note").boundingBox()).height < 40, "체험 안내는 한 줄");
+  assert.equal(await pg.locator(".demo-diff").count(), 0);
+  // 휴대폰에서도 카드를 누르면 편지가 아래에서 올라오는 창으로 뜨고, 고르는 버튼이 창 안에 보인다
+  await pg.locator('.pcard [data-act="read-letter"]').first().click();
+  await pg.waitForTimeout(400); // 아래에서 올라오는 움직임이 끝난 뒤에 잰다
+  const sheet = await pg.evaluate(() => { const m = document.querySelector(".modal.letter-pop"), b = m.querySelector(".btn-primary").getBoundingClientRect(); return { w: m.offsetWidth, vw: innerWidth, btnIn: b.bottom <= innerHeight && b.top >= 0 }; });
+  assert.ok(sheet.w <= sheet.vw && sheet.btnIn, "편지 창이 화면 안에 있고 고르는 버튼이 보인다: " + JSON.stringify(sheet));
+  await pg.click(".modal.letter-pop .btn-primary");
+  await pg.click('.modal .btn-primary:has-text("대화하러 가기")');
+  await pg.waitForSelector(".chat-card");
+  await pg.waitForTimeout(200);
+  await dismissHelp(pg);
+  await pg.evaluate(() => { window.scrollTo(0, 0); document.body.classList.remove("chrome-hidden"); }); // 위로 올리면 머리글이 다시 나온다
+  await pg.click("#demo-home");
+  await pg.waitForURL(/demo\.html$/);
+  await pg.waitForSelector(".topic");
+  // 휴대폰: 다섯 주제가 한 화면 안에 다 보인다
+  if (await pg.locator(".modal.about-pop").count()) await pg.click(".modal.about-pop .btn-primary");
+  const last = await pg.locator(".topic").last().boundingBox();
+  assert.ok(last.y + last.height <= 844, `다섯째 주제까지 첫 화면에 보인다(${Math.round(last.y + last.height)}px)`);
+  assert.equal(await pg.locator(".topic .saved").count(), 1, "하던 주제 하나만 표시");
+  assert.match(await pg.locator(".topic:has(.saved) a.btn-primary").innerText(), /이어서 하기/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("체험: 데모 화면은 학생 화면과 같은 id 를 모두 가진다", () => {
+  const ids = (f) => new Set([...fs.readFileSync(path.join(ROOT, f), "utf8").matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
+  for (const [demo, src] of [["demo-play.html", "index.html"], ["demo-play-m.html", "m.html"]]) {
+    const d = ids(demo);
+    for (const id of ids(src)) assert.ok(d.has(id), `${demo} 에 #${id} 가 없습니다. node tools/build-demo-data.js 를 다시 실행하세요.`);
+  }
+});
+
+test("체험: 2~5단계의 AI 단추(생각 도우미·검색 도우미·AI 의견·미래 이야기)에 준비된 답이 나오고 화면이 깨지지 않는다", async () => {
+  const { pg, ctx, errors } = await demoPage();
+  await pg.goto(`${base}/demo-play.html?t=junam2025`);
+  await pg.waitForSelector("#app:not(.hidden)");
+  await dismissHelp(pg);
+  const G = "sessions/JUNAM2025/groups/g1";
+  // 모둠이 앞 단계에서 쓴 것을 이 기기 저장소에 미리 넣어 둔다
+  await pg.evaluate(async ([G]) => {
+    const st = await import("/demo/store.js");
+    const by = { by: "demo-student", nick: "체험" };
+    st.update(G, {
+      "work.s1.problem.hmw": "어떻게 하면 저수지 곁 주민의 생계를 지키면서도 철새 서식지를 보전할 수 있을까?",
+      "work.s2.causes.k1": { level: "제도·정책", text: "개발 제한만 있고 주민 몫은 부족한 제도", t: 1, ...by },
+      "work.s2.checks.c1": { heard: "박상규: 습지보호지역에 반대한다", question: "주남저수지 습지보호지역 지정 논의는 어떻게 진행됐나?", srcType: "언론 보도", t: 1, ...by },
+      "work.s3.chain.cause": "개발 제한의 부담은 주민이 지고 보상은 부족한 제도가 핵심 원인이다",
+      "work.s4.proposals.p1": { text: "철새 먹이 농사 보상을 올리고 생태관광 수익을 저수지 곁 마을에 돌려주는 기금을 만든다", cause: "보상 부족", t: 2, ...by },
+      "work.s4.final": "철새 먹이 농사 보상을 올리고 생태관광 수익을 마을 기금으로 돌려주는 방법을 시범 마을에서 먼저 한다",
+      "work.s5.predictions.a": { stakeholder: "주민", text: "보상이 늘면 환영하지만 시행이 늦을까 걱정할 것이다", t: 3, ...by },
+      "work.s5.predictions.b": { stakeholder: "환경단체", text: "보전 기금이라면 찬성하되 개발 허용이 늘 수 있다고 볼 것이다", t: 4, ...by },
+    });
+  }, [G]);
+  const tab = async (n) => { await pg.click(`#tabs .stage-tab[data-stage="${n}"]`); await dismissHelp(pg); };
+  // 3단계: 검색 도우미(수업 자료에서 찾아 줌, 판정은 학생 몫)
+  await tab(3);
+  await pg.click('[data-act="ask-check"]');
+  await pg.waitForSelector(".ai-out");
+  assert.match(await pg.locator(".ai-out").first().innerText(), /판정하지 않아요/);
+  // 4단계: 세 가지 관점의 AI 의견
+  await tab(4);
+  await pg.click('[data-act="ask-feedback"]');
+  await pg.waitForFunction(() => document.querySelectorAll(".card.flat .ai-out").length >= 3, null, { timeout: 15000 });
+  assert.match(await pg.locator(".card.flat .tag").allInnerTexts().then((x) => x.join(" ")), /실행 가능성.*이해관계자 영향.*부작용/);
+  // 5단계: 두 가지 미래 이야기
+  await tab(5);
+  await pg.click('[data-act="ask-scenario"]');
+  await pg.waitForSelector(".scn", { timeout: 15000 });
+  assert.equal(await pg.locator(".scn").count(), 2);
+  assert.deepEqual(errors, []);
+  if (process.env.SHOT) await pg.screenshot({ path: process.env.SHOT, fullPage: true });
+  await ctx.close();
+});
+
+// 체험의 AI: 서버(demoRequest)에 묻고, 횟수를 다 썼거나 연결이 안 되면 준비된 답으로 대신한다
+async function pickAndChat(pg, topic, question) {
+  await pg.goto(`${base}/demo-play.html?t=${topic}`);
+  await pg.waitForSelector("#app:not(.hidden)");
+  await dismissHelp(pg);
+  await pg.waitForSelector(".pcard");
+  await pg.locator('.pcard [data-act="read-letter"]').first().click();
+  await pg.click(".modal.letter-pop .btn-primary");
+  await pg.click('.modal .btn-primary:has-text("대화하러 가기")'); // 고르자마자 뜨는 '대화하러 가기'
+  await pg.waitForSelector(".chat-card");
+  await dismissHelp(pg);
+  await pg.fill("#prior-in", "잘 모르겠다");
+  await pg.fill("#msg", question); await pg.press("#msg", "Enter");
+}
+
+test("체험: 인물 대화는 서버의 AI 답을 쓰고(요청에 기기·주제·인물·대화 기록), 두 번째 질문에는 앞 대화가 함께 간다", async () => {
+  const { pg, ctx, errors, asked } = await demoPage({}, async (b) => ({ json: { result: { text: `AI가 답했어요: ${b.message}` } } }));
+  await pickAndChat(pg, "jeju2018", "고향이 어디예요?");
+  await pg.waitForSelector('.msg.ai .bubble:has-text("AI가 답했어요: 고향이 어디예요?")');
+  assert.equal(asked.length, 1);
+  assert.match(asked[0].deviceId, /^[A-Za-z0-9-]{12,64}$/);
+  assert.deepEqual([asked[0].topic, asked[0].kind, asked[0].history], ["jeju2018", "chat", []]);
+  assert.ok(asked[0].personaId && asked[0].message === "고향이 어디예요?");
+  assert.match(await pg.locator("#chat-left").innerText(), /4/);
+  await pg.fill("#msg", "가족은요?"); await pg.press("#msg", "Enter");
+  await pg.waitForSelector('.msg.ai .bubble:has-text("AI가 답했어요: 가족은요?")');
+  assert.deepEqual(asked[1].history, [{ input: "고향이 어디예요?", output: "AI가 답했어요: 고향이 어디예요?" }]);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("체험: 횟수를 다 썼다는 답(429)이나 연결 실패면 안내를 띄우고 준비된 예시 답으로 이어 간다(질문 횟수는 그대로 센다)", async () => {
+  const msg = "체험에서는 인물에게 묻기를 이 주제에서 5번까지 쓸 수 있어요. 이제 준비된 예시 답으로 보여 드려요.";
+  const { pg, ctx, errors } = await demoPage({}, async () => ({ status: 429, json: { error: { status: "RESOURCE_EXHAUSTED", message: msg } } }));
+  await pickAndChat(pg, "waste2019", "안녕하세요");
+  await pg.waitForSelector('.toast:has-text("5번까지")');
+  await pg.waitForSelector(".msg.ai:not(.typing) .bubble");
+  assert.ok((await pg.locator(".msg.ai .bubble").first().innerText()).length > 10, "준비된 답이 나온다");
+  assert.match(await pg.locator("#chat-left").innerText(), /4/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+  // 연결 자체가 안 될 때(서버 미배포 등)
+  const off = await demoPage({}, null);
+  await pickAndChat(off.pg, "waste2019", "안녕하세요");
+  await off.pg.waitForSelector('.toast:has-text("연결되지 않아")');
+  await off.pg.waitForSelector(".msg.ai:not(.typing) .bubble");
+  await off.ctx.close();
+});
+
+test("체험: 3·4·5단계 AI 단추는 모둠이 쓴 글을 서버로 보내고 받은 답을 그대로 보여 준다", async () => {
+  const { pg, ctx, errors, asked } = await demoPage({}, async (b) => ({ json: { result: b.stage === 3 ? { result: "서버 AI의 자료 답", output: "서버 AI의 자료 답" }
+    : b.stage === 4 ? (() => { const r = { reviews: [{ lens: "feasibility", label: "실행 가능성", text: "서버 의견1" }, { lens: "stakeholders", label: "이해관계자 영향", text: "서버 의견2" }, { lens: "sideEffects", label: "부작용·장기 영향", text: "서버 의견3" }] }; return { result: r, output: JSON.stringify(r) }; })()
+    : (() => { const r = { scenarios: [{ title: "서버 시나리오 A", story: "이야기", mechanism: "기제", unintended: [], newProblems: [] }, { title: "서버 시나리오 B", story: "이야기", mechanism: "기제", unintended: [], newProblems: [] }] }; return { result: r, output: JSON.stringify(r) }; })() } }));
+  await pg.goto(`${base}/demo-play.html?t=junam2025`);
+  await pg.waitForSelector("#app:not(.hidden)");
+  await dismissHelp(pg);
+  const G = "sessions/JUNAM2025/groups/g1";
+  await pg.evaluate(async ([G]) => {
+    const st = await import("/demo/store.js"); const by = { by: "demo-student", nick: "체험" };
+    st.update(G, {
+      "work.s1.problem.hmw": "어떻게 하면 저수지 곁 주민의 생계를 지키면서도 철새 서식지를 보전할 수 있을까?",
+      "work.s2.causes.k1": { level: "제도·정책", text: "개발 제한만 있고 주민 몫은 부족한 제도", t: 1, ...by },
+      "work.s2.checks.c1": { heard: "박상규: 습지보호지역에 반대한다", question: "습지보호지역 지정 논의는 어떻게 진행됐나?", srcType: "언론 보도", causeId: "k1", t: 1, ...by },
+      "work.s3.chain.cause": "개발 제한의 부담은 주민이 지고 보상은 부족한 제도가 핵심 원인이다",
+      "work.s4.proposals.p1": { text: "철새 먹이 농사 보상을 올리고 생태관광 수익을 저수지 곁 마을에 돌려주는 기금을 만든다", cause: "보상 부족", t: 2, ...by },
+      "work.s4.final": "철새 먹이 농사 보상을 올리고 생태관광 수익을 마을 기금으로 돌려주는 방법을 시범 마을에서 먼저 한다",
+      "work.s5.predictions.a": { stakeholder: "주민", text: "보상이 늘면 환영하지만 시행이 늦을까 걱정할 것이다", t: 3, ...by },
+      "work.s5.predictions.b": { stakeholder: "환경단체", text: "보전 기금이라면 찬성하되 개발 허용이 늘 수 있다고 볼 것이다", t: 4, ...by },
+    });
+  }, [G]);
+  const tab = async (n) => { await pg.click(`#tabs .stage-tab[data-stage="${n}"]`); await dismissHelp(pg); };
+  await tab(3); await pg.click('[data-act="ask-check"]');
+  await pg.waitForSelector('.ai-out:has-text("서버 AI의 자료 답")');
+  await tab(4); await pg.click('[data-act="ask-feedback"]');
+  await pg.waitForSelector('.ai-out:has-text("서버 의견3")');
+  await tab(5); await pg.click('[data-act="ask-scenario"]');
+  await pg.waitForSelector('.scn:has-text("서버 시나리오 B")');
+  const by = Object.fromEntries(asked.map((a) => [a.stage, a]));
+  assert.equal(by[3].payload.check.cause, "개발 제한만 있고 주민 몫은 부족한 제도", "확인하려는 원인 가설이 함께 간다");
+  assert.match(by[3].ctx.problem, /철새 서식지/);
+  assert.match(by[4].payload.proposal.text, /기금/);
+  assert.equal(by[5].payload.round, 1);
+  assert.equal(by[5].payload.predictions.length, 2);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("체험: 실제 수업과 다른 점은 화면의 띠가 아니라 단계에 들어갈 때 뜨는 안내 창이 알려 주고, 준비된 예시 답에는 데모라서 그렇다는 표시가 붙는다", async () => {
+  const { pg, ctx, errors } = await demoPage({}, null); // 연결 안 됨 → 준비된 답
+  await pickAndChat(pg, "jeju2018", "고향이 어디예요?");
+  await pg.waitForSelector(".msg.ai:not(.typing) .bubble");
+  assert.match(await pg.locator(".msg.ai .bubble").last().innerText(), /데모라서 준비된 예시 답/);
+  assert.equal(await pg.locator(".demo-diff").count(), 0, "화면 위 '데모라서' 띠는 없다");
+  // 1단계 ① 대화: '안내 다시 보기'로 다시 열어도 체험에서 다른 점(체험용 AI)이 함께 보인다
+  await pg.click('[data-act="help"]');
+  await pg.waitForSelector(".modal .help-demo");
+  assert.match(await pg.locator(".modal .help-demo").innerText(), /체험에서는.*체험용 가벼운 AI.*고성능.*5번까지/s);
+  await dismissHelp(pg);
+  const stageText = {};
+  for (const n of [2, 3, 4, 5, 6, 7]) {
+    await pg.click(`#tabs .stage-tab[data-stage="${n}"]`);
+    await pg.waitForSelector(".modal .help-demo");
+    stageText[n] = await pg.locator(".modal .help-demo").innerText();
+    await dismissHelp(pg);
+  }
+  assert.match(stageText[3], /웹 검색 없이/);
+  assert.match(stageText[2], /체험용 가벼운 AI/);
+  // 1단계 작은 단계도 각각
+  await pg.click('#tabs .stage-tab[data-stage="1"]'); await dismissHelp(pg);
+  await pg.click('.subnav button[data-sub="group"]');
+  await pg.waitForSelector(".modal .help-demo");
+  assert.match(await pg.locator(".modal .help-demo").innerText(), /혼자 문제를 정해요/);
+  await dismissHelp(pg);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+
+test("체험(PC 1366×768): 머리 부분이 낮아 활동이 화면 위쪽에서 보이고, 편지는 넓은 창에 스크롤 없이 뜨며, 처음 내 생각 칸은 대화창 위에 있다", async () => {
+  const { pg, ctx, errors } = await demoPage({ viewport: { width: 1366, height: 768 } });
+  await pg.goto(`${base}/demo-play.html?t=jeju2018`);
+  await pg.waitForSelector("#app:not(.hidden)");
+  await dismissHelp(pg);
+  // 체험 안내는 머리글 가운데 한 줄로, '지금 할 일'은 단계 머리말 안에 들어간다
+  assert.ok(await pg.locator(".demo-badge").isVisible() && await pg.locator("#main > .demo-note").isHidden());
+  assert.match(await pg.locator(".hero .hero-next").innerText(), /지금 할 일/);
+  assert.ok(await pg.locator("#panel > .next").isHidden());
+  const top = (await pg.locator("#panel .card:has(.pcards)").boundingBox()).y;
+  assert.ok(top < 340, `인물 고르기 카드가 화면 위쪽에서 시작한다(${top}px, 전에는 600px 남짓)`);
+  // 편지 창: 넓고, 스크롤 없이 버튼까지 보인다
+  await pg.locator('.pcard [data-act="read-letter"]').first().click();
+  const pop = await pg.evaluate(() => { const m = document.querySelector(".modal.letter-pop"); return { w: m.offsetWidth, scroll: m.scrollHeight > m.clientHeight + 1 }; });
+  assert.ok(pop.w >= 1000, `편지 창이 넓다(${pop.w}px)`);
+  assert.ok(!pop.scroll, "편지 창은 스크롤 없이 보인다");
+  assert.ok(await pg.locator(".modal.letter-pop .btn-primary").isVisible());
+  await pg.click(".modal.letter-pop .btn-primary");
+  await pg.click('.modal .btn-primary:has-text("대화하러 가기")');
+  await pg.waitForSelector(".chat-card");
+  await dismissHelp(pg);
+  // 위에서 아래로: 알아낼 것 → 처음 내 생각 → 대화창
+  const y = async (sel) => (await pg.locator(sel).boundingBox()).y;
+  assert.ok(await y(".goal-chips") < await y(".card.prior") && await y(".card.prior") < await y(".chat-card"), "처음 내 생각이 대화창 위에 있다");
+  assert.ok(await y("#prior-in") < 600, "처음 내 생각 칸이 첫 화면에 보인다");
+  // 4단계: 해결책 쓰기가 왼쪽 위, 다른 나라 사례는 오른쪽
+  await pg.click('#tabs .stage-tab[data-stage="4"]'); await dismissHelp(pg);
+  const act = await pg.locator(".split-main .card h3:has-text('해결책 쓰기')").boundingBox(), cases = await pg.locator(".split-side details.fold").boundingBox();
+  assert.ok(act.x < cases.x && act.y < 420, "해결책 쓰기가 사례보다 먼저(왼쪽 위) 보인다");
+  assert.deepEqual(errors, []);
+  await ctx.close();
 });

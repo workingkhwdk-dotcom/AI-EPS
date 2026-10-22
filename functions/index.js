@@ -18,6 +18,7 @@ const { validatePassword, hashPassword, verifyPassword, normNick, credKey, locke
 const { defaultMaterials, sanitizeMaterials, toStudentMaterials, materialsText } = require("./materials");
 const { chatWithLookup, webSearch, isSmallTalk } = require("./lookup");
 const { sanitizeOverride, applyOverride } = require("./personaEdit");
+const demo = require("./demo");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { AUTO_CLOSE_CHOICES, autoCloseDue, staleAnonymousUids } = require("./maintenance");
 
@@ -36,6 +37,9 @@ const PERSONA_WEB_SEARCH = defineString("PERSONA_WEB_SEARCH", { default: "true" 
 // 웹 검색을 허용할 도메인(쉼표). 비우면 제한 없음. 예: yna.co.kr,hani.co.kr,moj.go.kr,unhcr.org
 const SEARCH_ALLOWED_DOMAINS = defineString("SEARCH_ALLOWED_DOMAINS", { default: "" });
 const SEARCH_MODEL = defineString("SEARCH_MODEL", { default: "" }); // 웹 검색 호출 전용 모델(비우면 OPENAI_MODEL)
+// 체험(demo) 페이지의 AI: 모델(비우면 OPENAI_MODEL)과 하루 전체 호출 한도(비용 보호)
+const DEMO_MODEL = defineString("DEMO_MODEL", { default: "" });
+const DEMO_DAILY_CAP = defineInt("DEMO_DAILY_CAP", { default: 300 });
 const TEACHER_EMAILS = defineString("TEACHER_EMAILS", { default: "" });
 // 교사 가입 인증 문구. 코드·저장소에는 두지 않고 functions/.env(git 에 올라가지 않음)의 TEACHER_SIGNUP_CODE 로만 정한다.
 // 비어 있으면 교사 가입이 꺼진다(관리자·TEACHER_EMAILS·config/teachers 로만 교사 지정).
@@ -1009,6 +1013,40 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
     // 교사 화면에서 원인을 볼 수 있도록 모둠 문서에 남긴다
     await groupRef.update({ lastAiError: { stage: s, message: String(e.message).slice(0, 300), at: FieldValue().serverTimestamp() } }).catch(() => {});
     throw new HttpsError("unavailable", "AI 응답을 받지 못했습니다. 잠시 후 다시 시도하세요.");
+  }
+});
+
+// ---------- 체험(demo) 페이지의 AI ----------
+// 로그인 없이 누구나 부를 수 있어서 비용을 지키는 장치가 여러 겹이다: 기기·주제마다 횟수(인물 5번, 도우미 5번), 하루 전체 한도(DEMO_DAILY_CAP),
+// 저렴한 모델(DEMO_MODEL), 웹 검색 없음, OpenAI 키 쪽의 사용 한도. 서버에는 아무 글도 저장하지 않고 횟수만 센다(demoUsage, 서버만 읽고 쓴다).
+// 실패하면 화면이 준비된 답으로 대신하므로, 횟수는 실패한 호출만큼 돌려준다.
+const demoCodes = { "invalid-argument": "invalid-argument", internal: "internal" };
+exports.demoRequest = onCall({ ...aiOpts, maxInstances: 2 }, async (req) => {
+  let d;
+  try { d = demo.parse(req.data); } catch (e) { throw new HttpsError(demoCodes[e.code] || "invalid-argument", e.message); }
+  const field = `${d.topic}_${d.kind}`, limit = demo.LIMITS[d.kind];
+  const day = new Date().toISOString().slice(0, 10);
+  const mineRef = db.doc(`demoUsage/${d.deviceId}`), dayRef = db.doc(`demoUsage/day-${day}`);
+  await db.runTransaction(async (tx) => {
+    const [mine, today] = await Promise.all([tx.get(mineRef), tx.get(dayRef)]);
+    if ((mine.data()?.[field] || 0) >= limit)
+      throw new HttpsError("resource-exhausted", `체험에서는 ${d.kind === "chat" ? "인물에게 묻기를" : "AI 도우미를"} 이 주제에서 ${limit}번까지 쓸 수 있어요. 이제 준비된 예시 답으로 보여 드려요.`);
+    if ((today.data()?.n || 0) >= DEMO_DAILY_CAP.value())
+      throw new HttpsError("resource-exhausted", "오늘 체험용 AI 사용량이 모두 찼어요. 준비된 예시 답으로 보여 드려요.");
+    tx.set(mineRef, { [field]: FieldValue().increment(1), updatedAt: FieldValue().serverTimestamp() }, { merge: true });
+    tx.set(dayRef, { n: FieldValue().increment(1) }, { merge: true });
+  });
+  const refund = () => Promise.all([mineRef.set({ [field]: FieldValue().increment(-1) }, { merge: true }), dayRef.set({ n: FieldValue().increment(-1) }, { merge: true })]).catch(() => {});
+  const apiKey = OPENAI_API_KEY.value(), model = DEMO_MODEL.value() || OPENAI_MODEL.value(), effort = REASONING_EFFORT.value();
+  try {
+    const out = await demo.run(d, { effort, call: (o) => callModel({ apiKey, model, messages: o.messages, json: o.json, maxTokens: o.maxTokens, efforts: o.efforts }) });
+    if (out.refunded) await refund();
+    return out;
+  } catch (e) {
+    await refund();
+    if (e instanceof demo.DemoError) throw new HttpsError(demoCodes[e.code] || "internal", e.message);
+    console.error(`demoRequest 실패 kind=${d.kind} stage=${d.stage}:`, e.message);
+    throw new HttpsError("unavailable", "AI 응답을 받지 못했어요.");
   }
 });
 
