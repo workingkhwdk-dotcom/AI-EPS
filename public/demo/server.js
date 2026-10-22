@@ -1,8 +1,11 @@
 // 체험용 가짜 서버: 학생 화면이 부르는 서버 함수(getCase·choosePersona·aiRequest)를 브라우저 안에서 대신 처리한다.
-// 진짜 AI는 쓰지 않는다. 인물의 말은 인물 자료에서 고르고, 3~5단계 AI 답은 모둠이 쓴 글과 수업 자료를 짜 맞춘 예시다.
+// AI 답은 실제와 같은 AI(서버의 demoRequest)에게 먼저 묻는다. 횟수(인물 5번·도우미 5번)를 다 썼거나 연결이 안 되면
+// 준비된 예시 답으로 바꿔 보여 준다: 인물의 말은 인물 자료에서 고르고, 3~5단계 답은 모둠이 쓴 글과 수업 자료를 짜 맞춘 예시.
 import * as st from "./store.js";
 import { TOPIC, CODE, UID, NICK } from "./store.js";
 import { demoReply, snippet } from "./chat.js";
+import { firebaseConfig } from "../firebase-config.js";
+import { toast } from "../fb.js";
 
 let dataP = null;
 const data = () => (dataP ||= fetch(`demo/data/${TOPIC}.json`).then((r) => r.json()));
@@ -11,6 +14,58 @@ const fail = (msg) => { const e = new Error(msg); e.code = "functions/failed-pre
 const list = (m) => Object.entries(m || {}).map(([id, v]) => ({ id, ...(v && typeof v === "object" ? v : { text: v }) }));
 const memberPath = `sessions/${CODE}/members/${UID}`, groupPath = "g1", assignPath = `sessions/${CODE}/assign/${UID}`;
 const gPath = `sessions/${CODE}/groups/g1`;
+
+
+// ---- 진짜 AI: 서버의 demoRequest(로그인 없이 부르는 함수)를 HTTP 로 부른다. 실패하면 null → 준비된 답으로 대신한다 ----
+const AI_URL = `https://asia-northeast3-${firebaseConfig.projectId}.cloudfunctions.net/demoRequest`;
+const DEVICE = (() => { // 이 기기 표시(서버가 기기마다 횟수를 센다). 초기화해도 바뀌지 않는다.
+  try { let v = localStorage.getItem("eps_demo_device"); if (!v) { v = (crypto.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9-]/g, "") + "0000000000"; localStorage.setItem("eps_demo_device", v); } return v.slice(0, 64); }
+  catch { return "nostorage-" + Math.random().toString(36).slice(2, 12) + "00"; }
+})();
+async function askAI(body) {
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 120000);
+  try {
+    const res = await fetch(AI_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data: { deviceId: DEVICE, topic: TOPIC, ...body } }), signal: ctl.signal });
+    const j = await res.json().catch(() => ({}));
+    if (res.ok && j.result) return j.result;
+    toast(j.error?.status === "RESOURCE_EXHAUSTED" && j.error.message ? j.error.message : "AI와 연결되지 않아 준비된 예시 답으로 보여 드려요.");
+  } catch { toast("AI와 연결되지 않아 준비된 예시 답으로 보여 드려요."); }
+  finally { clearTimeout(timer); }
+  return null;
+}
+
+// 2~5단계: 모둠이 쓴 글을 서버의 AI 에게 보내 답을 받는다. 못 받으면 null.
+async function realAI(s, payload, work, d, pid) {
+  const pb = work.s1?.problem || {};
+  const ctx = { problem: [pb.situation, pb.hmw].filter(Boolean).join(" / "), cause: work.s3?.chain?.cause, evidence: work.s3?.chain?.evidence };
+  let body, input = "", lp = {};
+  if (s === 2) {
+    if (payload.focus === "link") {
+      const l = list(work.s2?.links).find((x) => x.id === payload.linkId) || {};
+      body = { focus: "link", link: { prior: l.prior, surprise: l.surprise, source: l.source, scene: l.scene, angle: l.angle, question: l.question } };
+      input = [l.surprise, l.scene, l.question].filter(Boolean).join(" / "); lp = { focus: "link", linkId: payload.linkId };
+    } else {
+      const cs = list(work.s2?.causes);
+      body = { focus: "cause", causes: cs.map((c) => ({ level: c.level, text: c.text })) };
+      input = cs.map((c) => `- ${c.level || ""} ${c.text || ""}`).join("\n"); lp = { focus: "cause" };
+    }
+  } else if (s === 3) {
+    const c = list(work.s2?.checks).find((x) => x.id === payload.checkId) || {};
+    const cause = c.causeId ? list(work.s2?.causes).find((x) => x.id === c.causeId)?.text : "";
+    body = { check: { heard: c.heard, question: c.question, srcType: c.srcType, cause } };
+    input = [c.heard && `확인할 말: ${c.heard}`, c.question && `검증 질문: ${c.question}`].filter(Boolean).join("\n"); lp = { checkId: payload.checkId, searched: false };
+  } else if (s === 4) {
+    const p = list(work.s4?.proposals).find((x) => x.id === payload.proposalId) || {};
+    body = { proposal: { text: p.text, cause: p.cause, ref: p.ref } };
+    input = String(p.text || ""); lp = { proposalId: payload.proposalId };
+  } else {
+    const text = payload.proposalId === "final" ? work.s4?.final : list(work.s4?.proposals).find((x) => x.id === payload.proposalId)?.text;
+    body = { proposalText: text, round: payload.round, predictions: list(work.s5?.predictions).slice(0, 12).map((x) => ({ stakeholder: x.stakeholder, text: x.text })) };
+    input = `대안: ${text || ""}\n시점: ${payload.round}년 후`; lp = { proposalId: payload.proposalId, round: payload.round };
+  }
+  const r = await askAI({ kind: "ai", stage: s, personaId: pid, ctx, payload: body });
+  return r ? { result: r.result, output: r.output, input, lp } : null;
+}
 
 const handlers = {
   async joinSession() { return {}; }, // 체험에서는 입장 화면 없이 바로 들어간다
@@ -53,16 +108,20 @@ const handlers = {
       const say = d.say[pid];
       if (!say) throw fail("대화할 인물을 먼저 골라 주세요.");
       const input = String(payload.message || "").trim();
-      const past = st.colList(`sessions/${CODE}/members/${UID}/chat`).map((c) => c.output);
-      await sleep(700 + Math.random() * 700);
-      const output = demoReply(input, say, past);
-      st.add(`sessions/${CODE}/members/${UID}/chat`, { uid: UID, nickname: NICK, input, output, model: "demo", conduct: null, createdAt: now });
-      st.update(memberPath, { chatCount: st.inc(1), aiCount: st.inc(1) });
+      const prev = st.colList(`sessions/${CODE}/members/${UID}/chat`).sort((a, b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0));
+      const real = await askAI({ kind: "chat", personaId: pid, message: input, history: prev.slice(-8).map((c) => ({ input: c.input, output: c.output })) });
+      let output, model = "ai", refunded = false;
+      if (real?.text) { output = real.text; refunded = !!real.refunded; }
+      else { await sleep(700 + Math.random() * 700); output = demoReply(input, say, prev.map((c) => c.output)); model = "demo"; }
+      st.add(`sessions/${CODE}/members/${UID}/chat`, { uid: UID, nickname: NICK, input, output, model, conduct: null, ...(refunded ? { refunded: true } : {}), createdAt: now });
+      st.update(memberPath, { chatCount: st.inc(refunded ? 0 : 1), aiCount: st.inc(1) });
       return { result: output };
     }
 
     let output, result, lp = {}, input = "";
-    if (s === 2) {
+    const real = await realAI(s, payload, work, d, st.get(assignPath)?.personaId);
+    if (real) ({ result, output, input, lp } = real);
+    else if (s === 2) {
       await sleep(900);
       const focus = payload.focus;
       if (focus === "link") {
@@ -126,7 +185,7 @@ const handlers = {
       ] };
       output = JSON.stringify(result); lp = { proposalId: pid, round: yrs };
     }
-    const id = st.add(`${gPath}/logs`, { uid: UID, nickname: NICK, stage: s, type, input, output, payload: lp, model: "demo", createdAt: now });
+    const id = st.add(`${gPath}/logs`, { uid: UID, nickname: NICK, stage: s, type, input, output, payload: lp, model: real ? "ai" : "demo", createdAt: now });
     st.update(gPath, { aiCount: st.inc(1) });
     st.update(memberPath, { aiCount: st.inc(1) });
     return { logId: id, result };

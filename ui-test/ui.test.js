@@ -1363,16 +1363,24 @@ test("교사: 수업 복제는 화면 안의 확인 창, 수업 삭제는 수업
 });
 
 // ---------- 체험(demo): 서버 없이 이 기기에 저장하며 학생 화면을 혼자 해 본다 ----------
-async function demoPage(ctxOpts = {}) {
+async function demoPage(ctxOpts = {}, ai = null) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, ...ctxOpts });
   const pg = await ctx.newPage();
   const errors = [];
   pg.on("pageerror", (e) => errors.push(e.message));
-  // 체험은 Firebase 를 아예 부르지 않아야 한다
-  const hits = [];
-  await pg.route(/gstatic\.com\/firebasejs|cloudfunctions|firestore\.googleapis/, (r) => { hits.push(r.request().url()); r.abort(); });
+  // 체험은 Firebase SDK 를 아예 부르지 않는다. 서버의 AI(demoRequest)만 부르고, 시험에서는 ai 로 대신 답한다(없으면 연결 실패).
+  const hits = [], asked = [];
+  await pg.route(/gstatic\.com\/firebasejs|firestore\.googleapis/, (r) => { hits.push(r.request().url()); r.abort(); });
+  const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "*", "Access-Control-Allow-Methods": "POST, OPTIONS" };
+  await pg.route(/cloudfunctions\.net\/demoRequest/, async (r) => {
+    if (!ai) return r.abort();
+    if (r.request().method() === "OPTIONS") return r.fulfill({ status: 204, headers: cors });
+    const body = JSON.parse(r.request().postData()).data; asked.push(body);
+    const out = await ai(body);
+    r.fulfill({ status: out.status || 200, headers: cors, contentType: "application/json", body: JSON.stringify(out.json) });
+  });
   await pg.route(/fonts\.(googleapis|gstatic)|cdn\.jsdelivr/, (r) => r.abort());
-  return { pg, ctx, errors, hits };
+  return { pg, ctx, errors, hits, asked };
 }
 
 const dismissHelp = async (pg) => { await pg.waitForTimeout(500); while (await pg.locator('.modal .btn:has-text("이해했어요")').count()) { await pg.click('.modal .btn:has-text("이해했어요")'); await pg.waitForTimeout(400); } };
@@ -1506,5 +1514,93 @@ test("체험: 2~5단계의 AI 단추(생각 도우미·검색 도우미·AI 의�
   assert.equal(await pg.locator(".scn").count(), 2);
   assert.deepEqual(errors, []);
   if (process.env.SHOT) await pg.screenshot({ path: process.env.SHOT, fullPage: true });
+  await ctx.close();
+});
+
+// 체험의 AI: 서버(demoRequest)에 묻고, 횟수를 다 썼거나 연결이 안 되면 준비된 답으로 대신한다
+async function pickAndChat(pg, topic, question) {
+  await pg.goto(`${base}/demo-play.html?t=${topic}`);
+  await pg.waitForSelector("#app:not(.hidden)");
+  await dismissHelp(pg);
+  await pg.waitForSelector(".pcard");
+  await pg.locator(".pcard summary").first().click();
+  await pg.locator('.pcard [data-act="choose"]').first().click();
+  await pg.click(".modal .btn-primary");
+  await pg.click('.notice.ok [data-sub="chat"]');
+  await pg.waitForSelector(".chat-card");
+  await dismissHelp(pg);
+  await pg.fill("#prior-in", "잘 모르겠다");
+  await pg.fill("#msg", question); await pg.press("#msg", "Enter");
+}
+
+test("체험: 인물 대화는 서버의 AI 답을 쓰고(요청에 기기·주제·인물·대화 기록), 두 번째 질문에는 앞 대화가 함께 간다", async () => {
+  const { pg, ctx, errors, asked } = await demoPage({}, async (b) => ({ json: { result: { text: `AI가 답했어요: ${b.message}` } } }));
+  await pickAndChat(pg, "jeju2018", "고향이 어디예요?");
+  await pg.waitForSelector('.msg.ai .bubble:has-text("AI가 답했어요: 고향이 어디예요?")');
+  assert.equal(asked.length, 1);
+  assert.match(asked[0].deviceId, /^[A-Za-z0-9-]{12,64}$/);
+  assert.deepEqual([asked[0].topic, asked[0].kind, asked[0].history], ["jeju2018", "chat", []]);
+  assert.ok(asked[0].personaId && asked[0].message === "고향이 어디예요?");
+  assert.match(await pg.locator("#chat-left").innerText(), /4/);
+  await pg.fill("#msg", "가족은요?"); await pg.press("#msg", "Enter");
+  await pg.waitForSelector('.msg.ai .bubble:has-text("AI가 답했어요: 가족은요?")');
+  assert.deepEqual(asked[1].history, [{ input: "고향이 어디예요?", output: "AI가 답했어요: 고향이 어디예요?" }]);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("체험: 횟수를 다 썼다는 답(429)이나 연결 실패면 안내를 띄우고 준비된 예시 답으로 이어 간다(질문 횟수는 그대로 센다)", async () => {
+  const msg = "체험에서는 인물에게 묻기를 이 주제에서 5번까지 쓸 수 있어요. 이제 준비된 예시 답으로 보여 드려요.";
+  const { pg, ctx, errors } = await demoPage({}, async () => ({ status: 429, json: { error: { status: "RESOURCE_EXHAUSTED", message: msg } } }));
+  await pickAndChat(pg, "waste2019", "안녕하세요");
+  await pg.waitForSelector('.toast:has-text("5번까지")');
+  await pg.waitForSelector(".msg.ai:not(.typing) .bubble");
+  assert.ok((await pg.locator(".msg.ai .bubble").first().innerText()).length > 10, "준비된 답이 나온다");
+  assert.match(await pg.locator("#chat-left").innerText(), /4/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+  // 연결 자체가 안 될 때(서버 미배포 등)
+  const off = await demoPage({}, null);
+  await pickAndChat(off.pg, "waste2019", "안녕하세요");
+  await off.pg.waitForSelector('.toast:has-text("연결되지 않아")');
+  await off.pg.waitForSelector(".msg.ai:not(.typing) .bubble");
+  await off.ctx.close();
+});
+
+test("체험: 3·4·5단계 AI 단추는 모둠이 쓴 글을 서버로 보내고 받은 답을 그대로 보여 준다", async () => {
+  const { pg, ctx, errors, asked } = await demoPage({}, async (b) => ({ json: { result: b.stage === 3 ? { result: "서버 AI의 자료 답", output: "서버 AI의 자료 답" }
+    : b.stage === 4 ? (() => { const r = { reviews: [{ lens: "feasibility", label: "실행 가능성", text: "서버 의견1" }, { lens: "stakeholders", label: "이해관계자 영향", text: "서버 의견2" }, { lens: "sideEffects", label: "부작용·장기 영향", text: "서버 의견3" }] }; return { result: r, output: JSON.stringify(r) }; })()
+    : (() => { const r = { scenarios: [{ title: "서버 시나리오 A", story: "이야기", mechanism: "기제", unintended: [], newProblems: [] }, { title: "서버 시나리오 B", story: "이야기", mechanism: "기제", unintended: [], newProblems: [] }] }; return { result: r, output: JSON.stringify(r) }; })() } }));
+  await pg.goto(`${base}/demo-play.html?t=junam2025`);
+  await pg.waitForSelector("#app:not(.hidden)");
+  await dismissHelp(pg);
+  const G = "sessions/JUNAM2025/groups/g1";
+  await pg.evaluate(async ([G]) => {
+    const st = await import("/demo/store.js"); const by = { by: "demo-student", nick: "체험" };
+    st.update(G, {
+      "work.s1.problem.hmw": "어떻게 하면 저수지 곁 주민의 생계를 지키면서도 철새 서식지를 보전할 수 있을까?",
+      "work.s2.causes.k1": { level: "제도·정책", text: "개발 제한만 있고 주민 몫은 부족한 제도", t: 1, ...by },
+      "work.s2.checks.c1": { heard: "박상규: 습지보호지역에 반대한다", question: "습지보호지역 지정 논의는 어떻게 진행됐나?", srcType: "언론 보도", causeId: "k1", t: 1, ...by },
+      "work.s3.chain.cause": "개발 제한의 부담은 주민이 지고 보상은 부족한 제도가 핵심 원인이다",
+      "work.s4.proposals.p1": { text: "철새 먹이 농사 보상을 올리고 생태관광 수익을 저수지 곁 마을에 돌려주는 기금을 만든다", cause: "보상 부족", t: 2, ...by },
+      "work.s4.final": "철새 먹이 농사 보상을 올리고 생태관광 수익을 마을 기금으로 돌려주는 방법을 시범 마을에서 먼저 한다",
+      "work.s5.predictions.a": { stakeholder: "주민", text: "보상이 늘면 환영하지만 시행이 늦을까 걱정할 것이다", t: 3, ...by },
+      "work.s5.predictions.b": { stakeholder: "환경단체", text: "보전 기금이라면 찬성하되 개발 허용이 늘 수 있다고 볼 것이다", t: 4, ...by },
+    });
+  }, [G]);
+  const tab = async (n) => { await pg.click(`#tabs .stage-tab[data-stage="${n}"]`); await dismissHelp(pg); };
+  await tab(3); await pg.click('[data-act="ask-check"]');
+  await pg.waitForSelector('.ai-out:has-text("서버 AI의 자료 답")');
+  await tab(4); await pg.click('[data-act="ask-feedback"]');
+  await pg.waitForSelector('.ai-out:has-text("서버 의견3")');
+  await tab(5); await pg.click('[data-act="ask-scenario"]');
+  await pg.waitForSelector('.scn:has-text("서버 시나리오 B")');
+  const by = Object.fromEntries(asked.map((a) => [a.stage, a]));
+  assert.equal(by[3].payload.check.cause, "개발 제한만 있고 주민 몫은 부족한 제도", "확인하려는 원인 가설이 함께 간다");
+  assert.match(by[3].ctx.problem, /철새 서식지/);
+  assert.match(by[4].payload.proposal.text, /기금/);
+  assert.equal(by[5].payload.round, 1);
+  assert.equal(by[5].payload.predictions.length, 2);
+  assert.deepEqual(errors, []);
   await ctx.close();
 });

@@ -26,7 +26,7 @@ let hidden = false; try { hidden = sessionStorage.getItem(NOTE) === "1"; } catch
 if (!hidden) {
   const el = document.createElement("div");
   el.className = "demo-note"; el.setAttribute("role", "note");
-  el.innerHTML = `<span><b>체험하기</b> 혼자 해 보는 연습이에요. 쓴 글은 이 기기에만 저장돼요. 인물과 AI의 답은 미리 준비한 자료에서 골라 보여 줘요(실제 수업에서는 AI가 직접 답해요).</span><button type="button" aria-label="안내 닫기">✕</button>`;
+  el.innerHTML = `<span><b>체험하기</b> 혼자 해 보는 연습이에요. 쓴 글은 이 기기에만 저장돼요. 인물과 AI 도우미는 실제 수업과 같은 AI가 답해요. 다만 체험에서는 <b>인물에게 묻기 5번, AI 도우미 5번</b>까지예요(주제마다, 초기화해도 돌아오지 않아요). 다 쓰면 준비된 예시 답이 나와요.</span><button type="button" aria-label="안내 닫기">✕</button>`;
   el.querySelector("button").onclick = () => { el.remove(); try { sessionStorage.setItem(NOTE, "1"); } catch {} };
   $("#main")?.prepend(el);
 }
