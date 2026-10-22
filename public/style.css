@@ -878,3 +878,91 @@ input[type=email]{ font:inherit; font-size:16px; width:100%; padding:11px 13px; 
   body:not(.m) .subnav button{ flex-direction:column; gap:0; }
   body:not(.m) .subnav button small{ display:block; margin:0; padding:0; background:none; font-size:10px; }
 }
+
+/* ---------- 인물 고르기(PC): 카드를 누르면 편지를 넓은 창으로 띄운다 ---------- */
+.pcard.pc-pop{ display:flex; flex-direction:column; }
+.pc-open{ font:inherit; color:inherit; text-align:left; border:none; background:none; cursor:pointer; display:flex; align-items:center; gap:10px; padding:12px 14px; width:100%; border-radius:12px; }
+.pc-open:hover{ background:var(--fill); }
+.pc-open .pc-more{ flex:none; font-size:12.5px; font-weight:700; color:var(--accent); white-space:nowrap; }
+.pc-open .pc-more::after{ content:" ›"; }
+.pcard.pc-pop .pc-act{ margin:0; padding:0 14px 12px; }
+.pcard.pc-pop .pc-act .btn{ width:100%; }
+.notice.pick-ok{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.notice.pick-ok > span{ flex:1 1 240px; }
+/* 편지 창: 좌우로 넓게, 넓은 화면에서는 편지를 두 단으로 놓아 스크롤 없이 읽는다 */
+.modal.letter-pop{ width:min(100%,1120px); max-height:94vh; padding:22px 28px 20px; }
+.letter-pop h3{ margin-bottom:14px; }
+.lp-head{ display:flex; align-items:center; gap:12px; }
+.lp-head .avatar{ width:44px; height:44px; font-size:18px; }
+.lp-t{ display:flex; flex-direction:column; line-height:1.3; flex:1; min-width:0; }
+.lp-t small{ font-size:13px; font-weight:600; color:var(--ink-3); }
+.lp-letter{ background:var(--paper); border-radius:18px; padding:20px 26px; font-family:var(--serif); font-size:16px; line-height:1.85; word-break:keep-all; }
+.letter-pop .modal-body .lp-letter p{ margin:0 0 12px; font-size:16px; line-height:1.85; }
+.lp-letter .sign{ text-align:right; font-weight:700; margin-top:4px; break-inside:avoid; }
+.lp-note{ margin:12px 0 0; font-size:14px; color:var(--ink-2); }
+.letter-pop .modal-acts{ justify-content:flex-end; }
+.letter-pop .modal-acts .btn{ flex:0 1 220px; }
+@media (min-width:900px){
+  .lp-letter{ columns:2; column-gap:44px; column-rule:1px solid var(--paper-line, rgba(0,0,0,.08)); padding:22px 30px; }
+  .lp-letter p{ break-inside:avoid; }
+}
+@media (max-width:600px){ .letter-pop .modal-acts .btn{ flex:none; } }
+
+/* ---------- 학생 PC 넓은 화면: 활동이 화면 위쪽에서 바로 보이도록 머리 부분을 줄인다 ----------
+   머리글은 한 줄 높이, 단계 탭은 알약 한 줄, 단계 머리말은 '단계 · 제목'과 '지금 할 일' 두 줄(그래서 아래 '지금 할 일' 띠는 숨긴다). */
+@media (min-width:1100px){
+  body:not(.m):has(#app:not(.hidden)){ --gap:18px; --stick:68px; }
+  body:not(.m):has(#app:not(.hidden)) .wrap{ padding-top:14px; }
+  body:not(.m):has(#app:not(.hidden)) .hdr{ padding-top:calc(7px + env(safe-area-inset-top)); padding-bottom:7px; }
+  body:not(.m):has(#app:not(.hidden)) .mark{ width:34px; height:34px; }
+  body:not(.m):has(#app:not(.hidden)) .brand-t{ flex-direction:row; align-items:baseline; gap:10px; }
+  body:not(.m):has(#app:not(.hidden)) .brand small{ display:none; }
+
+  /* 단계 탭: 번호와 이름을 나란히 놓은 알약 한 줄 */
+  body:not(.m):has(#app:not(.hidden)) .stages{ padding:0; margin-bottom:14px; gap:6px; background:none; box-shadow:none; }
+  body:not(.m):has(#app:not(.hidden)) .stages::before{ display:none; }
+  body:not(.m):has(#app:not(.hidden)) .stage-tab{ flex-direction:row; justify-content:center; gap:8px; padding:7px 10px; border-radius:999px; background:var(--surface); box-shadow:0 0 0 1px var(--sep); }
+  body:not(.m):has(#app:not(.hidden)) .stage-tab b{ width:26px; height:26px; font-size:13px; box-shadow:none; background:var(--fill); }
+  body:not(.m):has(#app:not(.hidden)) .stage-tab.on{ background:var(--grad); box-shadow:0 8px 18px -10px rgba(10,126,208,.8); }
+  body:not(.m):has(#app:not(.hidden)) .stage-tab.on b{ transform:none; background:rgba(255,255,255,.22); box-shadow:none; }
+  body:not(.m):has(#app:not(.hidden)) .stage-tab.on span{ color:#fff; }
+  body:not(.m):has(#app:not(.hidden)) .stage-tab span{ font-size:13.5px; }
+
+  /* 단계 머리말: 낮게 */
+  body:not(.m):has(#app:not(.hidden)) #panel > .hero{ padding:12px 22px; gap:14px; margin-bottom:12px; }
+  body:not(.m):has(#app:not(.hidden)) .hero-ic{ width:40px; height:40px; border-radius:13px; }
+  body:not(.m):has(#app:not(.hidden)) .hero-ic svg{ width:22px; height:22px; }
+  body:not(.m) .hero-top{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  body:not(.m):has(#app:not(.hidden)) .hero-t{ font-size:18px; margin:0; }
+  body:not(.m):has(#app:not(.hidden)) .hero-w{ margin:2px 0 0; font-size:14px; }
+  body:not(.m) .hero-next{ font-weight:700; color:var(--ink); }
+  body:not(.m) .hero-next .next-k{ font-size:11.5px; font-weight:800; color:var(--accent); margin-right:4px; }
+  body:not(.m) .hero-next.done .next-k{ color:var(--green-ink); }
+  body:not(.m) .hero-next .link{ font-size:13px; margin-left:4px; }
+  body:not(.m) #panel:has(> .hero) > .next{ display:none; }
+
+  /* 1단계 작은 단계·우리 모둠의 문제: 낮게 */
+  body:not(.m):has(#app:not(.hidden)) .subnav{ padding:4px; margin-bottom:12px; }
+  body:not(.m):has(#app:not(.hidden)) .subnav button{ padding:7px 8px; }
+  body:not(.m):has(#app:not(.hidden)) .problem-bar{ padding:12px 22px 12px 58px; margin-bottom:12px; }
+  body:not(.m):has(#app:not(.hidden)) .problem-bar::before{ left:20px; top:8px; font-size:44px; }
+  body:not(.m):has(#app:not(.hidden)) .problem-bar .pb-q{ font-size:16.5px; }
+  body:not(.m):has(#app:not(.hidden)) .problem-bar.empty{ padding:11px 22px; }
+
+  /* 1단계 대화: 알아낼 것 → 처음 내 생각 → 대화창이 위에서 아래로. 대화창은 남은 화면 높이를 채운다 */
+  body:not(.m) .chat-split .split-main > .goal-chips{ margin:0 0 10px; font-size:13px; }
+  body:not(.m) .chat-split .split-main > .card.prior{ margin-bottom:14px; padding:18px 22px; }
+  body:not(.m) .chat-split .split-main > .card.prior textarea{ min-height:64px; }
+  body:not(.m) .chat-split .msgs{ min-height:calc(100vh - 420px); }
+  body:not(.m) .chat-split .split-main:not(:has(> .card.prior)) .msgs{ min-height:calc(100vh - 330px); }
+}
+/* 조금 좁은 PC(601~1099px): 머리글의 학교 이름 줄을 숨기고 단계 탭을 낮춘다 */
+@media (min-width:601px) and (max-width:1099px){
+  body:not(.m):has(#app:not(.hidden)) .brand small{ display:none; }
+  body:not(.m):has(#app:not(.hidden)) .mark{ width:34px; height:34px; }
+  body:not(.m):has(#app:not(.hidden)) .stages{ padding:10px 6px 8px; }
+  body:not(.m):has(#app:not(.hidden)) .stage-tab{ gap:4px; }
+  body:not(.m):has(#app:not(.hidden)) .stage-tab b{ width:30px; height:30px; font-size:14px; }
+  body:not(.m):has(#app:not(.hidden)) .stages::before{ top:25px; }
+}
+@media (min-width:700px) and (max-width:1099px){ body:not(.m) .pcards{ grid-template-columns:repeat(2,minmax(0,1fr)); } }

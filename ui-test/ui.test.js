@@ -1108,14 +1108,21 @@ test("학생: 인물을 아직 안 골랐으면 모든 인물의 편지가 보�
   assert.ok(await pg.locator('.subnav button[data-sub="chat"]').isDisabled(), "고르기 전에는 대화로 갈 수 없다");
   assert.match(await pg.locator(".notice.yellow").innerText(), /예멘에서 온 분/);
   assert.match(await pg.locator(".pcard.taken").innerText(), /나래 선택/);
-  assert.ok(await pg.locator('.pcard.taken [data-act="choose"]').isDisabled() === true || (await pg.locator('.pcard.taken [data-act="choose"]').count()) === 1);
   assert.ok(await pg.locator(".nav-foot .btn:has-text('다음')").isDisabled());
-  // 편지를 펼쳐 읽고 고른다
-  await pg.click('.pcard[data-keep="pc-p1"] summary');
-  assert.match(await pg.locator('.pcard[data-keep="pc-p1"] .pc-body').innerText(), /안녕하세요/);
-  await pg.click('[data-act="choose"][data-id="p1"]');
-  await pg.click(".modal .btn-primary");
+  // 모둠원이 고른 인물: 편지 창은 열리지만 고르는 버튼이 눌리지 않는다
+  await pg.click('.pcard.taken [data-act="read-letter"]');
+  assert.ok(await pg.locator(".modal.letter-pop .btn-primary").isDisabled());
+  await pg.click(".modal.letter-pop .btn-plain");
+  // 카드를 누르면 편지가 창으로 뜨고(펼쳐지지 않는다), 창에서 바로 고른다
+  await pg.click('[data-act="read-letter"][data-id="p1"]');
+  assert.match(await pg.locator(".modal.letter-pop .lp-letter").innerText(), /안녕하세요[\s\S]*김씨 드림/);
+  assert.equal(await pg.locator(".pcard details, .pcard .pc-body").count(), 0, "PC 화면에는 접었다 펴는 편지가 없다");
+  await pg.click(".modal.letter-pop .btn-primary");
+  // 고르면 곧바로 '대화하러 가기'가 보인다
+  await pg.waitForSelector('.modal:not(.letter-pop) .btn-primary:has-text("대화하러 가기")');
+  await pg.click(".modal .btn-plain"); // 편지 더 보기
   await pg.waitForSelector(".pcard.mine");
+  assert.ok(await pg.locator('.pcard.mine .btn-primary[data-sub="chat"]').isVisible(), "고른 카드에도 '대화하러 가기'가 있다");
   assert.equal(st.chose.personaId, "p1");
   assert.match(await pg.locator(".notice.ok").innerText(), /김씨/);
   assert.equal(await pg.locator(".notice.yellow").count(), 0, "당사자를 골랐으니 안내가 사라진다");
@@ -1143,9 +1150,8 @@ test("학생: 인물 고르기 규칙 위반(겹침 등)은 서버 메시지를 
   const { pg } = await openStudent(st, { picks: {} });
   await login(pg);
   await pg.waitForSelector(".pcards");
-  await pg.click('.pcard[data-keep="pc-p2"] summary');
-  await pg.click('[data-act="choose"][data-id="p2"]');
-  await pg.click(".modal .btn-primary");
+  await pg.click('[data-act="read-letter"][data-id="p2"]');
+  await pg.click(".modal.letter-pop .btn-primary");
   await pg.waitForSelector(".toast.err");
   assert.match(await pg.locator(".toast.err").innerText(), /이미 고른/);
   assert.equal(await pg.locator(".pcard.mine").count(), 0);
@@ -1410,10 +1416,9 @@ test("체험: 인물 고르기 → 대화 → 새로고침해도 이어지고, �
   // 처음에는 모든 인물의 편지가 보인다
   await pg.waitForSelector(".pcard");
   assert.equal(await pg.locator(".pcard").count(), 9);
-  await pg.locator(".pcard summary").first().click();
-  await pg.locator('.pcard [data-act="choose"]').first().click();
-  await pg.click('.modal .btn-primary');
-  await pg.click('.notice.ok [data-sub="chat"]'); // 고른 뒤 '대화하러 가기'
+  await pg.locator('.pcard [data-act="read-letter"]').first().click();
+  await pg.click(".modal.letter-pop .btn-primary");
+  await pg.click('.modal .btn-primary:has-text("대화하러 가기")'); // 고르자마자 뜨는 '대화하러 가기'
   await pg.waitForSelector(".chat-card");
   await pg.fill("#prior-in", "잘 모르겠다");
   await pg.fill("#msg", "안녕하세요, 어떤 일을 하세요?"); await pg.press("#msg", "Enter");
@@ -1523,10 +1528,9 @@ async function pickAndChat(pg, topic, question) {
   await pg.waitForSelector("#app:not(.hidden)");
   await dismissHelp(pg);
   await pg.waitForSelector(".pcard");
-  await pg.locator(".pcard summary").first().click();
-  await pg.locator('.pcard [data-act="choose"]').first().click();
-  await pg.click(".modal .btn-primary");
-  await pg.click('.notice.ok [data-sub="chat"]');
+  await pg.locator('.pcard [data-act="read-letter"]').first().click();
+  await pg.click(".modal.letter-pop .btn-primary");
+  await pg.click('.modal .btn-primary:has-text("대화하러 가기")'); // 고르자마자 뜨는 '대화하러 가기'
   await pg.waitForSelector(".chat-card");
   await dismissHelp(pg);
   await pg.fill("#prior-in", "잘 모르겠다");
@@ -1626,6 +1630,39 @@ test("체험: 단계마다 '데모라서' 줄이 맨 위에 항상 있고 단계
   await pg.click('.subnav button[data-sub="group"]'); await dismissHelp(pg);
   await pg.waitForFunction(() => document.querySelector("#panel > .demo-diff")?.dataset.key === "1-group");
   assert.match(await pg.locator("#panel > .demo-diff").innerText(), /혼자 문제를 정해요/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("체험(PC 1366×768): 머리 부분이 낮아 활동이 화면 위쪽에서 보이고, 편지는 넓은 창에 스크롤 없이 뜨며, 처음 내 생각 칸은 대화창 위에 있다", async () => {
+  const { pg, ctx, errors } = await demoPage({ viewport: { width: 1366, height: 768 } });
+  await pg.goto(`${base}/demo-play.html?t=jeju2018`);
+  await pg.waitForSelector("#app:not(.hidden)");
+  await dismissHelp(pg);
+  // 체험 안내는 머리글 가운데 한 줄로, '지금 할 일'은 단계 머리말 안에 들어간다
+  assert.ok(await pg.locator(".demo-badge").isVisible() && await pg.locator("#main > .demo-note").isHidden());
+  assert.match(await pg.locator(".hero .hero-next").innerText(), /지금 할 일/);
+  assert.ok(await pg.locator("#panel > .next").isHidden());
+  const top = (await pg.locator("#panel .card:has(.pcards)").boundingBox()).y;
+  assert.ok(top < 340, `인물 고르기 카드가 화면 위쪽에서 시작한다(${top}px, 전에는 600px 남짓)`);
+  // 편지 창: 넓고, 스크롤 없이 버튼까지 보인다
+  await pg.locator('.pcard [data-act="read-letter"]').first().click();
+  const pop = await pg.evaluate(() => { const m = document.querySelector(".modal.letter-pop"); return { w: m.offsetWidth, scroll: m.scrollHeight > m.clientHeight + 1 }; });
+  assert.ok(pop.w >= 1000, `편지 창이 넓다(${pop.w}px)`);
+  assert.ok(!pop.scroll, "편지 창은 스크롤 없이 보인다");
+  assert.ok(await pg.locator(".modal.letter-pop .btn-primary").isVisible());
+  await pg.click(".modal.letter-pop .btn-primary");
+  await pg.click('.modal .btn-primary:has-text("대화하러 가기")');
+  await pg.waitForSelector(".chat-card");
+  await dismissHelp(pg);
+  // 위에서 아래로: 알아낼 것 → 처음 내 생각 → 대화창
+  const y = async (sel) => (await pg.locator(sel).boundingBox()).y;
+  assert.ok(await y(".goal-chips") < await y(".card.prior") && await y(".card.prior") < await y(".chat-card"), "처음 내 생각이 대화창 위에 있다");
+  assert.ok(await y("#prior-in") < 600, "처음 내 생각 칸이 첫 화면에 보인다");
+  // 4단계: 해결책 쓰기가 왼쪽 위, 다른 나라 사례는 오른쪽
+  await pg.click('#tabs .stage-tab[data-stage="4"]'); await dismissHelp(pg);
+  const act = await pg.locator(".split-main .card h3:has-text('해결책 쓰기')").boundingBox(), cases = await pg.locator(".split-side details.fold").boundingBox();
+  assert.ok(act.x < cases.x && act.y < 420, "해결책 쓰기가 사례보다 먼저(왼쪽 위) 보인다");
   assert.deepEqual(errors, []);
   await ctx.close();
 });

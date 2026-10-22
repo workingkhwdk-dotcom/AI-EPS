@@ -27,3 +27,14 @@
 .demo-diff{ background:var(--warn-tint,#FFF4DB); color:var(--warn,#7A4B00); border-radius:12px; padding:8px 12px; margin:0 0 10px; font-size:12.5px; line-height:1.55; }
 .demo-diff .tag{ margin-right:4px; background:rgba(0,0,0,.08); color:inherit; }
 .m .demo-diff{ font-size:12px; padding:7px 10px; margin-bottom:8px; }
+
+/* 체험 안내: PC 넓은 화면은 머리글 가운데 한 줄, 그 밖에는 본문 위 띠 */
+.demo-badge{ display:none; }
+@media (min-width:1100px){
+  .demo body:not(.m) .demo-badge{ display:block; flex:1 1 auto; min-width:0; text-align:center; font-size:12.5px; font-weight:600; color:var(--warn,#7A4B00);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .demo body:not(.m) .demo-badge::before{ content:"체험"; font-weight:800; margin-right:6px; padding:1px 8px; border-radius:20px; background:var(--warn-tint,#FFF4DB); }
+  .demo body:not(.m) #main > .demo-note{ display:none; }
+  /* '데모라서' 줄도 낮게 */
+  .demo body:not(.m) #panel > .demo-diff{ padding:6px 14px; margin-bottom:12px; font-size:12.5px; }
+}

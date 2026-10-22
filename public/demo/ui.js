@@ -20,14 +20,16 @@ $("#demo-reset").onclick = async () => {
   location.reload();
 };
 
-// 안내 띠: 체험이라는 것, 저장 위치, AI 답이 준비된 예시라는 것
+// 안내: 체험이라는 것, 저장 위치, AI 횟수. PC 넓은 화면은 머리글 가운데 한 줄(.demo-badge)로 보여 활동 자리를 차지하지 않고,
+// 좁은 화면은 본문 위 띠(.demo-note)로 보여 준다(닫으면 이 기기에서는 다시 띄우지 않는다).
+$(".brand")?.insertAdjacentHTML("afterend", `<div class="demo-badge" role="note">혼자 해 보는 체험 · 쓴 글은 이 기기에만 저장 · 인물 5번 · AI 도우미 5번까지 실제 AI</div>`);
 const NOTE = "eps_demo_note";
-let hidden = false; try { hidden = sessionStorage.getItem(NOTE) === "1"; } catch {}
+let hidden = false; try { hidden = localStorage.getItem(NOTE) === "1"; } catch {}
 if (!hidden) {
   const el = document.createElement("div");
   el.className = "demo-note"; el.setAttribute("role", "note");
   el.innerHTML = `<span><b>체험하기</b> 혼자 해 보는 연습이에요. 쓴 글은 이 기기에만 저장되고, AI는 실제 수업과 같아요(인물 5번·AI 도우미 5번까지, 다 쓰면 준비된 예시 답).</span><button type="button" aria-label="안내 닫기">✕</button>`;
-  el.querySelector("button").onclick = () => { el.remove(); try { sessionStorage.setItem(NOTE, "1"); } catch {} };
+  el.querySelector("button").onclick = () => { el.remove(); try { localStorage.setItem(NOTE, "1"); } catch {} };
   $("#main")?.prepend(el);
 }
 
