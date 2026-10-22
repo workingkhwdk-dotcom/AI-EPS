@@ -1,6 +1,6 @@
 // 휴대폰으로 PC 화면(index.html, teacher.html)을 열면 모바일 전용 화면(m.html, m-teacher.html)으로 옮긴다.
 //  - <head> 에서 바로 실행해 PC 화면이 그려지기 전에 옮긴다. 쿼리(?…)와 # 은 그대로 넘긴다.
-//  - 휴대폰에서도 PC 화면을 쓰고 싶으면 ?view=pc 로 열면 되고, 이 기기에서는 그 선택을 기억한다(?view=m 으로 되돌림).
+//  - 휴대폰에서도 PC 화면을 쓰고 싶으면 ?view=pc 로 열면 되고, 이 탭에서는 그 선택을 기억한다(?view=m 으로 되돌림).
 //  - 태블릿은 PC 화면이 이미 맞춰지므로 옮기지 않는다.
 //  - 모바일 화면에서는 글을 입력하는 동안 아래쪽 이동 막대를 숨긴다(키보드 위 공간 확보).
 //  - 모바일 화면에서는 아래로 스크롤하면 머리글·아래 막대를 숨기고 위로 스크롤하면 보인다(활동 공간 극대화).
@@ -9,13 +9,17 @@
   var me = document.currentScript;
   var target = me && me.getAttribute("data-mobile");
   var KEY = "eps_view";
-  var get = function () { try { return localStorage.getItem(KEY); } catch (e) { return null; } };
-  var set = function (v) { try { v ? localStorage.setItem(KEY, v) : localStorage.removeItem(KEY); } catch (e) {} };
+  // 'PC 화면으로 보기' 선택은 이 탭에서만 기억한다(실수로 눌러도 탭을 닫고 다시 열면 모바일 화면으로 돌아온다)
+  var get = function () { try { return sessionStorage.getItem(KEY); } catch (e) { return null; } };
+  var set = function (v) { try { v ? sessionStorage.setItem(KEY, v) : sessionStorage.removeItem(KEY); localStorage.removeItem(KEY); } catch (e) {} };
 
   var pick = /[?&]view=(pc|m)(?:&|$)/.exec(location.search);
   if (pick) set(pick[1] === "pc" ? "pc" : null);
   var ua = navigator.userAgent || "";
-  var phone = !!((navigator.userAgentData && navigator.userAgentData.mobile) || /iPhone|iPod|Android.+Mobile|Windows Phone|Mobi/i.test(ua));
+  // '데스크톱 사이트 요청'이나 앱 안 브라우저처럼 UA 에 휴대폰 표시가 없어도, 손가락으로 쓰는 작은 화면이면 휴대폰으로 본다
+  var small = false;
+  try { small = !!(window.matchMedia && matchMedia("(pointer:coarse)").matches && Math.min(screen.width, screen.height) <= 600); } catch (e) {}
+  var phone = !!((navigator.userAgentData && navigator.userAgentData.mobile) || /iPhone|iPod|Android.+Mobile|Windows Phone|Mobi/i.test(ua) || small);
   window.EPS_PHONE = phone;
 
   if (target && phone && get() !== "pc") {

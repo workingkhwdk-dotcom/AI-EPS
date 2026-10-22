@@ -551,6 +551,33 @@ test("휴대폰에서 'PC 화면으로 보기'를 고르면 기억하고, '모�
   await s.pg.waitForURL(/\/m\.html$/);
 });
 
+test("휴대폰인데 UA 에 휴대폰 표시가 없어도(데스크톱 사이트 요청·앱 안 브라우저) 터치 작은 화면이면 모바일 화면으로 옮겨 간다", async () => {
+  const desktopUa = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15";
+  const s = await openStudent(studentFixture(), { ctxOpts: { ...phone, userAgent: desktopUa } });
+  assert.match(s.pg.url(), /\/m\.html$/);
+  await s.ctx.close();
+});
+
+test("학생: 좁은 화면에서 PC 화면을 봐도 머리글이 한 줄로 줄고 닉네임이 줄바꿈되지 않으며, 단계 막대가 낮아 활동 내용이 위쪽에 보인다", async () => {
+  const s = await openStudent(studentFixture(), { ctxOpts: { viewport: { width: 390, height: 844 } } });
+  await login(s.pg);
+  await s.pg.waitForSelector(".stages .stage-now");
+  const m = await s.pg.evaluate(() => {
+    const r = (q) => document.querySelector(q).getBoundingClientRect();
+    return { hdr: r(".hdr").height, who: r("#who").height, whoFont: parseFloat(getComputedStyle(document.querySelector("#who")).lineHeight) || 20,
+      help: r("#help-btn"), stages: r(".stages").height, panel: r("#panel").top, now: document.querySelector(".stage-now").textContent, over: document.documentElement.scrollWidth > innerWidth };
+  });
+  assert.ok(m.hdr < 56, `머리글 높이 ${m.hdr}`);
+  assert.ok(m.who < m.whoFont * 1.6, "닉네임은 한 줄");
+  assert.ok(Math.abs(m.help.width - m.help.height) < 2, "? 버튼은 찌그러지지 않는다");
+  assert.ok(m.stages < 80, `단계 막대 높이 ${m.stages}`);
+  assert.match(m.now, /1단계 · /, "지금 단계 이름이 보인다");
+  assert.ok(m.panel < 170, `활동 내용 위치 ${m.panel}`);
+  assert.ok(!m.over, "가로로 넘치지 않는다");
+  if (process.env.SHOT) await s.pg.screenshot({ path: process.env.SHOT });
+  await s.ctx.close();
+});
+
 test("학생 모바일: 입장 → 아래 단계 막대로 이동, 글을 쓰는 동안 막대를 숨기고, 남은 질문이 보인다", async () => {
   const s = await openStudent(studentFixture(), { ctxOpts: phone, member: { chatCount: 1 } });
   assert.ok(await s.pg.locator(".m-hero").isVisible());

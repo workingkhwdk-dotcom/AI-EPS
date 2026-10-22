@@ -478,7 +478,8 @@ onAuthStateChanged(auth, async (u) => {
 // ---------- 이동 ----------
 function renderTabs() {
   const html = STAGES.map((s) => { const done = !!S.info && stageDone(s.n);
-    return `<button class="stage-tab ${S.stage === s.n ? "on" : ""} ${done ? "done" : ""}" data-stage="${s.n}" aria-label="${s.n}단계 ${s.name}${done ? " (완료)" : ""}" aria-current="${S.stage === s.n ? "step" : "false"}"><b>${s.n}</b><span>${IS_M ? s.short : s.name}</span></button>`; }).join("");
+    return `<button class="stage-tab ${S.stage === s.n ? "on" : ""} ${done ? "done" : ""}" data-stage="${s.n}" aria-label="${s.n}단계 ${s.name}${done ? " (완료)" : ""}" aria-current="${S.stage === s.n ? "step" : "false"}"><b>${s.n}</b><span>${IS_M ? s.short : s.name}</span></button>`; }).join("")
+    + `<div class="stage-now" aria-hidden="true">${S.stage}단계 · ${esc(STAGES[S.stage - 1].name)}</div>`; // 좁은 PC 화면에서만 보임(번호 원만 남기므로 지금 단계 이름을 따로 알려 준다)
   if (html === lastTabs) return;
   lastTabs = html;
   $("#tabs").innerHTML = html;
