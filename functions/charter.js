@@ -55,7 +55,9 @@ function charterText(ev) {
 // 개인으로 등장하는 인물(사건의 당사자·주민)은 신상 질문에 설정대로 답하고, 단체·기관 소속 인물(시민사회, 제도)은 신상을 말할 필요가 없다.
 // 어느 축이 개인인지는 사건마다 다르다(EVENT.personalAxes). 사건을 알 수 없는 인물은 기본값을 쓴다.
 const PERSONAL_AXES = ["당사자", "도민"];
+// 교사가 만든 주제의 인물은 묶음을 만들 때 _personal 을 적어 둔다(case.js 의 makeBundle).
 const isPersonal = (persona) => {
+  if (persona?._personal !== undefined) return persona._personal === true;
   const ev = require("./case").EVENTS[persona?.events?.[0]];
   return (ev?.personalAxes || PERSONAL_AXES).includes(persona?.axis);
 };
