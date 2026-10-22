@@ -1402,7 +1402,7 @@ test("체험: 메뉴에 주제 5개, 시작하면 입장 없이 학생 화면이
   assert.match(pg.url(), /demo-play\.html\?t=jeju2018$/);
   assert.ok(await pg.locator("#join").isHidden() && await pg.locator("#logout").isHidden());
   assert.ok(await pg.locator("#demo-home").isVisible() && await pg.locator("#demo-reset").isVisible());
-  assert.match(await pg.locator(".demo-note").innerText(), /이 기기에만 저장/);
+  assert.match(await pg.locator(".demo-note").textContent(), /이 기기에만 저장/);
   assert.deepEqual(hits, [], "Firebase 서버를 부르지 않는다");
   assert.deepEqual(errors, []);
   await ctx.close();
@@ -1455,6 +1455,12 @@ test("체험: 주제마다 저장이 따로이고(메뉴에 '이어서 하기'),
   assert.ok(await pg.locator("#join").isHidden());
   // 안내 팝업을 닫고 인물 하나를 고르면 이 주제에만 저장이 생긴다
   if (await pg.locator(".modal").count()) await pg.click('.modal .btn:has-text("이해했어요")');
+  // 휴대폰: 체험 안내는 한 줄, '데모라서'는 접힌 한 줄이고 누르면 다른 점이 펼쳐진다
+  assert.ok((await pg.locator(".demo-note").boundingBox()).height < 40, "체험 안내는 한 줄");
+  const dd = pg.locator("#panel > .demo-diff");
+  assert.ok((await dd.boundingBox()).height < 40 && await dd.locator(".dd-t").isHidden(), "'데모라서'는 접혀 있다");
+  await dd.locator("summary").click();
+  assert.ok(await dd.locator(".dd-t").isVisible());
   // 휴대폰에서도 카드를 누르면 편지가 아래에서 올라오는 창으로 뜨고, 고르는 버튼이 창 안에 보인다
   await pg.locator('.pcard [data-act="read-letter"]').first().click();
   await pg.waitForTimeout(400); // 아래에서 올라오는 움직임이 끝난 뒤에 잰다

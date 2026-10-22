@@ -38,3 +38,23 @@
   /* '데모라서' 줄도 낮게 */
   .demo body:not(.m) #panel > .demo-diff{ padding:6px 14px; margin-bottom:12px; font-size:12.5px; }
 }
+
+/* 좁은 화면(휴대폰): 체험 안내는 한 줄, '데모라서'는 접힌 한 줄(누르면 펼침) */
+.demo-diff summary{ list-style:none; cursor:pointer; display:flex; align-items:center; gap:6px; }
+.demo-diff summary::-webkit-details-marker{ display:none; }
+.demo-diff .dd-s{ font-weight:700; }
+.demo-diff summary::after{ content:"펼치기 ›"; margin-left:auto; font-size:11.5px; opacity:.75; }
+.demo-diff[open] summary::after{ content:"접기"; }
+.demo-diff .dd-t{ display:block; margin-top:4px; }
+@media (min-width:1100px){
+  .demo body:not(.m) .demo-diff summary{ display:inline; }
+  .demo body:not(.m) .demo-diff .dd-s, .demo body:not(.m) .demo-diff summary::after{ display:none; }
+  .demo body:not(.m) .demo-diff .dd-t{ display:inline; margin:0; }
+  .demo body:not(.m) .demo-diff summary{ pointer-events:none; }
+}
+@media (max-width:1099px){
+  .demo-note{ padding:6px 10px; margin-bottom:8px; font-size:12px; align-items:center; }
+  .demo-note span{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .demo-diff{ padding:6px 10px; margin-bottom:8px; }
+  .m .demo-diff{ padding:6px 10px; }
+}

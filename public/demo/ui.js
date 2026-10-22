@@ -28,7 +28,7 @@ let hidden = false; try { hidden = localStorage.getItem(NOTE) === "1"; } catch {
 if (!hidden) {
   const el = document.createElement("div");
   el.className = "demo-note"; el.setAttribute("role", "note");
-  el.innerHTML = `<span><b>체험하기</b> 혼자 해 보는 연습이에요. 쓴 글은 이 기기에만 저장되고, AI는 실제 수업과 같아요(인물 5번·AI 도우미 5번까지, 다 쓰면 준비된 예시 답).</span><button type="button" aria-label="안내 닫기">✕</button>`;
+  el.innerHTML = `<span><b>체험</b> 이 기기에만 저장 · AI는 인물·도우미 5번씩</span><button type="button" aria-label="안내 닫기">✕</button>`;
   el.querySelector("button").onclick = () => { el.remove(); try { localStorage.setItem(NOTE, "1"); } catch {} };
   $("#main")?.prepend(el);
 }
@@ -38,6 +38,7 @@ document.querySelectorAll('a[href^="index.html"]').forEach((a) => { a.href = `de
 document.querySelectorAll('a[href^="m.html"]').forEach((a) => { a.href = `demo-play-m.html?view=m&t=${TOPIC}`; });
 
 // '데모라서' 줄: 지금 보는 단계에서 실제 수업과 다른 점을 항상 보여 준다(닫을 수 없다).
+// PC 넓은 화면은 펼친 채로, 좁은 화면(휴대폰)은 한 줄로 접어 두고 누르면 펼친다.
 // 화면(app.js)이 단계를 바꿀 때마다 #panel 을 다시 그리므로, 바뀌면 맨 위에 다시 붙인다.
 const DIFF = {
   "1-pick": "모둠 친구가 없어서 모든 인물을 고를 수 있어요. 실제 수업에서는 모둠원마다 다른 인물을 맡아요.",
@@ -65,7 +66,8 @@ function showDiff() {
   if (!key || !DIFF[key]) { cur?.remove(); return; }
   if (cur && cur.dataset.key === key && panel.firstElementChild === cur) return;
   cur?.remove();
-  panel.insertAdjacentHTML("afterbegin", `<div class="demo-diff" data-key="${key}" role="note"><span class="tag y">데모라서</span> ${DIFF[key]}</div>`);
+  const wide = window.matchMedia("(min-width:1100px)").matches;
+  panel.insertAdjacentHTML("afterbegin", `<details class="demo-diff" data-key="${key}" role="note" ${wide ? "open" : ""}><summary><span class="tag y">데모라서</span> <span class="dd-s">실제 수업과 다른 점</span></summary><span class="dd-t">${DIFF[key]}</span></details>`);
 }
 if (panel) {
   new MutationObserver(showDiff).observe(panel, { childList: true });
