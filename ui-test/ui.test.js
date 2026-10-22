@@ -1457,7 +1457,7 @@ test("체험: 주제마다 저장이 따로이고(메뉴에 '이어서 하기'),
   await pg.waitForSelector(".chat-card");
   await pg.waitForTimeout(200);
   await dismissHelp(pg);
-  await pg.evaluate(() => window.scrollTo(0, 0)); // 위로 올리면 머리글이 다시 나온다
+  await pg.evaluate(() => { window.scrollTo(0, 0); document.body.classList.remove("chrome-hidden"); }); // 위로 올리면 머리글이 다시 나온다
   await pg.click("#demo-home");
   await pg.waitForURL(/demo\.html$/);
   await pg.waitForSelector(".topic");
@@ -1601,6 +1601,31 @@ test("체험: 3·4·5단계 AI 단추는 모둠이 쓴 글을 서버로 보내�
   assert.match(by[4].payload.proposal.text, /기금/);
   assert.equal(by[5].payload.round, 1);
   assert.equal(by[5].payload.predictions.length, 2);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("체험: 단계마다 '데모라서' 줄이 맨 위에 항상 있고 단계가 바뀌면 따라 바뀌며, 준비된 예시 답에는 데모라서 그렇다는 표시가 붙는다", async () => {
+  const { pg, ctx, errors } = await demoPage({}, null); // 연결 안 됨 → 준비된 답
+  await pickAndChat(pg, "jeju2018", "고향이 어디예요?");
+  await pg.waitForSelector(".msg.ai:not(.typing) .bubble");
+  assert.match(await pg.locator(".msg.ai .bubble").last().innerText(), /데모라서 준비된 예시 답/);
+  assert.match(await pg.locator("#panel > .demo-diff").innerText(), /데모라서.*5번까지.*웹 검색을 하지 않고/);
+  assert.equal(await pg.locator("#panel > .demo-diff").count(), 1);
+  const stageText = {};
+  for (const n of [2, 3, 4, 5, 6, 7]) {
+    await pg.click(`#tabs .stage-tab[data-stage="${n}"]`); await dismissHelp(pg);
+    await pg.waitForFunction((n) => document.querySelector("#panel > .demo-diff")?.dataset.key === String(n), n);
+    stageText[n] = await pg.locator("#panel > .demo-diff").innerText();
+    assert.equal(await pg.locator("#panel > .demo-diff").count(), 1);
+    assert.equal(await pg.evaluate(() => document.querySelector("#panel").firstElementChild.className), "demo-diff");
+  }
+  assert.match(stageText[3], /웹 검색 없이/);
+  // 1단계 작은 단계도 각각
+  await pg.click('#tabs .stage-tab[data-stage="1"]'); await dismissHelp(pg);
+  await pg.click('.subnav button[data-sub="group"]'); await dismissHelp(pg);
+  await pg.waitForFunction(() => document.querySelector("#panel > .demo-diff")?.dataset.key === "1-group");
+  assert.match(await pg.locator("#panel > .demo-diff").innerText(), /혼자 문제를 정해요/);
   assert.deepEqual(errors, []);
   await ctx.close();
 });

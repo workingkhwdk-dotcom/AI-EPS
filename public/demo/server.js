@@ -67,6 +67,17 @@ async function realAI(s, payload, work, d, pid) {
   return r ? { result: r.result, output: r.output, input, lp } : null;
 }
 
+// 데모라서 실제와 다른 점은 답 안에서도 항상 밝힌다(화면 위의 '데모라서' 줄은 ui.js)
+const TAG = "※ 데모라서 준비된 예시 답이에요.";
+const NO_WEB = "※ 데모라서 웹 검색 없이 수업 자료만 근거로 답했어요(실제 수업에서는 웹 검색도 해요).";
+function tagged(s, real, result) {
+  if (real) return s === 3 ? `${result}\n\n${NO_WEB}` : result;
+  if (s === 2) return { ...result, question: `${result.question} (${TAG})` };
+  if (s === 3) return `${result}\n\n${TAG}`;
+  if (s === 4) return { reviews: result.reviews.map((r) => ({ ...r, text: `${r.text}\n\n${TAG}` })) };
+  return { scenarios: result.scenarios.map((x) => ({ ...x, title: `${x.title} (※ 데모 예시)` })) };
+}
+
 const handlers = {
   async joinSession() { return {}; }, // 체험에서는 입장 화면 없이 바로 들어간다
 
@@ -112,7 +123,7 @@ const handlers = {
       const real = await askAI({ kind: "chat", personaId: pid, message: input, history: prev.slice(-8).map((c) => ({ input: c.input, output: c.output })) });
       let output, model = "ai", refunded = false;
       if (real?.text) { output = real.text; refunded = !!real.refunded; }
-      else { await sleep(700 + Math.random() * 700); output = demoReply(input, say, prev.map((c) => c.output)); model = "demo"; }
+      else { await sleep(700 + Math.random() * 700); output = `${demoReply(input, say, prev.map((c) => c.output))}\n\n(${TAG})`; model = "demo"; }
       st.add(`sessions/${CODE}/members/${UID}/chat`, { uid: UID, nickname: NICK, input, output, model, conduct: null, ...(refunded ? { refunded: true } : {}), createdAt: now });
       st.update(memberPath, { chatCount: st.inc(refunded ? 0 : 1), aiCount: st.inc(1) });
       return { result: output };
@@ -185,6 +196,8 @@ const handlers = {
       ] };
       output = JSON.stringify(result); lp = { proposalId: pid, round: yrs };
     }
+    result = tagged(s, !!real, result);
+    output = typeof result === "string" ? result : JSON.stringify(result);
     const id = st.add(`${gPath}/logs`, { uid: UID, nickname: NICK, stage: s, type, input, output, payload: lp, model: real ? "ai" : "demo", createdAt: now });
     st.update(gPath, { aiCount: st.inc(1) });
     st.update(memberPath, { aiCount: st.inc(1) });

@@ -22,3 +22,8 @@
 .topic .acts .btn{ flex:1 1 140px; }
 .topic .saved{ font-size:12px; font-weight:800; color:var(--green-ink); }
 .demo-foot{ text-align:center; color:var(--ink-3); font-size:12.5px; margin-top:22px; line-height:1.7; }
+
+/* '데모라서' 줄: 단계마다 실제 수업과 다른 점 */
+.demo-diff{ background:var(--warn-tint,#FFF4DB); color:var(--warn,#7A4B00); border-radius:12px; padding:8px 12px; margin:0 0 10px; font-size:12.5px; line-height:1.55; }
+.demo-diff .tag{ margin-right:4px; background:rgba(0,0,0,.08); color:inherit; }
+.m .demo-diff{ font-size:12px; padding:7px 10px; margin-bottom:8px; }
