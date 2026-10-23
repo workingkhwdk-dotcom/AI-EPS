@@ -8,22 +8,77 @@
 .m .demo-note{ font-size:12px; padding:8px 11px; }
 @media (max-width:600px){ .demo .hdr-right{ gap:5px; } .demo .btn-out{ padding:4px 9px; } }
 
-/* 주제 고르는 메뉴(demo.html) */
-.demo-wrap{ max-width:860px; margin:0 auto; padding:18px 16px 40px; }
-.demo-hero{ text-align:center; padding:14px 6px 10px; }
-.demo-hero h1{ font-size:26px; margin:0 0 6px; letter-spacing:-0.02em; }
-.demo-hero p{ margin:0 auto; max-width:560px; color:var(--ink-2); line-height:1.7; font-size:14.5px; }
-.topics{ display:grid; gap:12px; margin-top:18px; grid-template-columns:repeat(auto-fill,minmax(min(100%,380px),1fr)); }
-.topic{ display:flex; flex-direction:column; gap:8px; background:var(--surface); border-radius:20px; box-shadow:var(--shadow); padding:18px; }
-.topic h2{ font-size:17px; margin:0; line-height:1.4; }
-.topic .sum{ margin:0; color:var(--ink-2); font-size:13.5px; line-height:1.65; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; }
-.topic .who{ font-size:12px; color:var(--ink-3); }
+/* 주제 고르는 메뉴(demo.html): 독립된 주제 5개가 한눈에 보이게(넓으면 한 줄, 휴대폰은 짧은 줄 5개) */
+.demo-wrap{ max-width:1400px; margin:0 auto; padding:18px 16px 40px; }
+.demo-hero{ text-align:center; padding:10px 6px 6px; }
+.demo-hero h1{ font-size:24px; margin:0 0 12px; letter-spacing:-0.02em; line-height:1.35; word-break:keep-all; }
+.demo-steps{ list-style:none; margin:0 auto; padding:0; display:flex; justify-content:center; flex-wrap:wrap; gap:6px 18px; font-size:13.5px; font-weight:700; color:var(--ink-2); }
+.demo-steps li{ display:flex; align-items:center; gap:6px; }
+.demo-steps b{ width:22px; height:22px; border-radius:50%; background:var(--accent-tint); color:var(--accent); display:inline-flex; align-items:center; justify-content:center; font-size:12px; }
+.demo-steps li + li::before{ content:"→"; color:var(--ink-3); margin-right:12px; font-weight:400; }
+.demo-about{ margin-top:10px; font-size:13.5px; }
+.topics-head{ display:flex; flex-wrap:wrap; align-items:baseline; justify-content:center; gap:4px 10px; margin:22px 0 12px; font-size:15px; }
+.topics-head span{ font-size:13px; color:var(--ink-3); }
+.topics{ display:grid; gap:12px; grid-template-columns:repeat(5,minmax(0,1fr)); }
+.topic{ position:relative; display:flex; flex-direction:column; gap:8px; background:var(--surface); border-radius:20px; box-shadow:var(--shadow); padding:16px; transition:box-shadow .15s ease; }
+/* 올려놓으면 테두리를 밝힌다 */
+.topic:hover{ box-shadow:0 0 0 2px var(--blue), var(--shadow); }
+.topic .acts a.btn{ text-decoration:none; }
+.topic .t-no{ display:none; }
+.topic .t-main{ display:flex; flex-direction:column; gap:6px; flex:1; min-width:0; }
+.topic .t-k{ font-size:12px; font-weight:800; color:var(--accent); }
+.topic h2{ font-size:16.5px; margin:0; line-height:1.4; word-break:keep-all; }
+.topic .sum{ margin:0; color:var(--ink-2); font-size:13px; line-height:1.6; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:5; overflow:hidden; }
+.topic .who{ font-size:12px; color:var(--ink-3); line-height:1.5; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
 .topic .acts{ display:flex; gap:8px; margin-top:auto; padding-top:4px; flex-wrap:wrap; }
 .topic .acts .btn{ flex:1 1 140px; }
+/* 카드 어디를 눌러도 체험이 열린다(demo.html 의 클릭 처리) */
+.topic{ cursor:pointer; }
 .topic .saved{ font-size:12px; font-weight:800; color:var(--green-ink); }
 .demo-foot{ text-align:center; color:var(--ink-3); font-size:12.5px; margin-top:22px; line-height:1.7; }
+@media (max-width:1199px){ .topics{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
+/* 휴대폰: 번호·제목·버튼만 남긴 짧은 줄 5개가 한 화면에 */
+@media (max-width:699px){
+  .demo-wrap{ padding:12px 12px 28px; }
+  .demo-hero h1{ font-size:20px; margin-bottom:10px; }
+  .demo-steps{ font-size:12.5px; gap:4px 8px; } .demo-steps li + li::before{ margin-right:6px; }
+  .topics-head{ margin:16px 0 10px; }
+  .topics{ grid-template-columns:1fr; gap:8px; }
+  .topic{ flex-direction:row; align-items:center; gap:12px; padding:12px 12px 12px 14px; border-radius:16px; }
+  .topic .t-no{ display:flex; flex:none; width:32px; height:32px; border-radius:50%; background:var(--grad); color:#fff; font-weight:800; align-items:center; justify-content:center; }
+  .topic .t-main{ gap:2px; }
+  .topic h2{ font-size:15px; }
+  .topic .sum, .topic .who{ display:none; }
+  .topic .acts{ margin:0; padding:0; flex:none; flex-direction:column; gap:4px; }
+  .topic .acts .btn{ flex:none; padding:8px 12px; font-size:13px; }
+  .topic .acts a.btn-primary{ white-space:nowrap; }
+  .topic .acts .btn-plain{ padding:4px 8px; font-size:12px; }
+  .demo-foot{ margin-top:14px; }
+}
+/* 체험이란? 창 */
+.about-pop .about-row{ display:flex; gap:12px; align-items:flex-start; padding:10px 0; border-top:1px solid var(--sep); }
+.about-pop .about-row:first-child{ border-top:none; padding-top:0; }
+.about-pop .about-row p{ margin:0; }
+.about-pop .about-row ul{ margin:0; padding-left:18px; font-size:14px; line-height:1.65; }
+.about-pop .about-row li + li{ margin-top:4px; }
+.about-k{ flex:none; width:64px; text-align:center; font-size:12px; font-weight:800; padding:3px 0; border-radius:20px; background:var(--accent-tint); color:var(--accent); margin-top:2px; }
+.about-k.k-demo{ background:var(--green-tint); color:var(--green-ink); }
+.about-k.k-diff{ background:var(--warn-tint,#FFF4DB); color:var(--warn,#7A4B00); }
+.modal.about-pop{ width:min(100%,560px); }
 
-/* '데모라서' 줄: 단계마다 실제 수업과 다른 점 */
-.demo-diff{ background:var(--warn-tint,#FFF4DB); color:var(--warn,#7A4B00); border-radius:12px; padding:8px 12px; margin:0 0 10px; font-size:12.5px; line-height:1.55; }
-.demo-diff .tag{ margin-right:4px; background:rgba(0,0,0,.08); color:inherit; }
-.m .demo-diff{ font-size:12px; padding:7px 10px; margin-bottom:8px; }
+/* 단계 안내 팝업 끝의 '체험에서는' 상자(boot.js) */
+.help-demo{ margin-top:14px; background:var(--warn-tint,#FFF4DB); color:var(--warn,#7A4B00); border-radius:12px; padding:10px 12px; font-size:13.5px; line-height:1.6; }
+.help-demo b{ margin-right:4px; }
+
+/* 체험 안내: PC 넓은 화면은 머리글 가운데 한 줄, 그 밖에는 본문 위 한 줄 띠 */
+.demo-badge{ display:none; }
+@media (min-width:1100px){
+  .demo body:not(.m) .demo-badge{ display:block; flex:1 1 auto; min-width:0; text-align:center; font-size:12.5px; font-weight:600; color:var(--warn,#7A4B00);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .demo body:not(.m) .demo-badge::before{ content:"체험"; font-weight:800; margin-right:6px; padding:1px 8px; border-radius:20px; background:var(--warn-tint,#FFF4DB); }
+  .demo body:not(.m) #main > .demo-note{ display:none; }
+}
+@media (max-width:1099px){
+  .demo-note{ padding:6px 10px; margin-bottom:8px; font-size:12px; align-items:center; }
+  .demo-note span{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+}

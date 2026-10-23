@@ -1,5 +1,5 @@
 // 체험용 가짜 서버: 학생 화면이 부르는 서버 함수(getCase·choosePersona·aiRequest)를 브라우저 안에서 대신 처리한다.
-// AI 답은 실제와 같은 AI(서버의 demoRequest)에게 먼저 묻는다. 횟수(인물 5번·도우미 5번)를 다 썼거나 연결이 안 되면
+// AI 답은 서버의 demoRequest(실제와 같은 프롬프트, 체험용 가벼운 모델)에게 먼저 묻는다. 횟수(인물 5번·도우미 5번)를 다 썼거나 연결이 안 되면
 // 준비된 예시 답으로 바꿔 보여 준다: 인물의 말은 인물 자료에서 고르고, 3~5단계 답은 모둠이 쓴 글과 수업 자료를 짜 맞춘 예시.
 import * as st from "./store.js";
 import { TOPIC, CODE, UID, NICK } from "./store.js";

@@ -53,7 +53,7 @@ firestore.rules    학생은 자기 모둠의 work만 수정, AI 로그는 서�
 - 주소: `/demo.html`. 5개 주제(사건) 중 하나를 골라 학생 화면을 처음부터 끝까지 혼자 체험한다. 입장·로그인 없이 바로 열린다.
 - **저장은 서버가 아니라 이 기기(localStorage)** 에 주제별로 따로 한다. 화면 위쪽 **홈**은 주제 고르는 메뉴로, **초기화**는 그 주제를 처음부터 다시 하게 한다(쓴 글·대화·단계 안내 본 기록 삭제).
 - 학생 화면(`app.js`)을 그대로 쓴다. 대신 `demo-play.html`(PC)·`demo-play-m.html`(휴대폰)이 Firebase 모듈을 `public/demo/stubs/` 의 가짜(import map)로 바꿔, `public/demo/server.js`(가짜 서버)가 `getCase`·`choosePersona`·`aiRequest` 를 브라우저 안에서 처리한다. Firebase SDK 는 부르지 않는다(AI 호출만 위 `demoRequest`).
-- **AI 답은 실제 수업과 같은 AI다.** 화면이 서버 함수 `demoRequest`(`functions/demo.js`, 로그인 없이 HTTP 로 부름)에게 묻고, 서버는 실제와 같은 인물 프롬프트·상위 AI(감독자)·3~5단계 프롬프트를 쓴다. 웹 검색은 쓰지 않는다(3단계는 수업 자료만 근거). 쓴 글은 요청에 실려 오고 서버에는 저장하지 않는다.
+- **AI 답은 실제 수업과 같은 프롬프트를 쓰되, 모델은 체험용으로 가볍다(`DEMO_MODEL`, 비우면 `OPENAI_MODEL`).** 실제 수업의 인물 대화는 더 고성능 모델(`PERSONA_MODEL`)을 쓰므로 답의 질이 다를 수 있고, 체험 화면이 처음 들어올 때와 단계 안내 팝업에서 이를 알린다. 화면이 서버 함수 `demoRequest`(`functions/demo.js`, 로그인 없이 HTTP 로 부름)에게 묻고, 서버는 실제와 같은 인물 프롬프트·상위 AI(감독자)·3~5단계 프롬프트를 쓴다. 웹 검색은 쓰지 않는다(3단계는 수업 자료만 근거). 쓴 글은 요청에 실려 오고 서버에는 저장하지 않는다.
 - **횟수·비용 보호:** 기기(localStorage 의 `eps_demo_device`)·주제마다 인물 질문 5번, 2~5단계 AI 5번(`demoUsage/{기기}` 에 서버가 센다. 초기화해도 돌아오지 않는다. 실패한 호출은 돌려준다). 하루 전체 한도 `DEMO_DAILY_CAP`(기본 300), 모델 `DEMO_MODEL`(비우면 `OPENAI_MODEL`)은 `functions/.env` 로 바꾼다. 화면의 안내 띠·메뉴·단계마다 붙는 '데모라서' 줄(`demo/ui.js`)에도 실제와 다른 점을 적어 두고, 준비된 예시 답·웹 검색 없이 답한 3단계 답에는 답 안에도 표시가 붙는다. 체험이 실제와 달라지는 기능을 더하거나 고치면 `DIFF` 문구도 함께 고칠 것. OpenAI 키 쪽 사용 한도도 함께 걸어 둘 것.
 - 횟수를 다 썼거나, 서버가 배포 전이거나, 연결이 안 되면 **준비된 예시 답**으로 대신한다(인물의 말은 인물 자료에서 질문과 가까운 것을 골라 들려 주고 — `public/demo/chat.js`, 3~5단계는 모둠이 쓴 글과 수업 자료로 짜 맞춘 예시). 안내 알림이 뜬다.
 - 배포: `firebase deploy --only functions:demoRequest,hosting` (함수를 먼저 배포하지 않아도 체험은 준비된 답으로 동작한다).

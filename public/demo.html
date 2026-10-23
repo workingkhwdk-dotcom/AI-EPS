@@ -19,25 +19,31 @@
   <div class="brand"><img class="mark" src="knue-mark.webp" srcset="knue-mark.webp 1x, knue-mark@2x.webp 2x" width="40" height="40" alt="한국교원대학교 마크" decoding="async" /><div class="brand-t"><span class="logo">AI-EPS<em style="font-style:normal;font-weight:800;font-size:11px;margin-left:6px;padding:1px 7px;border-radius:20px;background:rgba(255,255,255,0.2)">체험</em></span><small>한국교원대학교</small></div></div>
 </div></header>
 <main class="demo-wrap" id="main">
-  <div class="demo-hero">
-    <h1>학생이 되어 체험해 보세요</h1>
-    <p>수업이 열려 있다고 생각하고, 주제 하나를 골라 학생 화면을 처음부터 끝까지 혼자 해 볼 수 있어요. 쓴 글은 <b>이 기기에만</b> 저장돼요. 인물과 AI 도우미는 실제 수업과 같은 AI가 답하고, 체험에서는 <b>인물에게 묻기 5번 · AI 도우미 5번</b>까지(주제마다) 쓸 수 있어요. 다 쓰면 준비된 예시 답이 나와요.</p>
-  </div>
+  <section class="demo-hero">
+    <h1>주제 하나를 골라, 학생이 되어 가상 수업을 해 보세요</h1>
+    <ol class="demo-steps" aria-label="체험 순서"><li><b>1</b>주제 고르기</li><li><b>2</b>학생 화면으로 1~7단계</li><li><b>3</b>홈에서 다른 주제도</li></ol>
+    <button class="link demo-about" type="button" id="about">체험과 실제 수업은 무엇이 다른가요?</button>
+  </section>
+  <div class="topics-head"><b>서로 독립된 주제 5개</b><span>하나만 골라도 처음부터 끝까지 체험할 수 있어요</span></div>
   <div class="topics" id="topics" aria-live="polite"><div class="meta-line" style="text-align:center">불러오는 중…</div></div>
   <p class="demo-foot">주제 화면 위쪽의 <b>홈</b>을 누르면 이 화면으로 돌아오고, <b>초기화</b>를 누르면 그 주제를 처음부터 다시 할 수 있어요.</p>
 </main>
 <script type="module">
 import { hasProgress, resetTopic } from "./demo/store.js";
+import { showModal } from "./modal.js";
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const box = document.getElementById("topics");
+// 제목 끝의 (연도)는 따로 떼어 작은 줄로 보여 준다
+const split = (t) => { const m = /\s*\(([^)]+)\)\s*$/.exec(t); return m ? [t.slice(0, m.index), m[1]] : [t, ""]; };
 function draw(topics) {
-  box.innerHTML = topics.map((t) => {
-    const saved = hasProgress(t.id);
-    return `<article class="topic"><h2>${esc(t.title)}</h2>
+  box.innerHTML = topics.map((t, i) => {
+    const saved = hasProgress(t.id), [title, when] = split(t.title);
+    return `<article class="topic ${saved ? "has-saved" : ""}"><div class="t-no" aria-hidden="true">${i + 1}</div>
+      <div class="t-main"><div class="t-k">주제 ${i + 1}${when ? ` · ${esc(when)}` : ""}</div><h2>${esc(title)}</h2>
       <p class="sum">${esc(t.summary)}</p>
-      <div class="who">등장하는 사람들: ${esc((t.stakeholders || []).join(" · "))} · 인물 ${t.personas}명</div>
-      ${saved ? `<div class="saved">✓ 하던 것이 저장돼 있어요</div>` : ""}
-      <div class="acts"><a class="btn btn-primary" href="demo-play.html?t=${esc(t.id)}">${saved ? "이어서 하기" : "체험 시작"}</a>
+      <div class="who">만날 인물 ${t.personas}명: ${esc((t.stakeholders || []).join(" · "))}</div>
+      ${saved ? `<div class="saved">✓ 하던 것이 저장돼 있어요</div>` : ""}</div>
+      <div class="acts"><a class="btn btn-primary" href="demo-play.html?t=${esc(t.id)}" aria-label="${esc(title)} 체험${saved ? " 이어서 하기" : " 시작"}">${saved ? "이어서 하기" : "이 주제로 체험"} →</a>
       ${saved ? `<button class="btn btn-plain" type="button" data-reset="${esc(t.id)}" data-title="${esc(t.title)}">처음부터</button>` : ""}</div></article>`;
   }).join("");
 }
@@ -45,10 +51,27 @@ let topics = [];
 fetch("demo/topics.json").then((r) => r.json()).then((t) => { topics = t; draw(t); })
   .catch(() => { box.innerHTML = `<div class="notice">주제 목록을 불러오지 못했어요. 인터넷 연결을 확인하고 다시 열어 주세요.</div>`; });
 box.addEventListener("click", (e) => {
+  // 카드의 빈 곳(제목·설명)을 눌러도 그 주제의 체험을 연다
+  const card = e.target.closest(".topic");
+  if (card && !e.target.closest("a, button")) { location.href = card.querySelector("a.btn-primary").href; return; }
   const b = e.target.closest("[data-reset]"); if (!b) return;
   if (!confirm(`'${b.dataset.title}' 체험을 처음부터 다시 할까요?\n\n지금까지 쓴 글과 대화가 모두 지워져요.`)) return;
   resetTopic(b.dataset.reset); draw(topics);
 });
+// 체험이 무엇인지: 처음 들어오면 한 번 띄우고, 위쪽 링크로 언제든 다시 본다
+const ABOUT = "eps_demo_about";
+const about = () => showModal({ title: "체험하기는 이런 거예요", dismissible: true, cls: "about-pop",
+  body: `<div class="about-row"><span class="about-k">실제 수업</span><p>선생님이 <b>교사 계정으로 수업방</b>을 만들면, 학생은 그 <b>수업 코드로 입장</b>해 모둠 친구들과 함께 1~7단계를 해요.</p></div>
+    <div class="about-row"><span class="about-k k-demo">체험</span><p>수업방·코드 같은 준비 없이, <b>주제 하나를 골라</b> 그 주제의 수업이 1~7단계로 어떻게 흘러가는지 <b>혼자 한 번에</b> 해 봐요. 화면과 활동 순서는 실제 수업과 같아요.</p></div>
+    <div class="about-row"><span class="about-k k-diff">다른 점</span><ul>
+      <li><b>AI 품질:</b> 체험은 가벼운 체험용 AI가 답해요. 실제 수업은 <b>더 고성능 AI</b>라 인물의 대답과 AI 도우미의 답이 더 깊고 정확해요.</li>
+      <li>인물에게 묻기 5번 · AI 도우미 5번까지(주제마다). 다 쓰면 준비된 예시 답이 나와요.</li>
+      <li>모둠 친구·선생님 없이 혼자 하고, 쓴 글은 이 기기에만 저장돼요.</li></ul></div>
+    <p class="meta-line" style="margin-top:10px">단계마다 실제 수업과 다른 점은 그 단계에 들어갈 때 안내 창에서 알려 드려요.</p>`,
+  actions: [{ label: "주제 고르러 가기", value: true, kind: "btn-primary" }] });
+document.getElementById("about").onclick = about;
+let seen = false; try { seen = localStorage.getItem(ABOUT) === "1"; } catch {}
+if (!seen) { try { localStorage.setItem(ABOUT, "1"); } catch {} about(); }
 </script>
 </body>
 </html>
