@@ -40,10 +40,6 @@ const SEARCH_MODEL = defineString("SEARCH_MODEL", { default: "" }); // 웹 검�
 // 체험(demo) 페이지의 AI: 모델(비우면 OPENAI_MODEL)과 하루 전체 호출 한도(비용 보호)
 const DEMO_MODEL = defineString("DEMO_MODEL", { default: "" });
 const DEMO_DAILY_CAP = defineInt("DEMO_DAILY_CAP", { default: 300 });
-// 새 수업 만들기(수업 복제 포함) 스위치. 비용 때문에 잠시 꺼 둔다: 기본값 false. 다시 열려면 functions/.env 에 NEW_SESSIONS_ENABLED=true 를 쓰고 배포한다.
-const NEW_SESSIONS_ENABLED = defineString("NEW_SESSIONS_ENABLED", { default: "false" });
-const newSessionsOpen = () => NEW_SESSIONS_ENABLED.value() === "true";
-const NEW_SESSIONS_OFF_MSG = "새 수업 만들기는 지금 잠시 닫혀 있어요. 관리자에게 문의하세요.";
 const TEACHER_EMAILS = defineString("TEACHER_EMAILS", { default: "" });
 // 교사 가입 인증 문구. 코드·저장소에는 두지 않고 functions/.env(git 에 올라가지 않음)의 TEACHER_SIGNUP_CODE 로만 정한다.
 // 비어 있으면 교사 가입이 꺼진다(관리자·TEACHER_EMAILS·config/teachers 로만 교사 지정).
@@ -174,7 +170,7 @@ async function newCode() {
 exports.teacherStatus = onCall(opts, async (req) => {
   const auth = requireAuth(req);
   if (provider(auth) === "anonymous") throw new HttpsError("permission-denied", "교사 계정으로 로그인하세요.");
-  return { teacher: await teacherOk(auth), email: auth.token?.email || "", signupOpen: !!String(TEACHER_SIGNUP_CODE.value() || "").trim(), newSessionsOpen: newSessionsOpen() };
+  return { teacher: await teacherOk(auth), email: auth.token?.email || "", signupOpen: !!String(TEACHER_SIGNUP_CODE.value() || "").trim() };
 });
 
 // 인증 문구 비교: 대소문자·앞뒤 빈칸은 무시하고, 해시끼리 같은 시간에 비교한다
@@ -231,7 +227,6 @@ exports.registerTeacher = onCall(opts, async (req) => {
 
 exports.createSession = onCall(opts, async (req) => {
   const auth = await requireTeacher(req);
-  if (!newSessionsOpen()) throw new HttpsError("failed-precondition", NEW_SESSIONS_OFF_MSG);
   const groupCount = Math.min(Math.max(parseInt(req.data?.groupCount, 10) || 6, 1), MAX_GROUPS);
   const eventId = EVENTS[req.data?.eventId] ? req.data.eventId : DEFAULT_EVENT;
   if (!availablePersonas(eventId, allowUnverified()).length)
@@ -664,7 +659,6 @@ exports.healthCheck = onCall(checkOpts, async (req) => {
 // 수업 복제: 이름·모둠 수·설정과 이 수업에서 고친 자료를 새 수업으로 가져온다(학생과 기록은 가져오지 않는다)
 exports.cloneSession = onCall(opts, async (req) => {
   const { auth, code, sess } = await ownSession(req);
-  if (!newSessionsOpen()) throw new HttpsError("failed-precondition", NEW_SESSIONS_OFF_MSG);
   const title = String(req.data?.title || `${sess.title} (복사)`).trim().slice(0, 80);
   const newCodeStr = await newCode();
   const batch = db.batch();

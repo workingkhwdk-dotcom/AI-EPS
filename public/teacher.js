@@ -131,7 +131,7 @@ onAuthStateChanged(auth, async (u) => {
   // 로그인했어도 교사로 승인된 계정인지 서버에 묻는다. 아니면 인증 문구 입력으로.
   // 확인 자체가 안 되면(네트워크 등) 교사 화면을 보여 주고, 권한은 서버가 호출마다 다시 확인한다.
   let teacher = true;
-  try { const r = (await call("teacherStatus")()).data || {}; teacher = r.teacher !== false; signupOpen = r.signupOpen !== false; setNewOpen(r.newSessionsOpen !== false); } catch {}
+  try { const r = (await call("teacherStatus")()).data || {}; teacher = r.teacher !== false; signupOpen = r.signupOpen !== false; } catch {}
   if (auth.currentUser?.uid !== u.uid) return; // 확인하는 사이 계정이 바뀌었다
   if (!teacher) return showAuth("signup", u);
   enterMain(u);
@@ -168,13 +168,6 @@ $("#t-event").onchange = () => {
 };
 
 // ---------- 수업 만들기·목록 ----------
-// 서버에서 새 수업 만들기를 닫아 두면(비용 때문에 잠시 끔) 버튼을 누를 수 없게 하고 이유를 보여 준다
-function setNewOpen(open) {
-  $("#new-toggle").disabled = !open;
-  $("#new-toggle").title = open ? "" : "지금은 새 수업을 만들 수 없어요";
-  $("#new-off").classList.toggle("hidden", open);
-  if (!open) toggleNew(false);
-}
 const toggleNew = (open) => $("#new-form").classList.toggle("hidden", !open);
 $("#new-toggle").onclick = () => toggleNew($("#new-form").classList.contains("hidden"));
 $("#new-cancel").onclick = () => toggleNew(false);
