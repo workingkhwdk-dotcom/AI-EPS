@@ -57,6 +57,9 @@ const DEMO_DAILY_CAP = defineInt("DEMO_DAILY_CAP", { default: 300 });
 // 교사 주제 만들기(topics): 생성 모델, 웹 조사 모델(인용 링크가 문장에 정확히 붙어야 해서 저가 모델은 피한다), 교사 한 명이 하루에 새로 만들 수 있는 주제 수
 const TOPIC_MODEL = { value: () => notRetired(envParam("TOPIC_MODEL", "gpt-5.6-sol").value(), "gpt-5.6-sol") };
 const TOPIC_SEARCH_MODEL = { value: () => notRetired(envParam("TOPIC_SEARCH_MODEL", "gpt-5.6-terra").value(), "gpt-5.6-terra") };
+// 새 주제 만들기(AI 조사·생성) 스위치. 비용이 커서 잠시 꺼 둔다: 기본값 false. 이미 만든 주제를 보고 고치고 수업에 쓰는 것은 그대로 된다.
+// 다시 열려면 functions/.env 에 TOPIC_BUILDER_ENABLED=true 를 쓰고 배포한다.
+const TOPIC_BUILDER_ENABLED = { value: () => envParam("TOPIC_BUILDER_ENABLED", "false").value() };
 const TOPIC_DAILY_LIMIT = { value: () => Math.max(1, parseInt(envParam("TOPIC_DAILY_LIMIT", "3").value(), 10) || 3) };
 const TEACHER_EMAILS = defineString("TEACHER_EMAILS", { default: "" });
 // 교사 가입 인증 문구. 코드·저장소에는 두지 않고 functions/.env(git 에 올라가지 않음)의 TEACHER_SIGNUP_CODE 로만 정한다.
@@ -1129,6 +1132,7 @@ const topicAi = {
 const topicApi = makeTopicApi({
   db, FieldValue, HttpsError, requireTeacher, ai: topicAi,
   dailyLimit: () => TOPIC_DAILY_LIMIT.value(), onSessionTopic: forgetTopic,
+  builderOpen: () => TOPIC_BUILDER_ENABLED.value() === "true",
 });
 exports.topics = onCall(topicOpts, (req) => topicApi.handle(req));
 

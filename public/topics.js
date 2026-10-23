@@ -16,7 +16,7 @@ const ORDER = ["start", "research", "frame", "personas", "extras", "review"];
 const SIDE_NAME = { A: "A쪽", B: "B쪽", 가운데: "가운데" };
 
 let hooks = { onList: () => {}, onMakeClass: () => {} };
-let list = [], usage = null, cur = null, draft = null, dirty = false, running = false, ideasResult = null, ideaInput = null;
+let builderOpen = true, list = [], usage = null, cur = null, draft = null, dirty = false, running = false, ideasResult = null, ideaInput = null;
 
 export function initTopics(h) {
   hooks = { ...hooks, ...h };
@@ -29,19 +29,22 @@ export function initTopics(h) {
 export async function loadTopics() {
   try {
     const r = await api("list");
-    list = r.topics || []; usage = r.usage || null;
+    list = r.topics || []; usage = r.usage || null; builderOpen = r.builderOpen !== false;
     renderList();
     hooks.onList(list);
   } catch (e) { $("#tp-list").innerHTML = `<div class="notice">${esc(errMsg(e))}</div>`; }
 }
 const ready = (t) => t.status !== "building" && !t.errors && t.usable > 0;
 function renderList() {
-  $("#tp-usage").textContent = usage ? `오늘 새로 만든 주제 ${usage.topics}/${usage.topicLimit}개 · 사건 후보 찾기 ${usage.ideas}/${usage.ideaLimit}번` : "";
+  // 서버에서 새 주제 만들기를 닫아 두면(비용 때문에 잠시 끔) 버튼을 막고 이유를 보여 준다. 이미 만든 주제는 그대로 열고 쓴다.
+  $("#tp-new").disabled = !builderOpen;
+  $("#tp-new").title = builderOpen ? "" : "새 주제 만들기는 지금 닫혀 있어요";
+  $("#tp-usage").textContent = !builderOpen ? "새 주제 만들기는 지금 잠시 닫혀 있어요. 이미 만든 주제는 그대로 쓸 수 있어요." : usage ? `오늘 새로 만든 주제 ${usage.topics}/${usage.topicLimit}개 · 사건 후보 찾기 ${usage.ideas}/${usage.ideaLimit}번` : "";
   $("#tp-list").innerHTML = list.map((t) => {
     const tag = t.status === "building" ? `<span class="tag y">만드는 중</span>` : ready(t) ? `<span class="tag">수업에 쓸 수 있음</span>` : `<span class="tag y">검토 필요</span>`;
     const info = t.status === "building" ? "이어서 만들기" : `인물 ${t.usable}/${t.personas}명 사용 가능 · 출처 확인 ${t.verified}/${t.sources}${t.errors ? ` · 고칠 곳 ${t.errors}` : ""}`;
     return `<div class="cell cls"><div class="grow"><b>${esc(t.title)}</b> ${tag}<br><span class="meta-line">${esc(info)}${t.updatedAt ? ` · ${new Date(t.updatedAt).toLocaleString("ko-KR")}` : ""}</span></div><button class="btn btn-tinted btn-sm" data-topic="${esc(t.id)}">열기</button></div>`;
-  }).join("") || `<div class="cell meta-line">아직 만든 주제가 없어요. '＋ 새 주제 만들기'로 우리 지역의 사건을 수업 주제로 만들어 보세요.</div>`;
+  }).join("") || `<div class="cell meta-line">아직 만든 주제가 없어요.${builderOpen ? " '＋ 새 주제 만들기'로 우리 지역의 사건을 수업 주제로 만들어 보세요." : ""}</div>`;
 }
 function showView(v) {
   $("#tp-list-view").classList.toggle("hidden", v !== "list");
