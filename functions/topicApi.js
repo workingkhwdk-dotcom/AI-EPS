@@ -11,6 +11,7 @@ const { toStored, fromStored, sanitizeFile, summarize } = require("./topicData")
 const { makeBundle, availablePersonas, isRequired } = require("./case");
 
 const STEPS = ["start", "research", "frame", "personas", "extras", "review"];
+const AI_ACTIONS = ["ideas", "start", "research", "frame", "personas", "extras", "review", "regenPersona"]; // 비용이 드는 AI 단계(스위치로 막는다)
 const MAX_TOPICS = 30; // 교사 한 명이 가질 수 있는 주제 수
 const MAX_CALLS = 120; // 주제 하나에 쓸 수 있는 AI 호출 수(다시 만들기 포함)
 const IDEAS_PER_DAY = 10;
@@ -20,7 +21,7 @@ const BUSY_MS = 9 * 60 * 1000; // 한 단계가 이보다 오래 '진행 중'이
 const day = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10); // 한국 날짜
 const newTopicId = () => "t" + crypto.randomBytes(5).toString("hex");
 
-function makeTopicApi({ db, FieldValue, HttpsError, requireTeacher, ai, dailyLimit, onSessionTopic }) {
+function makeTopicApi({ db, FieldValue, HttpsError, requireTeacher, ai, dailyLimit, onSessionTopic, builderOpen = () => true }) {
   const ref = (id) => db.doc(`teacherTopics/${id}`);
   const researchRef = (id) => db.doc(`teacherTopics/${id}/parts/research`);
   const usageRef = (uid) => db.doc(`topicUsage/${uid}`);
@@ -110,7 +111,7 @@ function makeTopicApi({ db, FieldValue, HttpsError, requireTeacher, ai, dailyLim
     async list(auth) {
       const snap = await db.collection("teacherTopics").where("ownerUid", "==", auth.uid).get();
       const topics = snap.docs.map((d) => { const x = d.data(); return summarize(d.id, x, usableInfo(fromStored(x.bundle))); }).sort((a, b) => b.updatedAt - a.updatedAt);
-      return { topics, usage: await usage(auth.uid) };
+      return { topics, usage: await usage(auth.uid), builderOpen: builderOpen() };
     },
     async get(auth, d) { return full(await own(auth, d.topicId)); },
     // 교사가 고친 주제 저장(검토 화면). 만드는 중에는 막는다.
@@ -286,6 +287,7 @@ function makeTopicApi({ db, FieldValue, HttpsError, requireTeacher, ai, dailyLim
     const d = req.data || {};
     const fn = actions[d.action];
     if (!fn) fail("invalid-argument", "알 수 없는 요청입니다.");
+    if (AI_ACTIONS.includes(d.action) && !builderOpen()) fail("failed-precondition", "새 주제 만들기는 지금 잠시 닫혀 있어요. 이미 만든 주제는 그대로 쓸 수 있어요.");
     return fn(auth, d);
   }
   return { handle, forClass, own, actions };

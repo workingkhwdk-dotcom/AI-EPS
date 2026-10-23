@@ -1,3 +1,4 @@
+process.env.TOPIC_BUILDER_ENABLED = "true"; // 새 주제 만들기 스위치(기본은 꺼짐)를 켜고 시험한다
 // 교사 주제 만들기(topics) 통합 테스트: 가짜 Firebase + 가짜 OpenAI 로 아이디어 → 조사 → 사건 틀 → 인물 → 자료 → 점검 →
 // 원문 확인 → 수업 만들기 → 학생 입장·인물 대화까지 이어서 확인한다.
 const test = require("node:test");
@@ -389,4 +390,14 @@ test(".env 에 지원이 끝나는 옛 모델 이름(gpt-5 등)이 남아 있으
   assert.ok(!r.models.some((m) => /^gpt-5(-mini|-nano)?(-\d{4}-\d{2}-\d{2})?$/.test(m.model)), "옛 모델로는 부르지 않는다");
   // 인물 대화도 새 모델로 불렸다
   assert.ok(calls.filter((c) => c.kind === "chat").every((c) => c.body.model === "gpt-5.6-terra"));
+});
+
+test("새 주제 만들기 스위치가 꺼져 있으면 AI 단계는 막히고, 목록·저장 같은 것은 그대로 되며 list 가 알려 준다", async () => {
+  process.env.TOPIC_BUILDER_ENABLED = "false";
+  try {
+    for (const action of ["ideas", "start", "research", "frame", "personas", "extras", "review", "regenPersona"])
+      await rejects(topics(teacher, { action, idea: "x", topicId: "t0000000000" }), /잠시 닫혀/);
+    const r = await topics(teacher, { action: "list" });
+    assert.equal(r.builderOpen, false);
+  } finally { process.env.TOPIC_BUILDER_ENABLED = "true"; }
 });

@@ -24,7 +24,8 @@ const stubs = {
       const user = { uid: "N1", email, isAnonymous: false, delete: async () => { window.__deleted = email; cur = null; notify(null); } };
       cur = user; notify(user); return { user };
     };
-    export const signInWithRedirect = async () => {};`,
+    export const signInWithRedirect = async () => {};
+    export const getRedirectResult = async () => null;`,
   "firebase-firestore.js": `
     const isDoc = (p) => p.split("/").length % 2 === 0;
     export const getFirestore = () => ({}); export const initializeFirestore = () => ({});
