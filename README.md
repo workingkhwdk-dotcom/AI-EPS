@@ -195,7 +195,7 @@ firebase deploy
 
 - 추론 모델은 `max_tokens`와 `temperature`를 받지 않습니다. 코드(`functions/openai.js`)가 모델 계열에 맞춰 `max_completion_tokens`와 `reasoning_effort`로 바꿔 보내고, GPT-4 계열도 그대로 쓸 수 있습니다.
 - **사고량 값은 모델마다 받는 것이 다릅니다.** 코드 안에서는 가장 가벼운 사고량을 `minimal`로 적고, `openai.js`가 처음 GPT-5에는 `minimal`, 그 뒤 계열(gpt-5.1~5.6, gpt-6 Luna)에는 `none`, none 을 받지 않는 모델(gpt-6 Astra·Sol, o 시리즈)에는 `low`로 바꿔 보냅니다.
-- **GPT-5.6 이후 계열은 Chat Completions 에서 함수 도구와 사고량을 함께 쓰면 거절합니다.** 그래서 인물이 사실을 찾아보는 대화(도구를 주는 호출)는 사고량 `none`으로 보냅니다. 인물 답의 품질이 아쉬우면 `PERSONA_MODEL`을 한 단계 올리거나(sol), 사실 찾아보기를 Responses API 로 옮기는 방법이 있습니다.
+- **GPT-5.6 이후 계열은 Chat Completions 에서 함수 도구와 사고량을 함께 쓰면 거절합니다.** 그래서 인물이 사실을 찾아보는 대화(lookup 도구를 주는 호출, `functions/lookup.js`)는 **Responses API** 로 부릅니다. 여기서는 도구와 사고량을 함께 쓸 수 있어 인물이 정한 사고량(`REASONING_EFFORT`, 기본 `low`)으로 생각하고 답합니다. 앞 차례의 사고 항목과 도구 호출을 다음 차례 입력에 이어 붙이고, 마지막 차례는 도구를 막아 반드시 글로 답하게 합니다.
 - `REASONING_EFFORT`(기본 `low`)는 대화 응답 속도용입니다. 5단계 시뮬레이션은 코드에서 `medium`으로 고정됩니다.
 - **모델을 바꾼 뒤에는 교사 화면 '인물·자료 점검' 탭의 '연결·AI 점검'을 누르세요.** 모델마다 쓰는 곳과 JSON 응답, 인물의 사실 찾아보기(도구 경로), 웹 검색, 주제 조사의 인용 링크까지 시험합니다.
 - 비용은 모델과 추론 사고량(reasoning 토큰도 출력 토큰으로 과금)에 따라 달라집니다. 1단계 대화는 인물 응답과 감독자 검사로 호출이 2번이므로, 수업 전에 OpenAI 대시보드에서 사용량 한도(Usage limits)를 설정해 두세요.

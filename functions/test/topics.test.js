@@ -138,6 +138,11 @@ function personaReviewReply(user) {
 
 global.fetch = async (url, init) => {
   const body = JSON.parse(init.body);
+  // 인물의 사실 찾아보기(함수 도구)는 Responses API 로 온다: 도구를 쓰지 않고 바로 답한다
+  if (String(url).endsWith("/v1/responses") && body.tools?.[0]?.type === "function") {
+    calls.push({ kind: "chat", body: { ...body, messages: body.input.filter((x) => x.role) } });
+    return { ok: true, json: async () => ({ output: [{ type: "message", content: [{ type: "output_text", text: "음… 저는 일한 만큼 받으면 좋겠어요." }] }] }) };
+  }
   if (String(url).endsWith("/v1/responses")) {
     calls.push({ kind: "search", body });
     const r = searchReply(body.instructions);

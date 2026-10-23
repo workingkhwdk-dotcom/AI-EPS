@@ -10,7 +10,8 @@
 //      · 그 뒤 계열(gpt-5.1 ~ gpt-5.6, gpt-6 Luna 등): minimal 을 받지 않고(400) none 을 받는다
 //      · none 도 받지 않는 모델(gpt-6 Astra, gpt-6.x Sol)과 o 시리즈: low
 //  - GPT-5.6 이후 계열은 Chat Completions 에서 함수 도구(tools)와 사고량(none 이 아닌 값)을 함께 쓰면 400 이다.
-//    그래서 도구를 줄 때는 none 으로 보낸다(1단계 인물의 사실 찾아보기, lookup.js).
+//    그래서 Chat Completions 로 도구를 줄 때는 none 으로 보낸다. 1단계 인물의 사실 찾아보기는 사고량을 지키려고
+//    Responses API(respondTools)로 부른다(lookup.js).
 
 const isReasoning = (model) => /^(gpt-([5-9]|\d{2,})|o\d)/.test(model) && !/chat/.test(model);
 const supportsTemperature = (model) => /^gpt-(3|4)/.test(model);
@@ -121,6 +122,31 @@ async function respondCited(opts) {
   return parseCited(await res.json());
 }
 
+// Responses API 의 함수 도구 호출(1단계 인물의 사실 찾아보기). Chat Completions 와 달리 사고량과 함수 도구를 함께 쓸 수 있어
+// 새 모델(GPT-5.6 등)에서도 인물이 원래 정한 사고량(low)으로 생각하고 답한다.
+//  - input: [{ role, content }] 대화와, 앞 차례의 출력 항목(reasoning·function_call)·function_call_output 을 그대로 잇는다.
+//  - toolChoice: "auto"(필요하면 부름) | "none"(마지막 차례: 반드시 글로 답함)
+function buildToolBody({ model, input, tools, toolChoice = "auto", maxTokens = 700, effort }) {
+  const eff = effortFor(model, effort);
+  const body = { model, input, tools, tool_choice: toolChoice, max_output_tokens: maxTokens + (isReasoning(model) ? headroom(eff) : 0) };
+  if (isReasoning(model) && eff) body.reasoning = { effort: eff };
+  return body;
+}
+async function respondTools(opts) {
+  const res = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${opts.apiKey}` },
+    body: JSON.stringify(buildToolBody(opts)),
+  });
+  if (!res.ok) throw new Error(`OpenAI responses ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  const output = data.output || [];
+  const text = output.filter((o) => o.type === "message").flatMap((o) => o.content || []).filter((c) => c.type === "output_text").map((c) => c.text || "").join("\n").trim();
+  const calls = output.filter((o) => o.type === "function_call");
+  if (!calls.length && !text) throw new Error(`OpenAI 빈 응답 (status=${data.status || ""}${data.incomplete_details?.reason ? `, ${data.incomplete_details.reason}` : ""})`);
+  return { output, text, calls };
+}
+
 async function respond(opts) {
   const res = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -131,4 +157,4 @@ async function respond(opts) {
   return parseResponses(await res.json());
 }
 
-module.exports = { chat, chatMessage, respond, respondCited, parseCited, buildBody, buildResponsesBody, parseResponses, extractJson, isReasoning, headroom, effortFor };
+module.exports = { chat, chatMessage, respond, respondCited, parseCited, buildBody, buildResponsesBody, parseResponses, extractJson, isReasoning, headroom, effortFor, buildToolBody, respondTools };

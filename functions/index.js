@@ -11,7 +11,7 @@ const { checkGate, toList, proposalText } = require("./policy");
 const conduct = require("./conduct");
 const { isPersonal } = require("./charter");
 const prompts = require("./prompts");
-const { chat, chatMessage, extractJson, respondCited } = require("./openai");
+const { chat, extractJson, respondCited, respondTools } = require("./openai");
 const { guardMessages, parseVerdict, resolveOutput, piiFlags } = require("./guard");
 const { isTeacherEmail, trustedLogin } = require("./teachers");
 const { validatePassword, hashPassword, verifyPassword, normNick, credKey, lockedSeconds, afterFail, afterTotalFail } = require("./password");
@@ -698,11 +698,12 @@ exports.healthCheck = onCall(checkOpts, async (req) => {
   const [firestore, models, lookup, search, topicSearch] = await Promise.all([
     timed(async () => { await db.doc("config/teachers").get(); return {}; }),
     Promise.all([...roles.keys()].map(ask)),
-    // 인물의 사실 찾아보기: 인물 모델에 함수 도구(lookup)를 주고 부른다(새 모델은 도구와 사고량을 함께 쓰면 거절하므로 이 경로를 따로 본다)
+    // 인물의 사실 찾아보기: 인물 모델에 함수 도구(lookup)를 주고 정한 사고량으로 Responses API 를 부른다(lookup.js 와 같은 경로)
     searchOff ? { skipped: true } : timed(async () => {
-      const m = await chatMessage({ apiKey, model: personaModel, maxTokens: 60, effort: REASONING_EFFORT.value(), tools: [lookupTool(ev)],
-        messages: [{ role: "system", content: "도구는 쓰지 말고 '안녕하세요'라고만 답한다." }, { role: "user", content: "안녕하세요" }] });
-      return { model: personaModel, reply: String(m.content || (m.tool_calls?.length ? "(도구 호출)" : "")).slice(0, 30) };
+      const f = lookupTool(ev).function;
+      const r = await respondTools({ apiKey, model: personaModel, maxTokens: 60, effort: REASONING_EFFORT.value(), tools: [{ type: "function", name: f.name, description: f.description, parameters: f.parameters }],
+        input: [{ role: "system", content: "도구는 쓰지 말고 '안녕하세요'라고만 답한다." }, { role: "user", content: "안녕하세요" }] });
+      return { model: personaModel, reply: (r.text || (r.calls.length ? "(도구 호출)" : "")).slice(0, 30) };
     }),
     searchOff ? { skipped: true } : timed(async () => { const r = await webSearch({ apiKey, model: SEARCH_MODEL.value() || base, event: ev, query: ev.search.example, domains }); if (r.error) throw new Error("검색 호출 실패(모델이 web_search 를 지원하는지 확인)"); return { model: SEARCH_MODEL.value() || base, found: r.found, sources: r.sources.length }; }),
     // 주제 조사: 문장에 인용 링크가 붙어야 사실 은행에 들어간다(topicBuild.js). 인용이 붙는지 본다.

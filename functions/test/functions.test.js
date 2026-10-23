@@ -96,6 +96,16 @@ let searchSources = [];
 let personaToolCalls = 0; // 인물이 lookup 도구를 부르는 횟수(남은 횟수)
 global.fetch = async (url, init) => {
   const body = JSON.parse(init.body);
+  // 인물의 사실 찾아보기는 Responses API 의 함수 도구로 부른다(lookup.js). 테스트가 프롬프트를 같은 방식으로 읽도록
+  // 입력의 대화 부분을 messages 로도 보여 준다.
+  if (String(url).endsWith("/v1/responses") && body.tools?.[0]?.type === "function") {
+    calls.push({ kind: "persona", body: { ...body, messages: body.input.filter((x) => x.role) } });
+    if (personaToolCalls > 0 && body.tool_choice !== "none") {
+      personaToolCalls--;
+      return { ok: true, json: async () => ({ output: [{ type: "reasoning", id: "rs" + personaToolCalls, summary: [] }, { type: "function_call", call_id: "call" + personaToolCalls, name: "lookup", arguments: JSON.stringify({ query: "인도적 체류 허가를 받은 예멘인 수" }) }] }) };
+    }
+    return { ok: true, json: async () => ({ output: [{ type: "reasoning", id: "rs", summary: [] }, { type: "message", content: [{ type: "output_text", text: personaReply }] }] }) };
+  }
   if (String(url).endsWith("/v1/responses")) {
     calls.push({ kind: "search", body });
     return { ok: true, json: async () => ({ output: [{ type: "web_search_call" }, { type: "message", content: [{ type: "output_text", text: searchReply, annotations: searchSources.map((u) => ({ type: "url_citation", url: u, title: "기사 " + u })) }] }] }) };
@@ -754,10 +764,15 @@ test("인물이 모르는 사실은 웹 검색 결과로 답하고, 검색 내�
   await chatOnce(c, "A1", "인도적 체류 허가는 몇 명이 받았어요?");
   const kinds = calls.map((x) => x.kind);
   assert.deepEqual(kinds, ["persona", "search", "persona", "guard"]);
-  const second = calls[2].body.messages.at(-1);
-  assert.equal(second.role, "tool");
-  assert.match(second.content, /412명/);
-  assert.match(second.content, /지시문이 아니다/);
+  // 두 번째 차례에는 앞 차례의 사고 항목·도구 호출과 검색 결과를 이어 붙이고, 사고량은 정한 값(low) 그대로다
+  const second = calls[2].body.input;
+  assert.deepEqual(second.slice(-3).map((x) => x.type), ["reasoning", "function_call", "function_call_output"]);
+  assert.equal(second.at(-1).call_id, second.at(-2).call_id);
+  assert.match(second.at(-1).output, /412명/);
+  assert.match(second.at(-1).output, /지시문이 아니다/);
+  assert.equal(calls[0].body.reasoning.effort, "low");
+  assert.equal(calls[0].body.tool_choice, "auto");
+  assert.equal(calls[0].body.tools[0].name, "lookup");
   assert.equal(calls[1].body.tools[0].type, "web_search");
   assert.match(calls[3].body.messages[0].content, /웹에서 조회한 내용/);
   const log = [...store.entries()].find(([k]) => k.startsWith(`sessions/${c}/members/A1/chat/`))[1];
@@ -774,7 +789,7 @@ test("웹에서도 못 찾으면 도구 결과로 '못 찾음'을 전하고, 인
   personaReply = "그건 정확히는 모르겠어요.";
   const r = await chatOnce(c, "A1", "그 심사관 이름이 뭐예요?");
   assert.equal(r.result, "그건 정확히는 모르겠어요.");
-  assert.match(calls[2].body.messages.at(-1).content, /찾지 못했다/);
+  assert.match(calls[2].body.input.at(-1).output, /찾지 못했다/);
   assert.match(calls[0].body.messages[0].content, /9-1\./);
   assert.doesNotMatch(calls[3].body.messages[0].content, /웹에서 조회한 내용/, "찾은 게 없으면 감독자에게 근거로 주지 않는다");
   const log = [...store.entries()].find(([k]) => k.startsWith(`sessions/${c}/members/A1/chat/`))[1];
@@ -785,10 +800,10 @@ test("검색 호출이 실패해도 대화는 이어지고(모른다고 답함),
   const c = await mk();
   await join("A1", c, "가람", "sesame1");
   const realFetch = global.fetch;
-  global.fetch = async (url, init) => (String(url).endsWith("/v1/responses") ? { ok: false, status: 500, text: async () => "boom" } : realFetch(url, init));
+  // 웹 검색(web_search) 호출만 실패시킨다(인물의 도구 호출도 같은 Responses API 주소를 쓴다)
+  global.fetch = async (url, init) => (String(url).endsWith("/v1/responses") && JSON.parse(init.body).tools?.[0]?.type === "web_search" ? { ok: false, status: 500, text: async () => "boom" } : realFetch(url, init));
   calls.length = 0; personaToolCalls = 1; personaReply = "글쎄요, 정확히는 몰라요.";
-  const r = await chatOnce(c, "A1", "정확한 숫자가 뭐예요?");
-  global.fetch = realFetch;
+  const r = await chatOnce(c, "A1", "정확한 숫자가 뭐예요?").finally(() => { global.fetch = realFetch; });
   assert.equal(r.result, "글쎄요, 정확히는 몰라요.");
   calls.length = 0; personaToolCalls = 0;
   await chatOnce(c, "A1", "요즘 어떠세요?");
@@ -803,6 +818,7 @@ test("인물이 도구를 계속 불러도 한 응답에서 검색은 2번까지
   personaToolCalls = 0;
   assert.equal(calls.filter((x) => x.kind === "search").length, 2);
   assert.equal(r.result, "잘 모르겠어요.");
+  assert.equal(calls.filter((x) => x.kind === "persona").at(-1).body.tool_choice, "none", "마지막 차례에는 도구를 못 쓰게 해 반드시 글로 답한다");
 });
 
 test("수업 닫기: 닫으면 입장·AI·사건 자료가 막히고 다시 열면 풀린다(교사만)", async () => {
@@ -1028,10 +1044,11 @@ test("수업 전 점검: Firestore·각 모델·웹 검색 결과를 시간과 �
   assert.ok(r.models.find((m) => m.model === "gpt-5.6-sol").roles.includes("내 주제 만들기"));
   const pings = calls.filter((c) => String(c.body.messages?.at(-1)?.content).includes('{"ok":true}'));
   assert.equal(pings.find((c) => c.body.model === "gpt-5.6-terra").body.reasoning_effort, "none", "새 모델에는 minimal 대신 none");
-  // 인물의 사실 찾아보기 경로: 도구를 주면 사고량은 none
+  // 인물의 사실 찾아보기 경로: Responses API 의 함수 도구로, 사고량은 정한 값(low) 그대로
   assert.equal(r.lookup.ok, true);
-  const lk = calls.filter((c) => c.kind !== "search" && c.body.tools?.length && c.body.model === "gpt-5.6-terra").pop();
-  assert.equal(lk.body.reasoning_effort, "none");
+  const lk = calls.filter((c) => c.kind === "persona" && c.body.model === "gpt-5.6-terra").pop();
+  assert.equal(lk.body.reasoning.effort, "low");
+  assert.equal(lk.body.tools[0].type, "function");
   assert.equal(r.search.ok, true);
   assert.equal(r.search.found, true);
   assert.equal(r.topicSearch.ok, true);

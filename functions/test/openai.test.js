@@ -77,3 +77,16 @@ test("사고량 값은 모델에 맞게 바꾼다: 처음 GPT-5 는 minimal, 그
   // 웹 검색(Responses API)은 가장 가벼운 사고량을 low 로 올린다
   for (const e of ["minimal", "none"]) assert.equal(buildResponsesBody({ model: "gpt-5.6-luna", instructions: "i", input: "q", effort: e }).reasoning.effort, "low");
 });
+
+test("인물의 사실 찾아보기(Responses API 함수 도구): 새 모델도 정한 사고량(low)을 그대로 쓰고, 마지막 차례는 도구를 막는다", () => {
+  const { buildToolBody } = require("../openai");
+  const tools = [{ type: "function", name: "lookup", parameters: { type: "object", properties: {} } }];
+  const input = [{ role: "user", content: "몇 명이에요?" }];
+  const b = buildToolBody({ model: "gpt-5.6-terra", input, tools, maxTokens: 600, effort: "low" });
+  assert.deepEqual(b.reasoning, { effort: "low" });
+  assert.equal(b.tool_choice, "auto");
+  assert.ok(b.max_output_tokens >= 600 + 2500, "사고 여유분");
+  assert.equal(buildToolBody({ model: "gpt-5.6-terra", input, tools, toolChoice: "none", effort: "low" }).tool_choice, "none");
+  assert.deepEqual(buildToolBody({ model: "gpt-5.6-terra", input, tools, effort: "minimal" }).reasoning, { effort: "none" });
+  assert.deepEqual(buildToolBody({ model: "gpt-5-mini", input, tools, effort: "low" }).reasoning, { effort: "low" });
+});
