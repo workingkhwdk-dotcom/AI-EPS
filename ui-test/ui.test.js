@@ -664,7 +664,7 @@ test("학생: 집중 안내 — 1단계는 인물 → 처음 내 생각 → 예�
 });
 
 test("학생: 집중 안내 — 대화 전에는 '처음 내 생각'부터, 쓴 뒤에는 예시 질문을 짚는다. ② 정리는 1~3번을 하나씩 짚고 제출 단추로 이어진다", async () => {
-  const s = await openStudent(studentFixture(), { ctxOpts: { viewport: { width: 1280, height: 900 } }, chat: [] });
+  const s = await openStudent(studentFixture(), { ctxOpts: { viewport: { width: 1280, height: 900 } }, chat: [], member: { chatCount: 2 } });
   await login(s.pg);
   await s.pg.click('.subnav button[data-sub="chat"]');
   await s.pg.waitForSelector("#prior-in.guide-pulse");
@@ -679,7 +679,7 @@ test("학생: 집중 안내 — 대화 전에는 '처음 내 생각'부터, 쓴 
   await s.pg.click('.subnav button[data-sub="note"]');
   await s.pg.waitForSelector('[data-save="s1.findings.anonX.hard"].guide-pulse');
   assert.match(await s.pg.locator(".guide-tip").innerText(), /힘든 것/);
-  await s.pg.evaluate(PUSH_WORK(), { s1: { findings: { anonX: { prior: "x", who: "예멘에서 온 청년", hard: "일자리", want: "안전한 삶" } } } });
+  await s.pg.evaluate(PUSH_WORK(), { s1: { findings: { anonX: { prior: "x", who: "예멘에서 온 청년", hard: "일자리 문제", want: "안전한 삶" } } } });
   await s.pg.waitForSelector('[data-act="submit-note"].guide-pulse');
   assert.match(await s.pg.locator(".guide-tip").innerText(), /제출하기를 눌러요/);
   assert.deepEqual(s.errors, []);
@@ -704,6 +704,135 @@ test("학생 모바일: 집중 안내 — 짚은 칸이 화면 밖이면 보이�
   await s.pg.tap(".guide-tip .gt-off");
   await s.pg.waitForFunction(() => !document.querySelector(".guide-tip, .guide-pulse"));
   assert.match(await s.pg.locator("#panel .next").innerText(), /집중 안내 켜기/);
+  assert.deepEqual(s.errors, []);
+});
+
+// ---------- 사고 과정에 맞춘 단계 흐름 ----------
+const BASE = { s1: { problem: { hmw: "어떻게 하면 일자리를 지키면서도 안전을 지킬 수 있을까?" } } };
+const W3 = { ...BASE, s2: { causes: { q1: { level: "법·제도·규칙", text: "일자리 정보가 부족한 제도", t: 1 } },
+  checks: { c1: { heard: "청년은 일자리가 없다", question: "취업 비율은 얼마인가?", refute: "취업 비율이 높게 나온다", real: "자료에 없다", causeId: "q1", t: 1 } } } };
+const optsOf = (pg, sel) => pg.locator(`${sel} option`).allInnerTexts();
+test("학생: 3단계 — AI 없이 자료로 직접 판단해 마칠 수 있고, AI는 내 예상을 쓴 뒤에만 묻고, 확인 못 한 원인은 '남겨요'를 못 고르며, 문제 질문을 고칠지 정해야 한다", async () => {
+  const s = await openStudent(studentFixture(), { work: W3 });
+  await login(s.pg);
+  await s.pg.click('.stage-tab[data-stage="3"]');
+  await s.pg.waitForSelector('[data-save="s3.direct.c1.verdict"].guide-pulse');
+  assert.match(await s.pg.locator(".guide-tip").innerText(), /AI에게 묻는 건 선택/);
+  assert.match(await s.pg.locator("#panel .next").innerText(), /AI에게 묻는 것은 선택/);
+  assert.equal(await s.pg.locator('[data-act="ask-check"]').isDisabled(), true, "내 예상을 쓰기 전에는 AI에게 못 묻는다");
+  assert.ok(!(await optsOf(s.pg, '[data-save="s3.causes.q1.status"]')).some((o) => /확인돼서/.test(o)), "확인된 사실이 없으면 '확인돼서 남겨요'가 없다");
+  assert.match(await s.pg.locator(".cell:has([data-save='s3.causes.q1.status'])").innerText(), /사실로 확인된 결과가 없으면/);
+  assert.match(await s.pg.locator(".card:has(h3:has-text('① 확인')) , #panel").first().innerText(), /틀렸다면/, "2단계에서 쓴 반증 기준이 보인다");
+  const push = (work) => s.pg.evaluate(PUSH_WORK(), work);
+  // 내 예상을 쓰면 AI 단추가 열린다
+  await push({ ...W3, s3: { guess: { c1: "아마 낮을 것 같다" } } });
+  await s.pg.waitForFunction(() => !document.querySelector('[data-act="ask-check"]').disabled);
+  // 직접 판단(사실이다 + 근거)을 마치면 원인에 '남겨요'가 생기고, 다음은 원인 정하기
+  const direct = { guess: { c1: "아마 낮을 것 같다" }, direct: { c1: { verdict: "사실이다", source: "2단계 자료 통계표" } } };
+  await push({ ...W3, s3: direct });
+  await s.pg.waitForSelector('[data-save="s3.causes.q1.status"].guide-pulse');
+  assert.ok((await optsOf(s.pg, '[data-save="s3.causes.q1.status"]')).some((o) => /확인돼서/.test(o)));
+  await push({ ...W3, s3: { ...direct, causes: { q1: { status: "확인돼서 남겨요" } } } });
+  await s.pg.waitForSelector('[data-save="s3.reframe.choice"].guide-pulse');
+  assert.match(await s.pg.locator(".guide-tip").innerText(), /전제가 틀리진/);
+  assert.match(await s.pg.locator('[data-act="use-kept"]').innerText(), /일자리 정보/);
+  // '고치고 싶다'를 고르면 무엇을 고칠지 써야 한다
+  await push({ ...W3, s3: { ...direct, causes: { q1: { status: "확인돼서 남겨요" } }, reframe: { choice: "고치고 싶다" } } });
+  await s.pg.waitForSelector('[data-save="s3.reframe.text"].guide-pulse');
+  await push({ ...W3, s3: { ...direct, causes: { q1: { status: "확인돼서 남겨요" } }, reframe: { choice: "그대로 둔다" } } });
+  await s.pg.waitForSelector('[data-save="s3.chain.evidence"].guide-pulse');
+  assert.match(await s.pg.locator("#panel").innerText(), /우리가 바꿔 볼 수 있는 것/, "가장 큰 원인을 고르는 기준이 적혀 있다");
+  await push({ ...W3, s3: { ...direct, causes: { q1: { status: "확인돼서 남겨요" } }, reframe: { choice: "그대로 둔다" }, chain: { evidence: "취업 비율이 낮다", meaning: "일자리 정보가 부족하다", cause: "일자리 정보가 부족한 제도가 가장 큰 원인이다" } } });
+  await s.pg.waitForFunction(() => /완료/.test(document.querySelector("#panel .next")?.innerText || ""));
+  assert.deepEqual(s.errors, []);
+});
+
+test("학생: 2단계 ③ — 확인 질문에는 '이 말이 틀렸다면 나올 사실'도 써야 추가된다", async () => {
+  const s = await openStudent(studentFixture(), { work: BASE });
+  await login(s.pg);
+  await s.pg.click('.stage-tab[data-stage="2"]');
+  await s.pg.waitForSelector("#ch-refute");
+  await s.pg.fill("#ch-heard", "청년은 일자리가 없다");
+  await s.pg.fill("#ch-q", "취업 비율은 얼마인가?");
+  await s.pg.click('[data-act="add-check"]');
+  await s.pg.waitForSelector(".toast, .t-toast, [role=alert]");
+  assert.match(await s.pg.locator(".toast, .t-toast, [role=alert]").first().innerText(), /틀렸다면 어떤 사실/);
+  assert.equal(await s.pg.evaluate(() => window.__writes.filter((x) => Object.keys(x).some((k) => k.startsWith("work.s2.checks."))).length), 0, "반증 기준 없이는 추가되지 않는다");
+  await s.pg.fill("#ch-refute", "취업 비율이 높게 나온다");
+  await s.pg.click('[data-act="add-check"]');
+  await s.pg.waitForFunction(() => window.__writes.some((x) => Object.entries(x).some(([k, v]) => k.startsWith("work.s2.checks.") && v.refute === "취업 비율이 높게 나온다")));
+  assert.deepEqual(s.errors, []);
+});
+
+test("학생: 4단계 — 사례는 우리 첫 생각을 쓴 뒤에 열리고, AI 의견 없이도 이유를 쓰며 마칠 수 있다", async () => {
+  const s = await openStudent(studentFixture(), { ctxOpts: { viewport: { width: 1280, height: 900 } }, work: { ...BASE, s3: { chain: { cause: "일자리 정보가 부족한 제도가 가장 큰 원인이다" } } } });
+  await login(s.pg);
+  await s.pg.click('.stage-tab[data-stage="4"]');
+  await s.pg.waitForSelector('[data-save="s4.before"].guide-pulse');
+  assert.equal(await s.pg.locator(".case").isHidden(), true, "첫 생각 전에는 사례가 가려진다");
+  assert.match(await s.pg.locator(".split-side .notice").innerText(), /첫 생각을 쓰면 열려요/);
+  const push = (s4) => s.pg.evaluate(PUSH_WORK(), { ...BASE, s3: { chain: { cause: "일자리 정보가 부족한 제도가 가장 큰 원인이다" } }, s4 });
+  const P = { p1: { text: "누가: 도청이 / 무엇을: 일자리 정보를 / 어떻게: 한곳에 모아 알려 준다", cause: "정보 부족", t: 1 } };
+  await push({ before: "먼저 정보를 알리는 방법을 생각했다" });
+  await s.pg.waitForSelector(".case:visible");
+  await s.pg.waitForSelector("#pt.guide-pulse");
+  await push({ before: "먼저 정보를 알리는 방법을 생각했다", proposals: P });
+  await s.pg.waitForSelector('[data-save="s4.final"].guide-pulse');
+  assert.match(await s.pg.locator("#panel .next").innerText(), /AI 의견은 필요할 때만/);
+  const F = "누가: 도청이 / 무엇을: 일자리 정보를 / 어떻게: 한곳에 모아 외국어로도 알려 준다";
+  await push({ before: "먼저 정보를 알리는 방법을 생각했다", proposals: P, final: F });
+  await s.pg.waitForSelector('[data-save="s4.finalReason"].guide-pulse');
+  await push({ before: "먼저 정보를 알리는 방법을 생각했다", proposals: P, final: F, finalReason: "정보 부족을 가장 직접 줄인다" });
+  await s.pg.waitForSelector('[data-save="s4.finalFit"].guide-pulse');
+  await push({ before: "먼저 정보를 알리는 방법을 생각했다", proposals: P, final: F, finalReason: "정보 부족을 가장 직접 줄인다", finalFit: "둘 다 다룬다" });
+  await s.pg.waitForFunction(() => /완료/.test(document.querySelector("#panel .next")?.innerText || "") || /완료/.test(document.querySelector(".hero-next")?.innerText || ""));
+  assert.deepEqual(s.errors, []);
+});
+
+test("학생: 5단계 — AI 미래 이야기는 선택이라 건너뛰고 마칠 수 있다", async () => {
+  const s = await openStudent(studentFixture(), { work: { ...BASE, s4: { final: "누가: 도청이 / 무엇을: 일자리 정보를 / 어떻게: 한곳에 모아 외국어로도 알려 준다" },
+    s5: { predictions: { a: { stakeholder: "주민", text: "정보가 늘면 환영하지만 걱정도 할 것이다", t: 1 }, b: { stakeholder: "청년", text: "일자리를 찾기 쉬워져 좋아할 것이다", t: 2 } } } } });
+  await login(s.pg);
+  await s.pg.click('.stage-tab[data-stage="5"]');
+  await s.pg.waitForSelector('[data-save="s5.newProblem"].guide-pulse');
+  assert.match(await s.pg.locator("#panel .next").innerText(), /AI 미래 이야기는 선택/);
+  await s.pg.evaluate(PUSH_WORK(), { ...BASE, s4: { final: "누가: 도청이 / 무엇을: 일자리 정보를 / 어떻게: 한곳에 모아 외국어로도 알려 준다" },
+    s5: { newProblem: "정보가 한곳에 모이면 일자리 경쟁이 심해질까 걱정된다", predictions: { a: { stakeholder: "주민", text: "정보가 늘면 환영하지만 걱정도 할 것이다", t: 1 }, b: { stakeholder: "청년", text: "일자리를 찾기 쉬워져 좋아할 것이다", t: 2 } } } });
+  await s.pg.waitForFunction(() => /완료/.test(document.querySelector("#panel .next")?.innerText || ""));
+  assert.deepEqual(s.errors, []);
+});
+
+test("학생: 7단계 — 실제 전개 비교 → 처음 생각의 변화 → 발표 → AI 돌아보기 순서이고, 앞의 둘도 꼭 써야 한다", async () => {
+  const work = { s1: { problem: { hmw: "어떻게 하면 일자리를 지키면서도 안전을 지킬 수 있을까?" } }, s3: { chain: { cause: "일자리 정보가 부족한 제도가 가장 큰 원인이다" } },
+    s4: { final: "누가: 도청이 / 무엇을: 일자리 정보를 / 어떻게: 한곳에 모아 알려 준다" }, s5: { newProblem: "경쟁이 심해질까 걱정된다" }, s6: { plan: { content: "정보 안내 누리집을 만든다" } } };
+  const s = await openStudent(studentFixture(), { work });
+  await login(s.pg);
+  await s.pg.click('.stage-tab[data-stage="7"]');
+  await s.pg.waitForSelector('[data-save="s7.compare"].guide-pulse');
+  const heads = await s.pg.locator("#panel .card h3").allInnerTexts();
+  const at = (re) => heads.findIndex((h) => re.test(h));
+  assert.ok(at(/③ 실제로는/) > at(/② 우리 모둠의 흐름/) && at(/④ 처음 내 생각/) > at(/③ 실제로는/) && at(/⑤ 발표 준비/) > at(/④ 처음 내 생각/) && at(/⑥ AI를/) > at(/⑤ 발표 준비/), heads.join(" | "));
+  const push = (s7) => s.pg.evaluate(PUSH_WORK(), { ...work, s7 });
+  await push({ compare: "우리 예상과 비슷하게 일부는 떠났다" });
+  await s.pg.waitForSelector('[data-save="s7.after.anonX"].guide-pulse');
+  await push({ compare: "우리 예상과 비슷하게 일부는 떠났다", after: { anonX: "처음엔 무섭다고 생각했는데 달라졌다" } });
+  await s.pg.waitForSelector('[data-save="s7.share"].guide-pulse');
+  await push({ compare: "우리 예상과 비슷하게 일부는 떠났다", after: { anonX: "처음엔 무섭다고 생각했는데 달라졌다" }, share: "발표 내용" });
+  await s.pg.waitForSelector('[data-save="s7.reflection"].guide-pulse');
+  assert.deepEqual(s.errors, []);
+});
+
+test("학생: 1단계 ② — 대화에서 질문을 2번 이상 해야 정리할 수 있고, 1~3번은 4자 이상 써야 한다", async () => {
+  const s = await openStudent(studentFixture(), { member: { chatCount: 1 } });
+  await login(s.pg);
+  await s.pg.click('.subnav button[data-sub="note"]');
+  await s.pg.waitForSelector(".next");
+  assert.match(await s.pg.locator("#panel .next").innerText(), /질문을 2번 이상/);
+  await s.pg.evaluate(PUSH_WORK(), {}); // 변화 없음
+  await s.pg.fill('[data-save="s1.findings.anonX.who"]', "청년");
+  await s.pg.click('[data-act="submit-note"]');
+  await s.pg.waitForSelector(".toast, .t-toast, [role=alert]");
+  assert.match(await s.pg.locator(".toast, .t-toast, [role=alert]").first().innerText(), /2번 이상/);
   assert.deepEqual(s.errors, []);
 });
 
@@ -1134,7 +1263,7 @@ test("학생: 대화 중 받은 경고가 말풍선 사이에 표시된다", asy
 });
 
 test("학생: 4단계 해외 사례 카드(탭 전환, 위험한 링크 차단)와 대안 추가(겨냥하는 원인·참고한 사례 입력칸) — 병합 때 대안을 못 추가하던 문제 방지", async () => {
-  const st = studentFixture(), { pg } = await openStudent(st);
+  const st = studentFixture(), { pg } = await openStudent(st, { work: { s4: { before: "먼저 지역 단체와 함께하는 방법을 생각했다" } } });
   await login(pg);
   await pg.click('.stage-tab[data-stage="4"]');
   await pg.waitForSelector(".case");
@@ -1618,6 +1747,7 @@ test("체험: 2~5단계의 AI 단추(생각 도우미·검색 도우미·AI 의�
       "work.s1.problem.hmw": "어떻게 하면 저수지 곁 주민의 생계를 지키면서도 철새 서식지를 보전할 수 있을까?",
       "work.s2.causes.k1": { level: "제도·정책", text: "개발 제한만 있고 주민 몫은 부족한 제도", t: 1, ...by },
       "work.s2.checks.c1": { heard: "박상규: 습지보호지역에 반대한다", question: "주남저수지 습지보호지역 지정 논의는 어떻게 진행됐나?", srcType: "언론 보도", t: 1, ...by },
+      "work.s3.guess.c1": "아마 오래 논의했을 것 같다",
       "work.s3.chain.cause": "개발 제한의 부담은 주민이 지고 보상은 부족한 제도가 핵심 원인이다",
       "work.s4.proposals.p1": { text: "철새 먹이 농사 보상을 올리고 생태관광 수익을 저수지 곁 마을에 돌려주는 기금을 만든다", cause: "보상 부족", t: 2, ...by },
       "work.s4.final": "철새 먹이 농사 보상을 올리고 생태관광 수익을 마을 기금으로 돌려주는 방법을 시범 마을에서 먼저 한다",
@@ -1626,8 +1756,9 @@ test("체험: 2~5단계의 AI 단추(생각 도우미·검색 도우미·AI 의�
     });
   }, [G]);
   const tab = async (n) => { await pg.click(`#tabs .stage-tab[data-stage="${n}"]`); await dismissHelp(pg); };
-  // 3단계: 검색 도우미(수업 자료에서 찾아 줌, 판정은 학생 몫)
+  // 3단계: 검색 도우미(수업 자료에서 찾아 줌, 판정은 학생 몫). 내 예상을 쓴 뒤 '선택'으로 묻는다
   await tab(3);
+  await pg.click('summary:has-text("AI 검색 도우미에게도")');
   await pg.click('[data-act="ask-check"]');
   await pg.waitForSelector(".ai-out");
   assert.match(await pg.locator(".ai-out").first().innerText(), /판정하지 않아요/);
@@ -1709,6 +1840,7 @@ test("체험: 3·4·5단계 AI 단추는 모둠이 쓴 글을 서버로 보내�
       "work.s1.problem.hmw": "어떻게 하면 저수지 곁 주민의 생계를 지키면서도 철새 서식지를 보전할 수 있을까?",
       "work.s2.causes.k1": { level: "제도·정책", text: "개발 제한만 있고 주민 몫은 부족한 제도", t: 1, ...by },
       "work.s2.checks.c1": { heard: "박상규: 습지보호지역에 반대한다", question: "습지보호지역 지정 논의는 어떻게 진행됐나?", srcType: "언론 보도", causeId: "k1", t: 1, ...by },
+      "work.s3.guess.c1": "아마 오래 논의했을 것 같다",
       "work.s3.chain.cause": "개발 제한의 부담은 주민이 지고 보상은 부족한 제도가 핵심 원인이다",
       "work.s4.proposals.p1": { text: "철새 먹이 농사 보상을 올리고 생태관광 수익을 저수지 곁 마을에 돌려주는 기금을 만든다", cause: "보상 부족", t: 2, ...by },
       "work.s4.final": "철새 먹이 농사 보상을 올리고 생태관광 수익을 마을 기금으로 돌려주는 방법을 시범 마을에서 먼저 한다",
@@ -1717,7 +1849,7 @@ test("체험: 3·4·5단계 AI 단추는 모둠이 쓴 글을 서버로 보내�
     });
   }, [G]);
   const tab = async (n) => { await pg.click(`#tabs .stage-tab[data-stage="${n}"]`); await dismissHelp(pg); };
-  await tab(3); await pg.click('[data-act="ask-check"]');
+  await tab(3); await pg.click('summary:has-text("AI 검색 도우미에게도")'); await pg.click('[data-act="ask-check"]');
   await pg.waitForSelector('.ai-out:has-text("서버 AI의 자료 답")');
   await tab(4); await pg.click('[data-act="ask-feedback"]');
   await pg.waitForSelector('.ai-out:has-text("서버 의견3")');
@@ -1792,7 +1924,7 @@ test("체험(PC 1366×768): 머리 부분이 낮아 활동이 화면 위쪽에�
   // 4단계: 해결책 쓰기가 왼쪽 위, 다른 나라 사례는 오른쪽
   await pg.click('#tabs .stage-tab[data-stage="4"]'); await dismissHelp(pg);
   const act = await pg.locator(".split-main .card h3:has-text('해결책 쓰기')").boundingBox(), cases = await pg.locator(".split-side details.fold").boundingBox();
-  assert.ok(act.x < cases.x && act.y < 420, "해결책 쓰기가 사례보다 먼저(왼쪽 위) 보인다");
+  assert.ok(act.x < cases.x && act.y < 560, "해결책 쓰기가 사례보다 먼저(왼쪽) 보인다");
   assert.deepEqual(errors, []);
   await ctx.close();
 });
