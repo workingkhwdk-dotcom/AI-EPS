@@ -267,7 +267,7 @@ test("자료·사례·이후 전개 → 점검: AI 가 고친 문장을 적용·
     ...t.file.MATERIALS.flatMap((m) => [...(m.statsSrc || []), ...m.items.flatMap((i) => i.src)]), ...t.file.POLICY_CASES.flatMap((c) => c.src), ...t.file.AFTERMATH.flatMap((a) => a.src)]);
   assert.deepEqual(Object.keys(t.file.SOURCES).sort(), [...used].sort(), "쓰이는 출처만 남는다");
   assert.ok(Object.values(t.file.SOURCES).every((x) => /^원문에서 확인할 것: ①/.test(x.check)));
-  assert.equal(t.usable, 0, "원문 확인 전에는 학생에게 쓸 인물이 없다");
+  assert.equal(t.usable, 0, "원문 확인 전에는 학생에게 쓸 인물이 없다(.env 에 예전 리허설 설정이 true 로 남아 있어도)");
   assert.deepEqual(t.review.balance, { ok: true, notes: ["입장이 고르게 나뉘었다."] });
 });
 

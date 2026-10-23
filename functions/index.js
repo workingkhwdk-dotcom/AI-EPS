@@ -54,9 +54,8 @@ const TEACHER_EMAILS = defineString("TEACHER_EMAILS", { default: "" });
 // 교사 가입 인증 문구. 코드·저장소에는 두지 않고 functions/.env(git 에 올라가지 않음)의 TEACHER_SIGNUP_CODE 로만 정한다.
 // 비어 있으면 교사 가입이 꺼진다(관리자·TEACHER_EMAILS·config/teachers 로만 교사 지정).
 const TEACHER_SIGNUP_CODE = defineString("TEACHER_SIGNUP_CODE", { default: "" });
-// true 이면 출처 원문 대조 전(verified:false) 페르소나·자료도 사용 가능. 리허설 전용, 실제 수업에서는 false 로 둔다.
-const ALLOW_UNVERIFIED = defineString("ALLOW_UNVERIFIED_PERSONAS", { default: "false" });
-const allowUnverified = () => ALLOW_UNVERIFIED.value() === "true";
+// 학생에게는 출처 원문 대조(verified)를 마친 인물·자료만 나간다. 예전의 리허설 설정(ALLOW_UNVERIFIED_PERSONAS)은 없앴다.
+// 수업 전에 미리 해 보려면 체험(demo) 페이지를 쓴다. .env 에 그 줄이 남아 있어도 읽지 않는다.
 
 const REGION = "asia-northeast3"; // 서울
 const MAX_AI_CALLS_PER_GROUP = 150; // 수업별로 정하지 않았을 때의 모둠당 한도(3~5단계)
@@ -261,7 +260,7 @@ exports.createSession = onCall(opts, async (req) => {
   const topic = req.data?.topicId ? await topicApi.forClass(auth, req.data.topicId) : null;
   const eventId = topic ? topic.bundle.EVENT.id : EVENTS[req.data?.eventId] ? req.data.eventId : DEFAULT_EVENT;
   const b = topic ? makeBundle(fromStored(topic.bundle), { custom: true }) : BUNDLES[eventId];
-  if (!availablePersonas(b, allowUnverified()).length)
+  if (!availablePersonas(b).length)
     throw new HttpsError("failed-precondition", topic ? "원문 확인을 마친 인물이 없습니다. 내 주제에서 출처를 확인하세요." : "원문 대조가 끝난 페르소나가 없습니다. case.js 의 출처 verified 를 확인하세요.");
   const title = String(req.data?.title || b.event.title).slice(0, 80);
   const code = await newCode();
@@ -352,7 +351,7 @@ exports.joinSession = onCall(fastOpts, async (req) => {
     throw new HttpsError("invalid-argument", "모둠 번호가 올바르지 않습니다.");
   const groupId = `g${groupNo}`;
   const b = await bundleOf(code, sess);
-  if (!availablePersonas(b, allowUnverified()).length) throw new HttpsError("failed-precondition", "아직 사용할 수 있는 인물이 없습니다. 선생님께 문의하세요.");
+  if (!availablePersonas(b).length) throw new HttpsError("failed-precondition", "아직 사용할 수 있는 인물이 없습니다. 선생님께 문의하세요.");
   const groupRef = db.doc(`sessions/${code}/groups/${groupId}`);
 
   // 1) 비밀번호 확인. 잠금은 틀린 사람(접속 계정)별로 먼저 걸리고, 별명 전체에는 더 느슨하게 걸린다(친구가 일부러 틀려서 막는 일 방지).
@@ -450,8 +449,8 @@ async function studentCase(code, sess, uid, member, bundle) {
     me: mine ? { id: mine.id, name: mine.name, letter: mine.letter, personal: isPersonal(mine) } : null,
     ui: ev.ui,
     materials,
-    cases: casesFor(b, allowUnverified()),
-    aftermath: aftermathFor(b, allowUnverified()),
+    cases: casesFor(b),
+    aftermath: aftermathFor(b),
   };
 }
 
@@ -598,7 +597,7 @@ const overridesOf = async (code) => { const s = await personasRef(code).get(); r
 // 이 수업에서 쓰는 인물 목록(교사가 고친 항목을 반영)
 async function personasFor(code, bundle) {
   const ov = await overridesOf(code);
-  return availablePersonas(bundle, allowUnverified()).map((p) => applyOverride(p, ov[p.id]));
+  return availablePersonas(bundle).map((p) => applyOverride(p, ov[p.id]));
 }
 
 exports.getPersonaOverrides = onCall(opts, async (req) => {
@@ -716,7 +715,7 @@ exports.healthCheck = onCall(checkOpts, async (req) => {
   ]);
   return {
     firestore, models, lookup, search: searchOff ? { skipped: true } : search, topicSearch,
-    config: { webSearch: !searchOff, allowedDomains: domains.length, allowUnverified: allowUnverified(), personas: availablePersonas(DEFAULT_EVENT, allowUnverified()).length },
+    config: { webSearch: !searchOff, allowedDomains: domains.length, personas: availablePersonas(DEFAULT_EVENT).length },
   };
 });
 
@@ -760,7 +759,7 @@ exports.getMaterials = onCall(opts, async (req) => {
   const snap = await materialsRef(code).get();
   return snap.exists
     ? { categories: snap.data().categories || [], isDefault: false }
-    : { categories: defaultMaterials(await bundleOf(code, sess), allowUnverified()), isDefault: true };
+    : { categories: defaultMaterials(await bundleOf(code, sess)), isDefault: true };
 });
 
 exports.saveMaterials = onCall(opts, async (req) => {
@@ -774,14 +773,14 @@ exports.saveMaterials = onCall(opts, async (req) => {
 // 학생이 보는 2단계 자료: 교사가 이 수업의 자료를 고쳤다면 그 목록, 아니면 기본 자료
 async function studentMaterials(code, bundle) {
   const custom = await materialsRef(code).get();
-  return custom.exists ? toStudentMaterials(custom.data().categories) : materialsFor(bundle, allowUnverified());
+  return custom.exists ? toStudentMaterials(custom.data().categories) : materialsFor(bundle);
 }
 
 // 이 수업만의 자료를 지우고 기본 자료로 되돌린다
 exports.resetMaterials = onCall(opts, async (req) => {
   const { code, sess } = await ownSession(req);
   await materialsRef(code).delete();
-  return { categories: defaultMaterials(await bundleOf(code, sess), allowUnverified()), isDefault: true };
+  return { categories: defaultMaterials(await bundleOf(code, sess)), isDefault: true };
 });
 
 // 화면이 쓰는 수업 설정.
@@ -835,7 +834,6 @@ function adminCase(b) {
     cases: casesAdmin(b).map((c) => ({ ...c, sources: c.src.map(src) })),
     aftermath: aftermathAdmin(b).map((a) => ({ ...a, sources: a.src.map(src) })),
     custom: b.custom,
-    allowUnverified: allowUnverified(),
   };
 }
 
@@ -1121,7 +1119,7 @@ const topicAi = {
   },
 };
 const topicApi = makeTopicApi({
-  db, FieldValue, HttpsError, requireTeacher, ai: topicAi, allowUnverified,
+  db, FieldValue, HttpsError, requireTeacher, ai: topicAi,
   dailyLimit: () => TOPIC_DAILY_LIMIT.value(), onSessionTopic: forgetTopic,
 });
 exports.topics = onCall(topicOpts, (req) => topicApi.handle(req));

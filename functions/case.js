@@ -7,8 +7,8 @@
 //     학생 화면에는 사람 이름(name)과 한 줄 소개만 보인다. 역할(label)·근거·출처는 교사에게만 보인다.
 //  2) 같은 처지·같은 유형의 여러 인터뷰는 한 인물로 융합한다(composite). 융합 근거는 basis 에 적는다.
 //  3) 진술 종류(kind): 증언(당사자가 말한 것) / 사실(공식 발표·보도된 사실) / 주장(집단의 주장, 사실 검증 필요) / 의견(개인·단체의 의견)
-//  4) 출처는 원문과 대조해 사건 파일에 verified: true 를 적기 전에는 학생에게 노출되지 않는다
-//     (ALLOW_UNVERIFIED_PERSONAS=true 인 리허설 제외).
+//  4) 출처는 원문과 대조해 사건 파일에 verified: true 를 적기 전에는 학생에게 노출되지 않는다.
+//     (아래 함수의 allowUnverified 는 검증 여부와 상관없이 전부 보려는 테스트용이다. 수업 서버는 쓰지 않는다.)
 //  5) 인물 위에는 상위 AI(사건 규범 감독자, charter.js)가 있어 사건 범위(EVENT.scope)와 근거 진술을 벗어난 응답을 차단한다.
 //  6) 출처 ID 는 사건마다 다른 머리글자를 쓴다(제주 J·C·A·N, 쓰레기 수출 W·WC·WA, 특수학교 S·SC·SA, 주남저수지 JN·JNC·JNA, 창원 인구 P·PC·PA). 모든 사건의 출처를 한 목록으로 합쳐 쓰기 때문이다.
 //
@@ -104,7 +104,7 @@ function personaVerified(p, bundle) {
   return verifiedIn(b, [...personaSourceIds(p), ...backgroundSourceIds(b.event)]);
 }
 
-// 이 사건에서 학생에게 쓸 수 있는 페르소나 (출처 검증 완료분. 리허설 모드는 전부)
+// 이 사건에서 학생에게 쓸 수 있는 페르소나 (출처 검증 완료분)
 function availablePersonas(eventId, allowUnverified = false) {
   const b = B(eventId);
   return b.personas.filter((p) => p.events.includes(b.event.id) && (allowUnverified || personaVerified(p, b)));

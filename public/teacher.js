@@ -518,7 +518,6 @@ async function refreshCase(eventId) {
 async function loadCheck(eventId) {
   try {
     const data = await refreshCase(eventId);
-    $("#check-mode").innerHTML = data.allowUnverified ? `<div class="notice yellow">리허설 모드: 확인 전 인물·자료도 학생에게 보여요. 실제 수업 전에 꺼 주세요.</div>` : "";
     $("#check-note").innerHTML = `<div class="notice muted">교사 메모: ${esc(data.event.teacherNote)}</div>
       <div class="notice muted"><b>모든 인물이 아는 사건 공통 배경</b> (인물은 자기 진술과 이 배경에 있는 핵심 사실만 말합니다)${(data.event.background || []).map((c) =>
         `<div style="margin-top:4px"><span class="tag ${c.kind === "주장" || c.kind === "의견" ? "y" : ""}">${esc(c.kind)}</span> ${esc(c.text)} <span class="tag ${c.verified ? "" : "x"}">${esc(c.src)}</span></div>`).join("")}</div>
@@ -1049,7 +1048,7 @@ $("#health-btn").onclick = async () => {
       !r.lookup ? "" : r.lookup.skipped ? off("인물의 사실 찾아보기") : row(`인물의 사실 찾아보기 ${r.lookup.model || ""}`, r.lookup, ` <span class="meta-line">도구를 쓰는 대화 경로</span>`)}${
       r.search.skipped ? off("웹 검색") : row(`웹 검색 ${r.search.model || ""}`, r.search, r.search.ok ? ` <span class="meta-line">${r.search.found ? `찾음 · 출처 ${r.search.sources}개` : "시험 질문의 답을 못 찾음"}</span>` : "")}${
       !ts ? "" : row(`내 주제 조사 ${ts.model || ""}`, ts, ts.ok ? ` <span class="meta-line">인용 링크 ${ts.cites}개${ts.cites ? "" : " · 인용이 붙지 않으면 주제 조사가 멈춰요"}</span>` : "")}</div>
-      <div class="meta-line" style="margin-top:8px">사용 가능한 인물 ${r.config.personas}명 · 검색 허용 도메인 ${r.config.allowedDomains ? r.config.allowedDomains + "개" : "제한 없음"}${r.config.allowUnverified ? " · <b>리허설 모드(원문 대조 전 인물도 보임)</b>" : ""}</div>
+      <div class="meta-line" style="margin-top:8px">사용 가능한 인물 ${r.config.personas}명 · 검색 허용 도메인 ${r.config.allowedDomains ? r.config.allowedDomains + "개" : "제한 없음"}</div>
       ${r.search.error ? `<div class="notice yellow" style="margin-top:8px">${esc(r.search.error)}</div>` : ""}`;
   } catch (e) { $("#health-out").innerHTML = `<div class="notice">${esc(errMsg(e))}</div>`; }
   finally { btn.disabled = false; }

@@ -1,7 +1,8 @@
 // 서버 함수 테스트용 가짜 Firebase(메모리 Firestore, 함수 등록, 설정값). test/functions.test.js 와 같은 방식이다.
 // require 하면 firebase-admin·firebase-functions 를 가로챈다. strings 로 설정값(defineString)을 정한다.
 const Module = require("node:module");
-const strings = { TEACHER_EMAILS: "t@school.kr", ALLOW_UNVERIFIED_PERSONAS: "false", OPENAI_MODEL: "gpt-5-test", TEACHER_SIGNUP_CODE: "Knue-2026" };
+// ALLOW_UNVERIFIED_PERSONAS: 예전 리허설 설정. .env 에 남아 있어도 서버가 읽지 않는다는 것을 보이려고 true 로 둔다(topics.test.js).
+const strings = { TEACHER_EMAILS: "t@school.kr", ALLOW_UNVERIFIED_PERSONAS: "true", OPENAI_MODEL: "gpt-5-test", TEACHER_SIGNUP_CODE: "Knue-2026" };
 
 // ---------- 메모리 Firestore ----------
 const store = new Map();

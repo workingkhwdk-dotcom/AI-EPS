@@ -144,7 +144,7 @@ cd functions && npm install && cd ..
 # OpenAI API 키를 비밀값으로 저장 (코드·저장소에 넣지 않습니다)
 firebase functions:secrets:set OPENAI_API_KEY
 
-# 교사 계정·모델·리허설 설정
+# 교사 계정·모델 설정
 cp functions/.env.example functions/.env     # 열어서 TEACHER_EMAILS 를 본인 구글 계정으로 수정
 
 firebase deploy
@@ -204,7 +204,7 @@ firebase deploy
 1. `/teacher.html`에서 구글 로그인 → "점검 (교사 전용)" 탭에 인물 9명이 보이는지 확인
 2. 수업 만들기 → 6자리 코드 확인 → 다른 기기(휴대폰)에서 `/` 접속해 코드·모둠 번호·별명으로 입장
 3. 학생 화면에서 편지를 읽고 인물과 바로 대화, 교사 화면 "수업 현황"에서 접속·단계와 대화 기록, 감독자 판정(`guard`) 확인
-4. 리허설이 끝나면 `functions/.env`의 `ALLOW_UNVERIFIED_PERSONAS`를 지우거나 `false`로 바꾸고 `firebase deploy --only functions`
+4. 학생에게는 원문 대조(`verified`)를 마친 인물·자료만 보입니다(예전의 리허설 설정 `ALLOW_UNVERIFIED_PERSONAS`는 없앴습니다). 수업 전에 미리 해 보려면 체험 페이지(`/demo.html`)를 씁니다.
 
 > Analytics는 연결하지 않았습니다(학생 대상 서비스). 웹 설정값의 `apiKey`는 프로젝트 식별용 공개 값이며, 접근 통제는 Firestore 보안 규칙과 Cloud Functions가 담당합니다.
 
@@ -342,7 +342,7 @@ firebase deploy
 1. `docs/PERSONA_SOURCES.md`(또는 교사 화면의 "점검 (교사 전용)" 탭)에서 출처 링크를 열어 진술과 대조합니다.
 2. 틀린 진술은 `functions/cases/`의 사건 파일에서 고치고, 확인한 출처에는 사건 파일 `SOURCES`의 그 항목에 `verified: true`를 적습니다.
 3. `cd functions && npm run export-sources > ../docs/PERSONA_SOURCES.md`로 점검표를 갱신하고 배포합니다.
-- 리허설은 `functions/.env`에 `ALLOW_UNVERIFIED_PERSONAS=true`를 넣으면 대조 전 인물도 보입니다. 실제 수업 전에는 지우세요.
+- 대조 전 인물·자료를 학생에게 보이게 하는 설정은 없습니다. 미리 해 보려면 체험 페이지(`/demo.html`)를 쓰세요.
 - 출처 제목 중 일부(J15, J17)는 설명 문구이며 실제 제목이 아닙니다.
 - 고용주(강태호)는 직접 인터뷰 자료가 부족해 보도된 고용 상황을 바탕으로 구성했습니다. 고용주 인터뷰를 찾으면 근거를 보강하세요. 난민 인정자 본인의 장기 정착 증언은 아직 없습니다.
 
@@ -355,7 +355,7 @@ firebase deploy
 
 ## 수업 전 체크리스트 (코드로 대신할 수 없는 것)
 1. **연결 점검 실행**: 교사 화면 → 인물·자료 점검 → *연결·AI 점검 실행*. 모든 항목이 "정상"인지, 웹 검색이 "찾음"인지 확인합니다.
-2. **원문 대조**: `functions/cases/`의 사건 파일에 있는 출처를 원문과 대조하고 `verified: true`를 적어 배포합니다(안 하면 인물과 자료가 학생에게 보이지 않습니다. 세 사건 모두 대조를 마쳤습니다. 리허설만 `ALLOW_UNVERIFIED_PERSONAS=true`).
+2. **원문 대조**: `functions/cases/`의 사건 파일에 있는 출처를 원문과 대조하고 `verified: true`를 적어 배포합니다(안 하면 인물과 자료가 학생에게 보이지 않습니다. 기본 주제 다섯 개 모두 대조를 마쳤습니다).
 3. **OpenAI 사용량 한도**: OpenAI 대시보드(Usage limits)에서 월 한도를 정합니다. 앱의 모둠당 한도와 별개의 안전장치입니다.
 4. **리허설**: 교사 계정과 학생 화면(다른 브라우저)으로 입장해 인물 대화(자료에 없는 사실 질문 포함), 3~5단계 AI, 로그아웃·재입장, 수업 닫기를 한 번씩 해 봅니다. 교사 화면의 대화 보기에서 검색 기록과 감독자 판정을 확인합니다.
 5. 수업이 끝나면 **기록 CSV**를 받아 두고 **수업 닫기**(또는 자동 닫힘), 보관 기간이 지나면 **수업 삭제**.
