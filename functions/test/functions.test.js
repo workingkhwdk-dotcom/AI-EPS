@@ -73,7 +73,7 @@ const fakes = {
   "firebase-functions/params": {
     defineSecret: () => ({ value: () => "sk-test" }),
     defineInt: (name, o) => ({ value: () => o?.default ?? 0 }),
-    defineString: (name, o) => ({ value: () => ({ TEACHER_EMAILS: "t@school.kr", ALLOW_UNVERIFIED_PERSONAS: "true", OPENAI_MODEL: "gpt-5-test", TEACHER_SIGNUP_CODE: "Knue-2026" }[name] ?? o?.default ?? "") }),
+    defineString: (name, o) => ({ value: () => ({ TEACHER_EMAILS: "t@school.kr", ALLOW_UNVERIFIED_PERSONAS: "true", OPENAI_MODEL: "gpt-5-test", TEACHER_SIGNUP_CODE: "Knue-2026", NEW_SESSIONS_ENABLED: globalThis.__newOff ? "false" : "true" }[name] ?? o?.default ?? "") }),
   },
 };
 const origLoad = Module._load;
@@ -170,7 +170,7 @@ test("관리자가 콘솔에서 만든 이메일·비밀번호 교사 계정(tea
 
 test("교사용 계정 만들기(구글): 인증 문구가 맞으면 이메일이 교사 목록에 들어가고, 5번 틀리면 10분 잠긴다", async () => {
   const g = { auth: { uid: "G1", token: { email: "Signup.Teacher@School.kr", email_verified: true, firebase: { sign_in_provider: "google.com" } } } };
-  assert.deepEqual(await api.teacherStatus(g), { teacher: false, email: "Signup.Teacher@School.kr", signupOpen: true });
+  assert.deepEqual(await api.teacherStatus(g), { teacher: false, email: "Signup.Teacher@School.kr", signupOpen: true, newSessionsOpen: true });
   await assert.rejects(api.registerTeacher({ ...g, data: { code: "틀림" } }), /맞지 않습니다/);
   // 대소문자·앞뒤 빈칸은 무시한다
   assert.deepEqual(await api.registerTeacher({ ...g, data: { code: "  knue-2026 " } }), { teacher: true, email: "signup.teacher@school.kr" });
@@ -1148,4 +1148,14 @@ test("선생님 한마디: 교사만 보낼 수 있고, 모둠을 고를 수 있
   assert.deepEqual(store.get(`sessions/${c}`).notice.groups, [], "모둠을 안 고르면 모두에게");
   const r = await api.updateSession({ ...teacher, data: { code: c, notice: { text: "" } } });
   assert.equal(store.get(`sessions/${c}`).notice, undefined); assert.equal(r.notice, null);
+});
+
+test("새 수업 만들기 스위치가 꺼져 있으면 만들기·복제가 막히고 teacherStatus 가 알려 준다", async () => {
+  const { code: c } = await api.createSession({ ...teacher, data: { groupCount: 1 } });
+  globalThis.__newOff = true;
+  try {
+    await assert.rejects(api.createSession({ ...teacher, data: { groupCount: 1 } }), /잠시 닫혀/);
+    await assert.rejects(api.cloneSession({ ...teacher, data: { code: c } }), /잠시 닫혀/);
+    assert.equal((await api.teacherStatus(teacher)).newSessionsOpen, false);
+  } finally { delete globalThis.__newOff; }
 });
