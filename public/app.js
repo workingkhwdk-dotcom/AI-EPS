@@ -450,7 +450,7 @@ async function maybeHelp(force = false) {
       if (d === "ok") break;
     }
     markSeen(key);
-  } finally { helpBusy = false; }
+  } finally { helpBusy = false; applyGuide(); }
 }
 function addHelpButton() {
   if ($("#help-btn")) return;
@@ -525,7 +525,7 @@ function stageHero() {
   // 1단계 ① 대화는 '지금 할 일' 대신 무엇을 하는지 한 문장을 보여 준다(남은 질문 줄이 할 일을 안내한다)
   const x = S.stage === 1 && S.sub1 === "chat" ? null : stepNow();
   const btn = x?.go ? ` <button class="link" data-go="${x.go}" data-sub="${x.sub || ""}">${esc(x.label)}</button>` : "";
-  const line = x ? `<p class="hero-w hero-next ${x.done ? "done" : ""}"><span class="next-k">${x.done ? "✓ 완료" : "지금 할 일"}</span> ${esc(x.t)}${btn}</p>`
+  const line = x ? `<p class="hero-w hero-next ${x.done ? "done" : ""}"><span class="next-k">${x.done ? "✓ 완료" : "지금 할 일"}</span> ${esc(x.t)}${btn}${guideBtn()}</p>`
     : `<p class="hero-w">${esc(fill(h.what, n, ui()))}</p>`;
   return `<div class="hero"><div class="hero-ic">${stageIcon(S.stage)}</div>
     <div class="hero-l"><div class="hero-top"><span class="hero-k">${S.stage}단계 · ${esc(st.name)}</span>
@@ -542,69 +542,91 @@ function problemBar() {
 // ---------- 지금 할 일: 모둠이 쓴 내용을 보고, 다음에 할 일 하나만 한 줄로 알려 준다 ----------
 // { t: 할 일, go/sub/label: 바로 가기 버튼, done: 이 단계를 마쳤는지 }
 const filled = (path) => txt(w(path)).length > 0;
+// 집중 안내가 가리킬 칸·버튼: 저장 칸(data-save)과 data-act 단추
+const sv = (path) => `[data-save="${path}"]`;
+const act = (a, extra = "") => `[data-act="${a}"]${extra}`;
 const checkedAll = (path, n) => Array.from({ length: n }, (_, i) => !!w(`${path}.${i}`)).every(Boolean);
 const STEP = {
   1() { // 인물 고르기·② 정리·③ 모둠 문제(① 대화는 남은 질문 줄이 안내한다)
-    if (S.sub1 === "pick") return S.me ? { t: `${S.me.name}님과 이야기하러 가요`, go: 1, sub: "chat", label: "① 대화로" } : { t: "편지를 읽고, 모둠이 상의해 한 사람이 한 명씩 골라요" };
+    if (S.sub1 === "pick") return S.me ? { t: `${S.me.name}님과 이야기하러 가요`, go: 1, sub: "chat", label: "① 대화로", p: ".pick-ok .btn", g: "인물을 골랐어요! 대화하러 가요" }
+      : { t: "편지를 읽고, 모둠이 상의해 한 사람이 한 명씩 골라요", p: ".pcard:not(.taken) .pc-open", at: ".pcards", g: "카드를 눌러 편지를 읽고, 이야기할 사람을 골라요" };
     const mine = w(`s1.findings.${S.uid}`) || {};
     const done = submitted().length, total = Math.max(S.memberCount, done);
     if (S.sub1 === "note") {
-      if (!mine.submitted) { const n = ["who", "hard", "want"].filter((k) => txt(mine[k]).length >= 2).length; return { t: `1~3번을 채우고 제출해요 (${n}/3)` }; }
-      if (done < total) return { t: `모둠원 제출을 기다려요 (${done}/${total}명)` };
-      return { t: "모두 제출했어요. 모둠이 모여 문제를 정해요", go: 1, sub: "group", label: "③ 모둠 문제로" };
+      if (!mine.submitted) {
+        const n = ["who", "hard", "want"].filter((k) => txt(mine[k]).length >= 2).length;
+        const k = ["who", "hard", "want"].find((x) => txt(mine[x]).length < 2);
+        const g = { who: "이 사람이 누구인지 한 줄로 써요", hard: "이 사람이 가장 힘든 것 한 가지만 써요", want: "이 사람이 바라는 것을 써요" };
+        return { t: `1~3번을 채우고 제출해요 (${n}/3)`, ...(k ? { p: sv(`s1.findings.${S.uid}.${k}`), g: g[k] } : { p: act("submit-note"), g: "다 썼어요! 제출하기를 눌러요" }) };
+      }
+      if (done < total) return { t: `모둠원 제출을 기다려요 (${done}/${total}명)`, f: ".wait-card + .card", g: "기다리는 동안 친구가 만난 사람 이야기를 읽어요" };
+      return { t: "모두 제출했어요. 모둠이 모여 문제를 정해요", go: 1, sub: "group", label: "③ 모둠 문제로", p: ".wait-card .btn-primary", g: "모두 제출했어요! 모둠 문제를 정하러 가요" };
     }
     if (!mine.submitted) return { t: "먼저 ② 알아낸 점을 제출해요", go: 1, sub: "note", label: "②로" };
-    if (!filled("s1.problem.common")) return { t: "2) 여러 사람이 함께 걱정하는 것부터 찾아요" };
-    if (!filled("s1.problem.conflict")) return { t: "4) 누구의 바람과 걱정이 부딪히는지 적어요" };
-    if (!ready.problem()) return { t: "5) 두 바람을 담아 우리 문제를 한 문장으로" };
-    if (!checkedAll("s1.problem.checks", PROBLEM_CHECKS.length)) return { t: "6) 점검표를 모두 확인해요" };
+    if (!filled("s1.problem.common")) return { t: "2) 여러 사람이 함께 걱정하는 것부터 찾아요", p: sv("s1.problem.common"), g: "친구들이 만난 사람들이 함께 걱정하는 것을 찾아 써요" };
+    if (!filled("s1.problem.conflict")) return { t: "4) 누구의 바람과 걱정이 부딪히는지 적어요", p: sv("s1.problem.conflict"), g: "누구의 바람과 누구의 걱정이 부딪히는지 써요" };
+    if (!ready.problem()) return { t: "5) 두 바람을 담아 우리 문제를 한 문장으로",
+      ...(filled("s1.problem.situation") ? { p: sv("s1.problem.hmw"), g: "'어떻게 하면 ~하면서도 ~할 수 있을까?'로 써요" } : { p: sv("s1.problem.situation"), g: "누가 어떤 어려움을 겪는지 한두 문장으로 써요" }) };
+    if (!checkedAll("s1.problem.checks", PROBLEM_CHECKS.length)) return { t: "6) 점검표를 모두 확인해요", p: sv(`s1.problem.checks.${[...PROBLEM_CHECKS.keys()].find((i) => !w(`s1.problem.checks.${i}`))}`), g: "우리 문제가 맞는지 하나씩 확인하고 체크해요" };
     return { t: "모둠 문제를 정했어요!", done: true };
   },
   2() {
-    if (!list("s2.links").some((l) => l.by === S.uid)) return { t: "① 처음 내 생각을 돌아보고 모둠에 보여요" };
-    if (!list("s2.causes").length) return { t: "② 왜 생겼을지 원인을 추측해 적어요" };
-    if (!list("s2.checks").length) return { t: "③ 확인할 말을 확인 질문으로 바꿔요" };
+    if (!list("s2.links").some((l) => l.by === S.uid)) return { t: "① 처음 내 생각을 돌아보고 모둠에 보여요", late: () => {
+      const id = ["lk-src", "lk-scene", "lk-q"].find((i) => !val(i));
+      return id ? { p: `#${id}`, g: { "lk-src": "처음에 그렇게 생각한 이유를 떠올려 써요", "lk-scene": "내 생활에서 비슷한 순간을 짧게 써요", "lk-q": "더 알고 싶어진 것을 한 가지 써요" }[id] }
+        : { p: act("add-link"), g: "다 썼어요! 모둠에 보이기를 눌러요" }; } };
+    if (!list("s2.causes").length) return { t: "② 왜 생겼을지 원인을 추측해 적어요", late: () => (val("cz")
+      ? { p: act("add-cause"), g: "추가를 눌러 모둠 원인 목록에 넣어요" } : { p: "#cz", g: "왜 이런 일이 생겼을지 원인을 한 가지 써요. 정답은 없어요" }) };
+    if (!list("s2.checks").length) return { t: "③ 확인할 말을 확인 질문으로 바꿔요", late: () => (!val("ch-heard")
+      ? { p: "#ch-heard", g: "'정말 그럴까?' 싶은 말을 옮겨 써요" } : !val("ch-q")
+      ? { p: "#ch-q", g: "그 말을 자료로 확인할 수 있는 질문으로 바꿔요" } : { p: act("add-check"), g: "추가를 눌러 확인 질문으로 남겨요" }) };
     return { t: "확인할 질문이 준비됐어요!", done: true };
   },
   3() {
     const checks = list("s2.checks"), logs = stageLogs(3), causes = list("s2.causes");
     if (!ready.problem()) return { t: "1단계 ③에서 모둠이 풀 문제를 먼저 정해야 검색 도우미에게 물을 수 있어요", go: 1, sub: "group", label: "1단계 ③으로" };
     if (!checks.length) return { t: "2단계 ③에서 확인 질문을 먼저 만들어요", go: 2, label: "2단계로" };
-    const asked = checks.filter((c) => logs.some((l) => l.payload?.checkId === c.id)).length;
-    if (asked < checks.length) return { t: `① 확인 질문을 AI에게 물어봐요 (${asked}/${checks.length})` };
-    if (logs.some((l) => !w(`s3.checks.${l.id}.verdict`))) return { t: "① AI 답을 자료와 비교해 사실인지 정해요" };
-    if (causes.some((q) => !w(`s3.causes.${q.id}.status`))) return { t: "② 추측마다 남길지 버릴지 정해요" };
-    if (!ready.cause()) return { t: "③ 확인한 사실로 가장 큰 원인을 정리해요" };
+    const unasked = checks.find((c) => !logs.some((l) => l.payload?.checkId === c.id));
+    if (unasked) { const asked = checks.length - checks.filter((c) => !logs.some((l) => l.payload?.checkId === c.id)).length; return { t: `① 확인 질문을 AI에게 물어봐요 (${asked}/${checks.length})`, p: act("ask-check", `[data-id="${unasked.id}"]`), g: "AI 검색 도우미에게 이 질문을 물어봐요" }; }
+    const unjudged = logs.find((l) => !w(`s3.checks.${l.id}.verdict`));
+    if (unjudged) return { t: "① AI 답을 자료와 비교해 사실인지 정해요", p: sv(`s3.checks.${unjudged.id}.verdict`), g: "AI 답을 2단계 자료와 비교해 사실인지 골라요" };
+    const undecided = causes.find((q) => !w(`s3.causes.${q.id}.status`));
+    if (undecided) return { t: "② 추측마다 남길지 버릴지 정해요", p: sv(`s3.causes.${undecided.id}.status`), g: "확인한 결과를 보고 이 추측을 남길지 버릴지 골라요" };
+    if (!ready.cause()) return { t: "③ 확인한 사실로 가장 큰 원인을 정리해요",
+      ...(!filled("s3.chain.evidence") ? { p: sv("s3.chain.evidence"), g: "'사실이다'로 확인된 내용을 옮겨 써요" } : !filled("s3.chain.meaning") ? { p: sv("s3.chain.meaning"), g: "그 사실이 무엇을 보여 주는지 써요" } : { p: sv("s3.chain.cause"), g: "남긴 원인 가운데 가장 큰 원인을 써요" }) };
     return { t: "가장 큰 원인을 정했어요!", done: true };
   },
   4() {
     const props = list("s4.proposals"), logs = stageLogs(4);
     if (!ready.cause()) return { t: "3단계 ③에서 가장 큰 원인을 먼저 정해야 AI 의견을 들을 수 있어요", go: 3, label: "3단계로" };
-    if (!props.length) return { t: "① 해결책을 써서 추가해요 (누가·무엇을·어떻게, 30자 이상)" };
-    if (!logs.length) return { t: "① 해결책 아래 'AI 의견 듣기'를 눌러요" };
-    if (logs.some((l) => !w(`s4.decisions.${l.id}.choice`))) return { t: "AI 의견을 받아들일지 정해요" };
-    if (!ready.final()) return { t: "② 약점을 고쳐 최종 해결책을 써요 (30자 이상)" };
-    if (!w("s4.finalFit")) return { t: "② 두 바람을 모두 다루는지 골라요" };
+    if (!props.length) return { t: "① 해결책을 써서 추가해요 (누가·무엇을·어떻게, 30자 이상)", late: () => (val("pt").length >= 30
+      ? { p: act("add-proposal"), g: "해결책 추가를 눌러요" } : { p: "#pt", g: "누가·무엇을·어떻게 할지 해결책을 써요 (30자 이상)" }) };
+    if (!logs.length) return { t: "① 해결책 아래 'AI 의견 듣기'를 눌러요", p: act("ask-feedback"), g: "AI 조언자 3명의 의견을 들어 봐요" };
+    const undecided = logs.find((l) => !w(`s4.decisions.${l.id}.choice`));
+    if (undecided) return { t: "AI 의견을 받아들일지 정해요", p: sv(`s4.decisions.${undecided.id}.choice`), g: "세 의견을 읽고 어떻게 할지 골라요" };
+    if (!ready.final()) return { t: "② 약점을 고쳐 최종 해결책을 써요 (30자 이상)", p: sv("s4.final"), g: "AI가 짚은 약점을 고쳐 최종 해결책을 써요" };
+    if (!w("s4.finalFit")) return { t: "② 두 바람을 모두 다루는지 골라요", p: sv("s4.finalFit"), g: "문제 질문의 두 바람을 모두 다루는지 골라요" };
     return { t: "최종 해결책을 정했어요!", done: true };
   },
   5() {
     const preds = list("s5.predictions"), logs = stageLogs(5);
     if (!ready.final()) return { t: "4단계 ②에서 최종 해결책을 30자 이상 먼저 써야 미래를 그려 볼 수 있어요", go: 4, label: "4단계로" };
-    if (preds.length < 2) return { t: `① AI보다 먼저, 사람들의 반응을 예측해요 (${preds.length}/2)` };
-    if (!logs.length) return { t: "② '미래 이야기 만들기'를 눌러요" };
-    if (!logs.some((l) => Number.isInteger(w(`s5.selection.${l.id}.idx`)))) return { t: "더 그럴듯한 미래 이야기를 골라요" };
-    if (!filled("s5.newProblem")) return { t: "③ 가장 걱정되는 문제를 적어요" };
+    if (preds.length < 2) return { t: `① AI보다 먼저, 사람들의 반응을 예측해요 (${preds.length}/2)`, late: () => (val("pp")
+      ? { p: act("add-pred"), g: "추가를 눌러 예측을 남겨요" } : { p: "#pp", g: "AI보다 먼저, 이 사람은 어떻게 반응할지 예측해 써요" }) };
+    if (!logs.length) return { t: "② '미래 이야기 만들기'를 눌러요", p: act("ask-scenario"), g: "해결책을 실행한 미래 이야기를 AI와 그려 봐요" };
+    if (logs.every((l) => !Number.isInteger(w(`s5.selection.${l.id}.idx`)))) return { t: "더 그럴듯한 미래 이야기를 골라요", p: act("pick-scn", `[data-id="${logs[0].id}"]`), g: "두 이야기를 읽고 더 그럴듯한 쪽을 골라요" };
+    if (!filled("s5.newProblem")) return { t: "③ 가장 걱정되는 문제를 적어요", p: sv("s5.newProblem"), g: "고른 이야기에서 가장 걱정되는 문제를 써요" };
     return { t: "미래를 그려 봤어요!", done: true };
   },
   6() {
-    if (!filled("s6.plan.content")) return { t: "우리가 할 일을 계획해요" };
+    if (!filled("s6.plan.content")) return { t: "우리가 할 일을 계획해요", p: sv("s6.plan.content"), g: "우리가 실제로 할 일을 써요" };
     return { t: "계획을 세웠어요!", done: true };
   },
   7() {
     const miss = flowRows().find((x) => !x[3]);
-    if (miss) return { t: `② 비어 있는 곳이 있어요: ${miss[2]}`, go: miss[0], sub: miss[1], label: `${miss[0]}단계로` };
-    if (!filled("s7.share")) return { t: "③ 발표할 내용을 정리해요" };
-    if (!filled("s7.reflection")) return { t: "④ AI를 어떻게 썼는지 돌아봐요" };
+    if (miss) return { t: `② 비어 있는 곳이 있어요: ${miss[2]}`, go: miss[0], sub: miss[1], label: `${miss[0]}단계로`, p: ".fl.miss .link", g: "비어 있는 곳이 있어요. 눌러서 채우러 가요" };
+    if (!filled("s7.share")) return { t: "③ 발표할 내용을 정리해요", p: sv("s7.share"), g: "위 흐름을 바탕으로 발표할 내용을 써요" };
+    if (!filled("s7.reflection")) return { t: "④ AI를 어떻게 썼는지 돌아봐요", p: sv("s7.reflection"), g: "AI의 답 중 받아들인 것과 버린 것을 써요" };
     return { t: "모두 마쳤어요. 수고했어요! 👏", done: true };
   },
 };
@@ -617,8 +639,77 @@ function stageDone(n) {
 function nextBox() {
   const x = stepNow();
   const btn = x.go ? ` <button class="link" data-go="${x.go}" data-sub="${x.sub || ""}">${esc(x.label)}</button>` : "";
-  return `<div class="next ${x.done ? "done" : ""}" role="status"><span class="next-k">${x.done ? "✓ 완료" : "지금 할 일"}</span><span class="next-t">${esc(x.t)}${btn}</span></div>`;
+  return `<div class="next ${x.done ? "done" : ""}" role="status"><span class="next-k">${x.done ? "✓ 완료" : "지금 할 일"}</span><span class="next-t">${esc(x.t)}${btn}${guideBtn()}</span></div>`;
 }
+// ---------- 집중 안내: 지금 주목할 곳 하나만 테두리·펄스로 짚고, 나머지는 흐리게 한다 ----------
+// STEP 이 알려 준 { p: 주목할 칸·단추, g: 한 줄 설명, f: 안내 줄을 붙일 곳(기본은 p 가 든 카드), late: 그리고 난 뒤에야 알 수 있는 p·g }를 화면에 입힌다.
+// 단계를 마치면 '다음' 단추로, 글을 쓰는 동안에는 가리키는 곳을 바꾸지 않는다.
+const GUIDE_OFF = "eps_guide_off";
+const guideOn = () => { try { return localStorage.getItem(GUIDE_OFF) !== "1"; } catch { return true; } };
+const setGuide = (on) => { try { on ? localStorage.removeItem(GUIDE_OFF) : localStorage.setItem(GUIDE_OFF, "1"); } catch {} };
+const guideBtn = () => (guideOn() ? "" : ` <button class="link guide-toggle" type="button" data-act="guide-toggle">집중 안내 켜기</button>`);
+function guideNow() {
+  if (S.busy) return null; // AI 답을 기다리는 동안은 짚지 않는다
+  if (S.stage === 1 && S.sub1 === "chat") {
+    if (!S.me || S.locked || S.sending) return null;
+    if (!S.chat.length && !priorOf()) return { p: "#prior-in", g: "이야기를 듣기 전에, 먼저 내 생각을 한 줄 적어요" };
+    if (!S.chat.length) return { p: ".starters .chip", at: ".starters", nobox: true, g: "궁금한 것을 물어봐요. 아래 예시를 눌러 시작해도 돼요" };
+    if (S.chat.length >= 2 || !chatLeft()) return { p: "#chat-left .link", solo: true };
+    return null;
+  }
+  const x = stepNow();
+  if (x.done) return { p: ".nav-foot .btn-primary", at: ".nav-foot", g: "잘했어요! 다음 단계로 넘어가요", done: true };
+  if (x.late) return { ...x, ...x.late() };
+  if (x.p || x.f) return x;
+  if (x.go) return { p: ".hero-next .link, .next .link", solo: true }; // 앞 단계로 가는 단추만 펄스
+  return null;
+}
+const visibleEl = (sel) => sel ? [...panel.querySelectorAll(sel)].find((el) => el.offsetParent !== null) : null;
+function clearGuide() {
+  panel.querySelectorAll(".guide-tip").forEach((n) => n.remove());
+  for (const c of ["guide-box", "guide-pulse", "guide-dim"]) panel.querySelectorAll("." + c).forEach((n) => n.classList.remove(c));
+}
+let guideSig = "", guideKey = "", guideTimer = null;
+function applyGuide() {
+  const g = S.started && S.info && guideOn() ? guideNow() : null;
+  let pe = g && visibleEl(g.p);
+  const ae = g?.at ? visibleEl(g.at) : null;
+  let fe = g && !g.solo && (g.f ? visibleEl(g.f) : pe?.closest(".card:not(.flat), details.fold"));
+  if (pe?.matches('input[type="checkbox"]')) pe = pe.closest(".cell") || pe;
+  const sig = g && (pe || fe) ? [g.p, g.f, g.at, g.g, g.done, g.nobox, g.solo].join("|") : "";
+  if (sig === guideSig && (!sig || panel.querySelector(".guide-pulse, .guide-box, .guide-tip"))) return;
+  guideSig = sig;
+  clearGuide();
+  if (!sig) { guideKey = ""; return; }
+  if (pe) pe.classList.add("guide-pulse");
+  if (fe && !g.done && !g.nobox) fe.classList.add("guide-box");
+  if (fe && !g.done) panel.querySelectorAll(".card:not(.flat), details.fold").forEach((c) => { if (c !== fe && !c.contains(fe) && !fe.contains(c)) c.classList.add("guide-dim"); });
+  let tip = null;
+  if (g.g) {
+    tip = document.createElement("div");
+    tip.className = `guide-tip${g.done ? " end" : ""}`; // 마친 뒤에는 오른쪽 '다음' 단추를 가리킨다
+    tip.innerHTML = `<span class="gt-t">${esc(g.g)}</span><button class="gt-off" type="button" data-act="guide-toggle">안내 끄기</button>`;
+    // 설명은 주목할 칸(과 그 이름표) 바로 앞에 붙여, 설명과 칸이 늘 함께 보이게 한다
+    let a = ae || (pe && (pe.matches(".cell") ? pe.closest(".group") : pe.closest(".row, .add-row, .pick-ok, .pc-act")) || pe);
+    if (a && !ae) while (a.previousElementSibling?.matches("label.lbl, p.meta-line")) a = a.previousElementSibling;
+    if (a) a.before(tip); else if (fe) fe.matches(".card") ? fe.prepend(tip) : fe.before(tip);
+  }
+  const key = `${S.stage}|${S.sub1}|${sig}`;
+  if (key !== guideKey && !helpBusy) { guideKey = key; revealGuide(tip || pe || fe, pe); }
+}
+// 짚은 곳이 화면 밖이면 부드럽게 끌어 온다(이미 보이면 가만히 둔다). 글을 쓰는 중이거나 대화창일 때는 움직이지 않는다.
+function revealGuide(el, end) {
+  if (!el || isEditing() || (S.stage === 1 && S.sub1 === "chat")) return;
+  const top = ($(".hdr")?.offsetHeight || 0) + 12;
+  const bottom = window.innerHeight - (($(".m-nav")?.offsetHeight || 0) + 16);
+  const a = el.getBoundingClientRect(), b = (end || el).getBoundingClientRect();
+  if (a.top >= top && (b.bottom <= bottom || a.top <= bottom - 160)) return;
+  window.scrollTo({ top: Math.max(0, window.scrollY + a.top - top - 24), behavior: "smooth" });
+}
+// 칸에서 나올 때(다음 칸으로 옮겨 갈 때) 가리키는 곳을 새로 맞춘다. 누르는 중에는 화면이 밀리지 않게 기다린다.
+function queueGuide() { clearTimeout(guideTimer); guideTimer = setTimeout(() => (ptrDown ? queueGuide() : applyGuide()), 250); }
+panel.addEventListener("focusout", queueGuide);
+
 const liveWho = (path) => `<div class="live-who" data-live="${esc(path)}"></div>`;
 // 저장 칸(data-save): 입력하면 자동 저장되고, 모둠원 화면에도 바로 반영된다
 // 휴대폰에서는 한 줄 칸에 긴 예시가 잘리므로, 예시가 길면 두 줄 칸(textarea.short)으로 보여 준다
@@ -709,6 +800,7 @@ function render(force = false) {
   panel.querySelectorAll("textarea").forEach(grow);
   flashChanged(before);
   syncLive();
+  applyGuide();
 }
 // 같은 화면을 다시 그릴 때, 바뀐 칸과 새로 생긴 항목을 잠깐 반짝여 모둠원이 무엇을 바꿨는지 보이게 한다
 let lastView = "";
@@ -1362,6 +1454,7 @@ panel.addEventListener("click", async (e) => {
     case "retry-chat": { const t = S.chatErr?.text; if (t && !S.sending) sendChat(t); break; }
     case "dl-chat": downloadChat(); break;
     case "help": maybeHelp(true); break;
+    case "guide-toggle": setGuide(!guideOn()); guideSig = ""; render(true); break;
     case "letter": if (S.me) await showModal({ title: `${esc(S.me.name)}에게서 온 편지`, body: S.me.letter.map((p) => `<p>${esc(p)}</p>`).join(""), dismissible: true, actions: [{ label: "닫기", value: true, kind: "btn-primary" }] }); break;
     case "read-letter": await readLetter(d.id); break;
     case "case-tab": S.caseTab = d.id; render(true); break;
