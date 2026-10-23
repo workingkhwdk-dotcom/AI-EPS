@@ -608,6 +608,105 @@ test("학생 모바일: 입장 → 아래 단계 막대로 이동, 글을 쓰는
   assert.deepEqual(s.errors, []);
 });
 
+// ---------- 집중 안내 ----------
+const PUSH_WORK = (work) => (w) => window.__push("sessions/ABC234/groups/g1", { work: w, picks: { p1: { uid: "anonX", nick: "가람" } } });
+test("학생: 집중 안내 — 지금 할 곳에만 테두리·펄스와 한 줄 설명이 붙고, 마치면 다음 곳으로 옮겨 가며, 단계를 마치면 '다음' 단추를 짚고, 끌 수 있다", async () => {
+  const s = await openStudent(studentFixture(), { ctxOpts: { viewport: { width: 1280, height: 900 } } });
+  await login(s.pg);
+  await s.pg.click('.stage-tab[data-stage="2"]');
+  await s.pg.waitForSelector("#lk-src.guide-pulse");
+  assert.equal(await s.pg.locator(".guide-tip").count(), 1, "설명은 한 곳에만");
+  assert.match(await s.pg.locator(".guide-tip").innerText(), /그렇게 생각한 이유/);
+  assert.equal(await s.pg.locator(".guide-pulse").count(), 1, "펄스도 한 곳에만");
+  await shot(s.pg, "guide-pc-stage2");
+  assert.ok(await s.pg.locator("#lk-src").evaluate((el) => el.closest(".card").classList.contains("guide-box")), "그 칸이 든 카드에 테두리");
+  assert.ok(await s.pg.locator(".guide-dim").count() >= 1, "나머지 카드는 흐려진다");
+  assert.equal(await s.pg.locator("#lk-src").evaluate((el) => el.closest(".guide-dim")), null, "짚은 카드는 흐리지 않는다");
+  // 칸을 채우고 다음 칸으로 옮기면 짚는 곳도 옮겨 간다
+  await s.pg.fill("#lk-src", "뉴스 제목만 봤어요");
+  await s.pg.locator("#lk-scene").focus();
+  await s.pg.waitForSelector("#lk-scene.guide-pulse");
+  assert.equal(await s.pg.locator("#lk-src.guide-pulse").count(), 0);
+  assert.match(await s.pg.locator(".guide-tip").innerText(), /비슷한 순간/);
+  await s.pg.locator("#lk-scene").blur(); // 글을 쓰는 동안에는 다시 그리지 않으므로, 쓰기를 마친 뒤에 모둠 자료가 바뀐다
+  // 모둠 자료가 채워지면 순서대로 원인 → 확인 질문 → 다음 단추
+  await s.pg.evaluate(PUSH_WORK(), { s2: { links: { l1: { source: "a", scene: "b", question: "c", by: "anonX", t: 1 } } } });
+  await s.pg.waitForSelector("#cz.guide-pulse");
+  assert.match(await s.pg.locator(".guide-tip").innerText(), /원인을 한 가지/);
+  await s.pg.evaluate(PUSH_WORK(), { s2: { links: { l1: { source: "a", scene: "b", question: "c", by: "anonX", t: 1 } }, causes: { q1: { level: "개인", text: "원인", t: 1 } } } });
+  await s.pg.waitForSelector("#ch-heard.guide-pulse");
+  await s.pg.evaluate(PUSH_WORK(), { s2: { links: { l1: { source: "a", scene: "b", by: "anonX", t: 1 } }, causes: { q1: { level: "개인", text: "원인", t: 1 } }, checks: { c1: { heard: "말", question: "질문인가요?", t: 1 } } } });
+  await s.pg.waitForSelector(".nav-foot .btn-primary.guide-pulse");
+  assert.match(await s.pg.locator(".guide-tip").innerText(), /다음 단계/);
+  if (process.env.SHOT_DIR) await s.pg.waitForTimeout(900); // 부드럽게 내려가는 동안은 기다린다
+  await shot(s.pg, "guide-pc-done");
+  assert.equal(await s.pg.locator(".guide-box, .guide-dim").count(), 0, "다 했을 때는 흐리게 하지 않는다");
+  // 끄면 모두 사라지고, 지금 할 일 줄에 켜기 단추가 생기며, 기억한다
+  await s.pg.click(".guide-tip .gt-off");
+  await s.pg.waitForFunction(() => !document.querySelector(".guide-tip, .guide-pulse, .guide-box, .guide-dim"));
+  assert.equal(await s.pg.evaluate(() => localStorage.getItem("eps_guide_off")), "1");
+  await s.pg.locator('[data-act="guide-toggle"]:visible').first().click();
+  await s.pg.waitForSelector(".guide-tip");
+  assert.equal(await s.pg.evaluate(() => localStorage.getItem("eps_guide_off")), null);
+  assert.deepEqual(s.errors, []);
+});
+
+test("학생: 집중 안내 — 1단계는 인물 → 처음 내 생각 → 예시 질문 → ② 칸 순서 → 제출 → ③ 문제 정하기로 짚는다", async () => {
+  const st = studentFixture();
+  const s = await openStudent(st, { ctxOpts: { viewport: { width: 1280, height: 900 } }, chat: [], picks: {}, member: { chatCount: 0 } });
+  st.me = null;
+  await s.pg.reload(); await s.pg.waitForSelector("#j-pw");
+  await login(s.pg);
+  await s.pg.waitForSelector(".pcard .pc-open.guide-pulse");
+  assert.match(await s.pg.locator(".guide-tip").innerText(), /편지를 읽고/);
+  assert.equal(await s.pg.locator(".pcards").evaluate((el) => el.previousElementSibling?.classList.contains("guide-tip")), true, "설명은 카드 목록 바로 앞에");
+  assert.deepEqual(s.errors, []);
+});
+
+test("학생: 집중 안내 — 대화 전에는 '처음 내 생각'부터, 쓴 뒤에는 예시 질문을 짚는다. ② 정리는 1~3번을 하나씩 짚고 제출 단추로 이어진다", async () => {
+  const s = await openStudent(studentFixture(), { ctxOpts: { viewport: { width: 1280, height: 900 } }, chat: [] });
+  await login(s.pg);
+  await s.pg.click('.subnav button[data-sub="chat"]');
+  await s.pg.waitForSelector("#prior-in.guide-pulse");
+  assert.match(await s.pg.locator(".guide-tip").innerText(), /내 생각을 한 줄/);
+  await s.pg.fill("#prior-in", "난민이 무섭다고 생각해요");
+  await s.pg.locator("#msg").focus();
+  await s.pg.waitForSelector(".starters .chip.guide-pulse");
+  assert.match(await s.pg.locator(".guide-tip").innerText(), /예시를 눌러/);
+  assert.equal(await s.pg.locator("#msg").evaluate((el) => el.closest(".card").classList.contains("guide-box")), false, "대화창 전체에는 테두리를 두르지 않는다");
+  // ② 정리
+  await s.pg.evaluate(PUSH_WORK(), { s1: { findings: { anonX: { prior: "x", who: "예멘에서 온 청년" } } } });
+  await s.pg.click('.subnav button[data-sub="note"]');
+  await s.pg.waitForSelector('[data-save="s1.findings.anonX.hard"].guide-pulse');
+  assert.match(await s.pg.locator(".guide-tip").innerText(), /힘든 것/);
+  await s.pg.evaluate(PUSH_WORK(), { s1: { findings: { anonX: { prior: "x", who: "예멘에서 온 청년", hard: "일자리", want: "안전한 삶" } } } });
+  await s.pg.waitForSelector('[data-act="submit-note"].guide-pulse');
+  assert.match(await s.pg.locator(".guide-tip").innerText(), /제출하기를 눌러요/);
+  assert.deepEqual(s.errors, []);
+});
+
+test("학생 모바일: 집중 안내 — 짚은 칸이 화면 밖이면 보이는 곳으로 끌어 오고, 설명이 칸 바로 앞에 붙으며, 가로로 밀리지 않는다", async () => {
+  const s = await openStudent(studentFixture(), { ctxOpts: phone });
+  await login(s.pg);
+  await s.pg.tap('#tabs .stage-tab[data-stage="6"]');
+  await s.pg.waitForSelector('[data-save="s6.plan.content"].guide-pulse');
+  assert.match(await s.pg.locator(".guide-tip").innerText(), /실제로 할 일/);
+  // 설명은 칸 이름표 바로 앞
+  assert.equal(await s.pg.locator('[data-save="s6.plan.content"]').evaluate((el) => { let a = el; while (a.previousElementSibling?.matches("label.lbl, p.meta-line")) a = a.previousElementSibling; return a.previousElementSibling?.classList.contains("guide-tip"); }), true);
+  await s.pg.waitForFunction(() => {
+    const r = document.querySelector('[data-save="s6.plan.content"]').getBoundingClientRect();
+    const nav = document.querySelector(".m-nav")?.getBoundingClientRect().top ?? innerHeight;
+    return r.top >= 0 && r.bottom <= nav + 1;
+  });
+  await shot(s.pg, "m-guide");
+  assert.ok(await s.pg.evaluate(() => document.documentElement.scrollWidth) <= 390, "가로로 밀리지 않는다");
+  // 안내 끄기: 모바일에서도 설명줄의 단추로
+  await s.pg.tap(".guide-tip .gt-off");
+  await s.pg.waitForFunction(() => !document.querySelector(".guide-tip, .guide-pulse"));
+  assert.match(await s.pg.locator("#panel .next").innerText(), /집중 안내 켜기/);
+  assert.deepEqual(s.errors, []);
+});
+
 test("교사 모바일: 학생·모둠 표가 카드로 보이고, 아래 메뉴로 수업 설정을 연다", async () => {
   const st = teacherFixture(), { pg, errors } = await openTeacher(st, { page: "m-teacher.html", ctxOpts: phone });
   await pg.waitForSelector("#students tr");

@@ -256,6 +256,25 @@ details.fold .inner{ margin-top:12px; }
 .next.done{ background:var(--green-tint); }
 .next.done .next-k{ color:var(--green-ink); }
 .next .link{ font-size:13px; margin-left:4px; }
+
+/* 집중 안내: 지금 주목할 곳 하나만 테두리·펄스로 짚고, 한 줄 설명을 붙이고, 나머지는 흐리게 한다(app.js applyGuide) */
+.guide-box{ outline:2.5px solid var(--accent); outline-offset:2px; animation:gbox 2.4s ease-in-out infinite; }
+@keyframes gbox{ 0%,100%{ box-shadow:var(--shadow), 0 0 0 0 rgba(11,98,179,0); } 50%{ box-shadow:var(--shadow), 0 0 0 7px rgba(11,98,179,0.16); } }
+.guide-pulse{ outline:2px solid var(--accent); outline-offset:2px; animation:gpulse 1.7s ease-out infinite; }
+@keyframes gpulse{ 0%{ box-shadow:0 0 0 0 rgba(11,98,179,0.55); } 70%,100%{ box-shadow:0 0 0 11px rgba(11,98,179,0); } }
+.guide-pulse:focus, .guide-pulse:focus-within{ animation:none; } /* 쓰는 동안에는 가만히 */
+.guide-dim{ opacity:0.5; transition:opacity .25s; }
+.guide-dim:hover, .guide-dim:focus-within{ opacity:1; }
+.guide-tip{ position:relative; display:flex; align-items:center; gap:8px; margin:0 0 14px; padding:8px 8px 8px 12px; border-radius:12px;
+  background:var(--accent); color:#fff; font-size:14px; font-weight:700; line-height:1.45; box-shadow:0 8px 18px -10px rgba(6,34,107,0.6);
+  animation:noticepop .35s var(--ease); }
+.guide-tip::before{ content:"👇"; flex:none; }
+.guide-tip::after{ content:""; position:absolute; left:22px; bottom:-6px; width:12px; height:12px; background:var(--accent); transform:rotate(45deg); border-radius:0 0 3px 0; }
+.guide-tip.end::after{ left:auto; right:72px; }
+.guide-tip .gt-t{ flex:1; min-width:0; }
+.guide-tip .gt-off{ flex:none; border:0; border-radius:8px; padding:4px 9px; background:rgba(255,255,255,0.2); color:#fff; font:inherit; font-size:12px; font-weight:700; cursor:pointer; }
+.guide-tip .gt-off:hover{ background:rgba(255,255,255,0.32); }
+.nav-foot .guide-pulse{ border-radius:12px; }
 .sec-h{ font-size:16px; margin:18px 4px 8px; }
 .legend{ font-size:12.5px; color:var(--ink-3); margin:0 0 10px; }
 .legend .kind{ margin-right:2px; }

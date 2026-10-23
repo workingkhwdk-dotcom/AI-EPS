@@ -135,6 +135,8 @@ body.m.typing{ padding-bottom:16px; }
 .m .desc{ margin-bottom:10px; }
 .m .m-hide{ display:none !important; }
 .m .next{ padding:8px 12px; margin-bottom:8px; font-size:13.5px; }
+.m .guide-tip{ padding:7px 7px 7px 11px; margin-bottom:12px; font-size:13.5px; }
+.m .guide-dim{ opacity:0.55; }
 .m .problem-bar{ padding:9px 13px; margin-bottom:10px; }
 .m .problem-bar .pb-s{ display:none; }
 .m .problem-bar .pb-q{ font-size:14.5px; }
