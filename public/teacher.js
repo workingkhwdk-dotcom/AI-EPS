@@ -2,7 +2,7 @@ import { auth, db, call, esc, toast, toastAction, errMsg } from "./fb.js";
 import { waitHtml, startWaitTicker, STEPS } from "./wait.js";
 import { showModal, confirmModal } from "./modal.js";
 startWaitTicker();
-import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { collection, query, where, orderBy, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const $ = (s) => document.querySelector(s);
@@ -19,11 +19,22 @@ let logsBy = {}, cmpStage = 1, workGid = null; // 모둠별 AI 기록, 단계별
 let tickTimer = null;
 
 // ---------- 로그인 ----------
-// 휴대폰 브라우저가 팝업을 막으면 같은 창에서 구글 로그인으로 넘어갔다가 돌아온다
+// 휴대폰 브라우저가 팝업을 막으면 같은 창에서 구글 로그인으로 넘어갔다가 돌아온다.
+// 단, 앱 안에서 열린 화면(카카오톡·네이버·인스타그램·Claude 앱 등)과 일부 iOS 브라우저는 넘어가는 동안 임시 저장소가 지워져
+// "missing initial state" 오류가 나므로, 그런 곳에서는 넘어가지 않고 Safari·Chrome 에서 열도록 안내한다.
+const inAppBrowser = () => /KAKAOTALK|NAVER|Instagram|FBAN|FBAV|Line\/|DaumApps|; wv\)|Claude/i.test(navigator.userAgent) ||
+  (/iPhone|iPad|iPod/.test(navigator.userAgent) && !/Safari\//.test(navigator.userAgent));
+const GUIDE = "이 화면에서는 구글 로그인이 되지 않아요. 오른쪽 위 메뉴에서 'Safari(또는 Chrome)로 열기'를 누르거나, 아래 이메일·비밀번호로 로그인하세요.";
 const googleLogin = () => signInWithPopup(auth, new GoogleAuthProvider()).catch((e) => {
-  if (["auth/popup-blocked", "auth/operation-not-supported-in-this-environment", "auth/cancelled-popup-request"].includes(e?.code)) return signInWithRedirect(auth, new GoogleAuthProvider());
+  if (["auth/popup-blocked", "auth/operation-not-supported-in-this-environment", "auth/cancelled-popup-request"].includes(e?.code)) {
+    if (inAppBrowser()) return toast(GUIDE, true);
+    return signInWithRedirect(auth, new GoogleAuthProvider());
+  }
+  if (e?.code === "auth/popup-closed-by-user") return;
   toast(errMsg(e), true);
 });
+// 구글 로그인 화면에서 돌아왔을 때 실패했다면 영어 오류 대신 안내 문구를 보여 준다
+getRedirectResult(auth).catch((e) => toast(/initial state|storage/i.test(e?.message || "") ? GUIDE : errMsg(e), true));
 $("#login-btn").onclick = googleLogin;
 // 이메일·비밀번호 교사 계정(관리자가 만든 계정이나 교사용 계정 만들기에서 만든 계정)
 $("#pw-form").onsubmit = async (e) => {
