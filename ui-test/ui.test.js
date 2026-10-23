@@ -100,7 +100,8 @@ function teacherFixture() {
       case "getPersonaOverrides": return { overrides: st.overrides };
       case "savePersonaOverride": st.overrides = { ...st.overrides, [data.personaId]: { ...(st.overrides[data.personaId] || {}), ...data.fields } }; return { overrides: st.overrides };
       case "resetPersonaOverride": { const o = { ...st.overrides }; delete o[data.personaId]; st.overrides = o; return { overrides: o }; }
-      case "healthCheck": await new Promise((r) => setTimeout(r, 3200)); return { firestore: { ok: true, ms: 40 }, models: [{ ok: true, ms: 900, model: "gpt-5-mini", reply: "ok" }, { ok: false, ms: 300, model: "gpt-5", error: "OpenAI 401" }], search: { ok: true, ms: 4000, found: true, sources: 2 }, config: { personas: 9, allowedDomains: 0, allowUnverified: false, webSearch: true } };
+      case "healthCheck": await new Promise((r) => setTimeout(r, 3200)); return { firestore: { ok: true, ms: 40 }, models: [{ ok: true, ms: 900, model: "gpt-5.6-luna", roles: ["기본(2단계 도우미·3단계 확인·4단계 검토)", "체험 페이지"], reply: '{"ok":true}' }, { ok: false, ms: 300, model: "gpt-5.6-sol", roles: ["내 주제 만들기"], error: "OpenAI 401" }],
+        lookup: { ok: true, ms: 800, model: "gpt-5.6-terra", reply: "안녕하세요" }, search: { ok: true, ms: 4000, model: "gpt-5.6-luna", found: true, sources: 2 }, topicSearch: { ok: true, ms: 5000, model: "gpt-5.6-terra", cites: 0 }, config: { personas: 9, allowedDomains: 0, allowUnverified: false, webSearch: true } };
       default: return { ok: true, count: (data?.uids || []).length };
     }
   };
@@ -284,7 +285,10 @@ test("교사: 연결 점검 — 기다리는 동안 움직이는 표시와 초�
   await pg.waitForFunction(() => Number(document.querySelector("#health-out .wait-sec")?.textContent) >= 1, null, { timeout: 4000 });
   await pg.waitForSelector("#health-out .group");
   const out = await pg.locator("#health-out").innerText();
-  assert.match(out, /Firestore/); assert.match(out, /gpt-5-mini/); assert.match(out, /OpenAI 401/); assert.match(out, /출처 2개/);
+  assert.match(out, /Firestore/); assert.match(out, /gpt-5\.6-luna/); assert.match(out, /OpenAI 401/); assert.match(out, /출처 2개/);
+  assert.match(out, /쓰는 곳: 기본\(2단계 도우미·3단계 확인·4단계 검토\), 체험 페이지/);
+  assert.match(out, /인물의 사실 찾아보기 gpt-5\.6-terra/);
+  assert.match(out, /내 주제 조사 gpt-5\.6-terra/); assert.match(out, /인용 링크 0개 · 인용이 붙지 않으면 주제 조사가 멈춰요/);
 });
 
 // ---------- 학생 ----------

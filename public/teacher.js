@@ -1042,9 +1042,13 @@ $("#health-btn").onclick = async () => {
   try {
     const { data: r } = await call("healthCheck")({});
     const row = (name, x, extra = "") => `<div class="cell"><span class="tag ${x.ok ? "" : "r"}">${x.ok ? "정상" : "실패"}</span><div class="grow"><b>${esc(name)}</b> <span class="meta-line">${x.ms}ms</span>${extra}${x.error ? `<div class="meta-line" style="color:var(--danger)">${esc(x.error)}</div>` : ""}</div></div>`;
-    $("#health-out").innerHTML = `<div class="group">${row("Firestore(서버 저장소)", r.firestore)}${r.models.map((m) => row(`AI 모델 ${m.model || ""}`, m, m.reply ? ` <span class="meta-line">응답: ${esc(m.reply)}</span>` : "")).join("")}${
-      r.search.skipped ? `<div class="cell"><span class="tag x">꺼짐</span><div class="grow"><b>웹 검색</b> <span class="meta-line">PERSONA_WEB_SEARCH=false</span></div></div>`
-        : row("인물의 웹 검색", r.search, r.search.ok ? ` <span class="meta-line">${r.search.found ? `찾음 · 출처 ${r.search.sources}개` : "시험 질문의 답을 못 찾음"}</span>` : "")}</div>
+    const off = (name) => `<div class="cell"><span class="tag x">꺼짐</span><div class="grow"><b>${esc(name)}</b> <span class="meta-line">PERSONA_WEB_SEARCH=false</span></div></div>`;
+    const ts = r.topicSearch;
+    $("#health-out").innerHTML = `<div class="group">${row("Firestore(서버 저장소)", r.firestore)}${r.models.map((m) => row(`AI 모델 ${m.model || ""}`, m,
+      `${m.roles?.length ? `<div class="meta-line">쓰는 곳: ${esc(m.roles.join(", "))}</div>` : ""}${m.reply ? ` <span class="meta-line">응답: ${esc(m.reply)}</span>` : ""}`)).join("")}${
+      !r.lookup ? "" : r.lookup.skipped ? off("인물의 사실 찾아보기") : row(`인물의 사실 찾아보기 ${r.lookup.model || ""}`, r.lookup, ` <span class="meta-line">도구를 쓰는 대화 경로</span>`)}${
+      r.search.skipped ? off("웹 검색") : row(`웹 검색 ${r.search.model || ""}`, r.search, r.search.ok ? ` <span class="meta-line">${r.search.found ? `찾음 · 출처 ${r.search.sources}개` : "시험 질문의 답을 못 찾음"}</span>` : "")}${
+      !ts ? "" : row(`내 주제 조사 ${ts.model || ""}`, ts, ts.ok ? ` <span class="meta-line">인용 링크 ${ts.cites}개${ts.cites ? "" : " · 인용이 붙지 않으면 주제 조사가 멈춰요"}</span>` : "")}</div>
       <div class="meta-line" style="margin-top:8px">사용 가능한 인물 ${r.config.personas}명 · 검색 허용 도메인 ${r.config.allowedDomains ? r.config.allowedDomains + "개" : "제한 없음"}${r.config.allowUnverified ? " · <b>리허설 모드(원문 대조 전 인물도 보임)</b>" : ""}</div>
       ${r.search.error ? `<div class="notice yellow" style="margin-top:8px">${esc(r.search.error)}</div>` : ""}`;
   } catch (e) { $("#health-out").innerHTML = `<div class="notice">${esc(errMsg(e))}</div>`; }

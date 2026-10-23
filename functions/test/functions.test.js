@@ -115,6 +115,7 @@ global.fetch = async (url, init) => {
     : kind === "persona" ? personaReply
     : kind === "review" ? "강점: 좋다\n약점: 비싸다\n질문: 누가 반대할까?"
     : kind === "coach" ? '{"kind":"잘 이어짐","question":"\'전학 갔을 때\'라고 썼는데, 그때 학교에는 새로 온 사람을 맞는 어떤 규칙이 있었나요?"}'
+    : String(body.messages.at(-1)?.content).includes('{"ok":true}') ? '{"ok":true}' // 수업 전 점검의 JSON 모드 시험
     : "일반적인 설명입니다.";
   return { ok: true, json: async () => ({ choices: [{ message: { content } }] }) };
 };
@@ -1020,9 +1021,22 @@ test("수업 전 점검: Firestore·각 모델·웹 검색 결과를 시간과 �
   searchReply = "412명이다."; searchSources = ["https://a.example"];
   const r = await api.healthCheck({ ...teacher, data: {} });
   assert.equal(r.firestore.ok, true);
-  assert.ok(r.models.length >= 1 && r.models.every((m) => m.ok && typeof m.ms === "number"));
+  assert.ok(r.models.length >= 1 && r.models.every((m) => m.ok && typeof m.ms === "number" && m.reply === '{"ok":true}'));
+  // 모델마다 어디에 쓰이는지와, 가장 가벼운 사고량이 모델에 맞게 바뀌어 나갔는지
+  assert.ok(r.models.find((m) => m.model === "gpt-5-test").roles.includes("기본(2단계 도우미·3단계 확인·4단계 검토)"));
+  assert.ok(r.models.find((m) => m.model === "gpt-5.6-terra").roles.includes("1단계 인물 대화"));
+  assert.ok(r.models.find((m) => m.model === "gpt-5.6-sol").roles.includes("내 주제 만들기"));
+  const pings = calls.filter((c) => String(c.body.messages?.at(-1)?.content).includes('{"ok":true}'));
+  assert.equal(pings.find((c) => c.body.model === "gpt-5.6-terra").body.reasoning_effort, "none", "새 모델에는 minimal 대신 none");
+  // 인물의 사실 찾아보기 경로: 도구를 주면 사고량은 none
+  assert.equal(r.lookup.ok, true);
+  const lk = calls.filter((c) => c.kind !== "search" && c.body.tools?.length && c.body.model === "gpt-5.6-terra").pop();
+  assert.equal(lk.body.reasoning_effort, "none");
   assert.equal(r.search.ok, true);
   assert.equal(r.search.found, true);
+  assert.equal(r.topicSearch.ok, true);
+  assert.equal(r.topicSearch.cites, 1);
+  assert.equal(r.topicSearch.model, "gpt-5.6-terra");
   assert.equal(r.config.personas, 9);
   const realFetch = global.fetch;
   global.fetch = async () => ({ ok: false, status: 401, text: async () => "bad key" });
@@ -1030,7 +1044,10 @@ test("수업 전 점검: Firestore·각 모델·웹 검색 결과를 시간과 �
   global.fetch = realFetch;
   assert.equal(bad.models[0].ok, false);
   assert.match(bad.models[0].error, /401/);
-  assert.equal(bad.search.found, false);
+  assert.equal(bad.search.ok, false);
+  assert.match(bad.search.error, /web_search/);
+  assert.equal(bad.lookup.ok, false);
+  assert.equal(bad.topicSearch.ok, false);
   await assert.rejects(api.healthCheck({ ...student("A1"), data: {} }), /교사/);
 });
 

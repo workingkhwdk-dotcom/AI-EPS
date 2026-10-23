@@ -45,7 +45,7 @@ firestore.rules    학생은 자기 모둠의 work만 수정, AI 로그는 서�
 - **근거 진술과 공통 배경은 기사 문장 그대로**다(AI는 사실 ID만 고른다). 출처마다 '이 출처로 쓴 문장'을 보여 주고, 교사가 **원문 확인**을 체크한 출처만 학생에게 보이는 인물·자료에 쓰인다(기본 주제의 verified 원칙과 같다). 구조 검사(`topicCheck.js`)에 오류가 없고 꼭 있어야 하는 축의 인물이 확인되어야 수업을 만들 수 있다.
 - 검토 화면에서 인물의 편지·말투·이야기·생각, 사건 개요·화면 문구, 자료·사례·이후 전개를 고치거나 빼고, 인물 하나를 바랄 점을 적어 다시 만들 수 있다.
 - 수업을 만들면 그때의 주제가 수업에 복사된다(`sessions/{code}/private/topic`). 원본 주제를 고치거나 지워도 진행 중인 수업은 그대로이고, 수업 설정의 **주제의 최신 내용으로 바꾸기**로만 바뀐다. 수업 복제 때 사본도 함께 간다.
-- 한도: 새 주제는 교사 한 명당 하루 3개(`TOPIC_DAILY_LIMIT`), 사건 후보 찾기는 하루 10번, 주제 하나당 AI 호출 120번, 교사당 주제 30개. 모델은 `TOPIC_MODEL`(기본 gpt-5), 웹 조사는 `TOPIC_SEARCH_MODEL`(비우면 TOPIC_MODEL). 주제 하나를 만드는 데 AI 호출이 대략 30번 들고 10~20분 걸린다.
+- 한도: 새 주제는 교사 한 명당 하루 3개(`TOPIC_DAILY_LIMIT`), 사건 후보 찾기는 하루 10번, 주제 하나당 AI 호출 120번, 교사당 주제 30개. 모델은 `TOPIC_MODEL`(기본 gpt-5.6-sol), 웹 조사는 `TOPIC_SEARCH_MODEL`(기본 gpt-5.6-terra). 주제 하나를 만드는 데 AI 호출이 대략 30번 들고 10~20분 걸린다.
 - 저장: `teacherTopics/{id}`(주제), `teacherTopics/{id}/parts/research`(사실 은행), `topicUsage/{uid}`(하루 횟수). 모두 서버(`topics` 함수)만 읽고 쓴다. 체험(demo) 페이지에는 나오지 않는다. 설계와 판단 근거는 `docs/TOPIC_BUILDER.md`.
 - 배포: `firebase deploy --only functions:topics,functions:createSession,functions:cloneSession,functions:getCase,functions:joinSession,functions:choosePersona,functions:aiRequest,hosting,firestore:rules` (또는 전체 배포).
 
@@ -180,11 +180,24 @@ firebase deploy
 6. 문구가 새어 나갔으면 `TEACHER_SIGNUP_CODE`를 바꾸고 다시 배포하세요.
 
 ### 모델 선택 (OpenAI)
-`functions/.env`의 `OPENAI_MODEL`로 정합니다. 기본값은 **`gpt-5-mini`**(GPT-5 계열의 균형 모델)입니다.
-- GPT-5 계열은 추론 모델이라 `max_tokens`와 `temperature`를 받지 않습니다. 코드(`functions/openai.js`)가 모델 계열에 맞춰 `max_completion_tokens`와 `reasoning_effort`로 자동 변환하며, GPT-4 계열도 그대로 쓸 수 있습니다.
-- **용도별로 모델을 나눌 수 있습니다**: `PERSONA_MODEL`(1단계 인물 대화 전용, 기본 `gpt-5`), `SCENARIO_MODEL`(5단계 시뮬레이션만 더 강한 모델, 예: `gpt-5`), `GUARD_MODEL`(상위 AI 감독자 전용).
-- `REASONING_EFFORT`(기본 `low`)는 대화 응답 속도용입니다. 5단계 시뮬레이션은 코드에서 `medium`으로 고정됩니다. 응답이 느리면 `minimal`, 품질이 아쉬우면 `medium`을 시도하세요.
-- 정확한 모델명은 OpenAI 대시보드의 Models 페이지에서 확인하세요. 새 버전이 나오면 이름만 바꿔 `firebase deploy --only functions`를 다시 실행하면 됩니다.
+`functions/.env`에서 용도별로 정합니다. **`.env`의 값이 코드 기본값보다 먼저**이므로, 옛 모델 이름이 적혀 있으면 그 줄을 고쳐야 합니다.
+`gpt-5`·`gpt-5-mini`는 2026-12-11에 API에서 종료되므로, 기본값을 비용과 성능의 균형을 맞춘 GPT-5.6 조합(sol 최상위 / terra 균형 / luna 저가)으로 바꿨습니다(2026-10).
+
+| 설정 | 쓰는 곳 | 기본값 |
+|---|---|---|
+| `OPENAI_MODEL` | 2단계 생각 도우미, 3단계 사실 확인, 4단계 검토, 따로 정하지 않은 곳 | `gpt-5.6-luna` |
+| `PERSONA_MODEL` | 1단계 인물 대화 | `gpt-5.6-terra` |
+| `GUARD_MODEL` | 상위 AI 감독자(모든 인물 응답 검사) | `gpt-5.6-terra` |
+| `SCENARIO_MODEL` | 5단계 시뮬레이션 | `gpt-5.6-terra` |
+| `SEARCH_MODEL` | 인물의 사실 찾아보기·3단계 웹 검색 요약 | 비움(→ `OPENAI_MODEL`) |
+| `DEMO_MODEL` | 체험 페이지 | 비움(→ `OPENAI_MODEL`), `.env.example` 은 `gpt-5.6-luna` |
+| `TOPIC_MODEL` / `TOPIC_SEARCH_MODEL` | 내 주제 만들기 / 주제 조사(웹 검색) | `gpt-5.6-sol` / `gpt-5.6-terra` |
+
+- 추론 모델은 `max_tokens`와 `temperature`를 받지 않습니다. 코드(`functions/openai.js`)가 모델 계열에 맞춰 `max_completion_tokens`와 `reasoning_effort`로 바꿔 보내고, GPT-4 계열도 그대로 쓸 수 있습니다.
+- **사고량 값은 모델마다 받는 것이 다릅니다.** 코드 안에서는 가장 가벼운 사고량을 `minimal`로 적고, `openai.js`가 처음 GPT-5에는 `minimal`, 그 뒤 계열(gpt-5.1~5.6, gpt-6 Luna)에는 `none`, none 을 받지 않는 모델(gpt-6 Astra·Sol, o 시리즈)에는 `low`로 바꿔 보냅니다.
+- **GPT-5.6 이후 계열은 Chat Completions 에서 함수 도구와 사고량을 함께 쓰면 거절합니다.** 그래서 인물이 사실을 찾아보는 대화(도구를 주는 호출)는 사고량 `none`으로 보냅니다. 인물 답의 품질이 아쉬우면 `PERSONA_MODEL`을 한 단계 올리거나(sol), 사실 찾아보기를 Responses API 로 옮기는 방법이 있습니다.
+- `REASONING_EFFORT`(기본 `low`)는 대화 응답 속도용입니다. 5단계 시뮬레이션은 코드에서 `medium`으로 고정됩니다.
+- **모델을 바꾼 뒤에는 교사 화면 '인물·자료 점검' 탭의 '연결·AI 점검'을 누르세요.** 모델마다 쓰는 곳과 JSON 응답, 인물의 사실 찾아보기(도구 경로), 웹 검색, 주제 조사의 인용 링크까지 시험합니다.
 - 비용은 모델과 추론 사고량(reasoning 토큰도 출력 토큰으로 과금)에 따라 달라집니다. 1단계 대화는 인물 응답과 감독자 검사로 호출이 2번이므로, 수업 전에 OpenAI 대시보드에서 사용량 한도(Usage limits)를 설정해 두세요.
 
 ### 3. 첫 점검
