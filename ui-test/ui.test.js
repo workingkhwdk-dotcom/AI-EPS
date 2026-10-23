@@ -101,7 +101,7 @@ function teacherFixture() {
       case "savePersonaOverride": st.overrides = { ...st.overrides, [data.personaId]: { ...(st.overrides[data.personaId] || {}), ...data.fields } }; return { overrides: st.overrides };
       case "resetPersonaOverride": { const o = { ...st.overrides }; delete o[data.personaId]; st.overrides = o; return { overrides: o }; }
       case "healthCheck": await new Promise((r) => setTimeout(r, 3200)); return { firestore: { ok: true, ms: 40 }, models: [{ ok: true, ms: 900, model: "gpt-5.6-luna", roles: ["기본(2단계 도우미·3단계 확인·4단계 검토)", "체험 페이지"], reply: '{"ok":true}' }, { ok: false, ms: 300, model: "gpt-5.6-sol", roles: ["내 주제 만들기"], error: "OpenAI 401" }],
-        lookup: { ok: true, ms: 800, model: "gpt-5.6-terra", reply: "안녕하세요" }, search: { ok: true, ms: 4000, model: "gpt-5.6-luna", found: true, sources: 2 }, topicSearch: { ok: true, ms: 5000, model: "gpt-5.6-terra", cites: 0 }, config: { personas: 9, allowedDomains: 0, allowUnverified: false, webSearch: true } };
+        lookup: { ok: true, ms: 800, model: "gpt-5.6-terra", reply: "안녕하세요" }, search: { ok: true, ms: 4000, model: "gpt-5.6-luna", found: true, sources: 2 }, topicSearch: { ok: true, ms: 5000, model: "gpt-5.6-terra", cites: 0 }, config: { personas: 9, allowedDomains: 0, webSearch: true } };
       default: return { ok: true, count: (data?.uids || []).length };
     }
   };

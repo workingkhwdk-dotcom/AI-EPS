@@ -73,7 +73,7 @@ const fakes = {
   "firebase-functions/params": {
     defineSecret: () => ({ value: () => "sk-test" }),
     defineInt: (name, o) => ({ value: () => o?.default ?? 0 }),
-    defineString: (name, o) => ({ value: () => ({ TEACHER_EMAILS: "t@school.kr", ALLOW_UNVERIFIED_PERSONAS: "true", OPENAI_MODEL: "gpt-5-test", TEACHER_SIGNUP_CODE: "Knue-2026" }[name] ?? o?.default ?? "") }),
+    defineString: (name, o) => ({ value: () => ({ TEACHER_EMAILS: "t@school.kr", OPENAI_MODEL: "gpt-5-test", TEACHER_SIGNUP_CODE: "Knue-2026" }[name] ?? o?.default ?? "") }),
   },
 };
 const origLoad = Module._load;

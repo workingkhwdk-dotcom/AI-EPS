@@ -20,7 +20,7 @@ const BUSY_MS = 9 * 60 * 1000; // 한 단계가 이보다 오래 '진행 중'이
 const day = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10); // 한국 날짜
 const newTopicId = () => "t" + crypto.randomBytes(5).toString("hex");
 
-function makeTopicApi({ db, FieldValue, HttpsError, requireTeacher, ai, dailyLimit, allowUnverified, onSessionTopic }) {
+function makeTopicApi({ db, FieldValue, HttpsError, requireTeacher, ai, dailyLimit, onSessionTopic }) {
   const ref = (id) => db.doc(`teacherTopics/${id}`);
   const researchRef = (id) => db.doc(`teacherTopics/${id}/parts/research`);
   const usageRef = (uid) => db.doc(`topicUsage/${uid}`);
@@ -40,7 +40,7 @@ function makeTopicApi({ db, FieldValue, HttpsError, requireTeacher, ai, dailyLim
     if (!file?.EVENT?.id || !(file.PERSONAS || []).length) return { check: null, usable: 0, required: false };
     const check = checkBundle(file);
     const b = makeBundle(file, { custom: true });
-    const ok = availablePersonas(b, allowUnverified());
+    const ok = availablePersonas(b);
     return { check, usable: ok.length, required: ok.some(isRequired) };
   }
   async function forClass(auth, id) {
