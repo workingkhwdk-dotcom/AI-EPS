@@ -29,6 +29,12 @@ service cloud.firestore {
     match /teacherAccounts/{uid} { allow read, write: if false; }
     match /teacherSignups/{uid} { allow read, write: if false; }
     match /teacherAttempts/{id} { allow read, write: if false; }
+    // 교사가 만든 주제와 조사 결과, 하루 생성 횟수: 서버(topics 함수)만 읽고 쓴다. 주제는 만든 교사만 서버를 거쳐 본다.
+    match /teacherTopics/{id} {
+      allow read, write: if false;
+      match /parts/{part} { allow read, write: if false; }
+    }
+    match /topicUsage/{uid} { allow read, write: if false; }
 
     match /sessions/{code} {
       // 교사는 자기 수업 목록 조회(쿼리)도 가능해야 하므로 resource 기준으로 판정

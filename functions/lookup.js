@@ -3,7 +3,7 @@
 //  - 검색은 별도 호출(Responses API web_search)로 하고, 결과는 '데이터'로만 전달한다(웹 문서 속 지시문은 따르지 않는다).
 //  - 찾지 못하면 NOT_FOUND 를 돌려주고, 인물은 모른다고 답한다.
 //  - 검색 내용과 출처는 학생·교사 화면의 기록에 남겨 확인할 수 있게 한다.
-const { chatMessage, respond } = require("./openai");
+const { respond, respondTools } = require("./openai");
 
 const MAX_LOOKUPS = 2;
 const NOT_FOUND = "NOT_FOUND";
@@ -70,24 +70,27 @@ function toolResultText(r) {
 }
 
 // 인물 응답 만들기: 모델이 lookup 을 부르면 검색해서 결과를 주고 다시 답하게 한다.
+// Responses API 로 부른다. Chat Completions 는 새 모델(GPT-5.6 등)에서 함수 도구와 사고량을 함께 쓸 수 없어
+// 사고 없이(none) 답하게 되지만, Responses API 는 정한 사고량(REASONING_EFFORT, 기본 low)으로 생각하고 답한다.
+// 앞 차례의 출력(사고 항목·도구 호출)을 다음 차례 입력에 그대로 이어 붙인다(사고 모델은 도구 결과와 함께 자기 사고 항목이 필요하다).
 // 반환: { content, lookups: [{ query, found, summary, sources }] }
 async function chatWithLookup({ apiKey, model, event, messages, maxTokens, effort, search }) {
-  const tool = lookupTool(event);
-  const msgs = [...messages];
+  const f = lookupTool(event).function;
+  const tools = [{ type: "function", name: f.name, description: f.description, parameters: f.parameters }];
+  const input = messages.map((m) => ({ role: m.role, content: m.content }));
   const lookups = [];
   for (let round = 0; round <= MAX_LOOKUPS; round++) {
     const canLookup = lookups.length < MAX_LOOKUPS && round < MAX_LOOKUPS; // 마지막 차례에는 반드시 답하게 한다
-    const m = await chatMessage({ apiKey, model, messages: msgs, maxTokens, effort, tools: canLookup ? [tool] : undefined });
-    const calls = canLookup ? (m.tool_calls || []) : [];
-    if (!calls.length) return { content: m.content ?? "", lookups };
-    msgs.push({ role: "assistant", content: m.content ?? null, tool_calls: m.tool_calls });
-    for (const tc of m.tool_calls) {
+    const r = await respondTools({ apiKey, model, input, tools, toolChoice: canLookup ? "auto" : "none", maxTokens, effort });
+    if (!canLookup || !r.calls.length) return { content: r.text, lookups };
+    input.push(...r.output);
+    for (const c of r.calls) {
       let query = "";
-      try { query = cleanQuery(JSON.parse(tc.function?.arguments || "{}").query); } catch {}
+      try { query = cleanQuery(JSON.parse(c.arguments || "{}").query); } catch {}
       let result;
       if (!query || lookups.length >= MAX_LOOKUPS) result = { query, found: false, summary: "", sources: [] };
       else { result = await search(query); lookups.push(result); }
-      msgs.push({ role: "tool", tool_call_id: tc.id, content: toolResultText(result) });
+      input.push({ type: "function_call_output", call_id: c.call_id, output: toolResultText(result) });
     }
   }
   return { content: "", lookups };

@@ -25,7 +25,9 @@ functions/         Cloud Functions (서울 리전)
   guard.js         감독자 AI의 검사 프롬프트와 판정 해석, 위반 시 학생용 안내문
   scripts/         export-sources.js: 원문 대조 점검표(docs/PERSONA_SOURCES.md) 생성
 docs/PERSONA_SOURCES.md  인물별 근거 진술과 출처 점검표 (수업 전 원문 대조용)
-  index.js         createSession, joinSession, getCase, aiRequest
+  topicCheck.js    주제 구조 검사(기본 주제와 교사 주제에 같은 기준)
+  topicBuild.js, topicCompose.js, topicApi.js, topicData.js  교사 주제 만들기(아래 '내 주제')
+  index.js         createSession, joinSession, getCase, aiRequest, topics
 firestore.rules    학생은 자기 모둠의 work만 수정, AI 로그는 서버만 기록
 ```
 
@@ -37,11 +39,21 @@ firestore.rules    학생은 자기 모둠의 work만 수정, AI 로그는 서�
 - 학습 활동 공간을 넓히기 위해 모바일 학생 화면은 머리글·아래 막대를 얇게 하고, **아래로 스크롤하면 둘 다 숨고 위로 스크롤하면 다시 나옵니다**(교사 화면은 숨기지 않음). 1단계 대화는 대화창이 화면 대부분을 쓰고, 알아낼 것(누구인지·힘든 것·바라는 것)이 한 줄 칩으로, 남은 질문 수가 입력창 위에 항상 보입니다. 2단계 실제 사건 자료는 펼친 채로 시작합니다.
 - 두 화면은 같은 id 를 써야 합니다. 한쪽 HTML에 칸을 추가하면 다른 쪽에도 넣으세요(화면 테스트가 확인합니다).
 
+### 내 주제 — 교사가 웹앱 안에서 새 수업 주제 만들기
+- 교사 화면 위쪽 **내 주제** 탭. 다루고 싶은 지역·주제(예: '거제도 지역의 문제')를 적으면 AI가 **실제로 보도된 사건** 후보를 찾아 주고, 고른 사건(또는 직접 적은 사건)으로 기본 주제와 같은 구성(출처·사건 개요·공통 배경·범위·화면 문구·인물 9명·2단계 자료·4단계 사례·7단계 이후 전개)을 만든다. 만든 주제는 **그 교사 계정에만** 속한다.
+- 단계: ① 기사 조사(여러 각도로 웹 검색, **인용 링크가 붙은 문장만** 사실 은행에 넣음) → ② 사건 틀·인물 구성안(입장 분포·스치는 장면. 교사가 보고 고치거나 다시 짜기) → ③ 인물(한 명씩, 기본 주제 인물을 본보기로) → ④ 자료·사례·이후 전개 → ⑤ AI 점검(근거에 없는 중요 사실·실존 인물 이름·비하·메타 표현·입장 균형을 점검해 고쳐 쓰고 기록) → 검토.
+- **근거 진술과 공통 배경은 기사 문장 그대로**다(AI는 사실 ID만 고른다). 출처마다 '이 출처로 쓴 문장'을 보여 주고, 교사가 **원문 확인**을 체크한 출처만 학생에게 보이는 인물·자료에 쓰인다(기본 주제의 verified 원칙과 같다). 구조 검사(`topicCheck.js`)에 오류가 없고 꼭 있어야 하는 축의 인물이 확인되어야 수업을 만들 수 있다.
+- 검토 화면에서 인물의 편지·말투·이야기·생각, 사건 개요·화면 문구, 자료·사례·이후 전개를 고치거나 빼고, 인물 하나를 바랄 점을 적어 다시 만들 수 있다.
+- 수업을 만들면 그때의 주제가 수업에 복사된다(`sessions/{code}/private/topic`). 원본 주제를 고치거나 지워도 진행 중인 수업은 그대로이고, 수업 설정의 **주제의 최신 내용으로 바꾸기**로만 바뀐다. 수업 복제 때 사본도 함께 간다.
+- 한도: 새 주제는 교사 한 명당 하루 3개(`TOPIC_DAILY_LIMIT`), 사건 후보 찾기는 하루 10번, 주제 하나당 AI 호출 120번, 교사당 주제 30개. 모델은 `TOPIC_MODEL`(기본 gpt-5.6-sol), 웹 조사는 `TOPIC_SEARCH_MODEL`(기본 gpt-5.6-terra). 주제 하나를 만드는 데 AI 호출이 대략 30번 들고 10~20분 걸린다.
+- 저장: `teacherTopics/{id}`(주제), `teacherTopics/{id}/parts/research`(사실 은행), `topicUsage/{uid}`(하루 횟수). 모두 서버(`topics` 함수)만 읽고 쓴다. 체험(demo) 페이지에는 나오지 않는다. 설계와 판단 근거는 `docs/TOPIC_BUILDER.md`.
+- 배포: `firebase deploy --only functions:topics,functions:createSession,functions:cloneSession,functions:getCase,functions:joinSession,functions:choosePersona,functions:aiRequest,hosting,firestore:rules` (또는 전체 배포).
+
 ### 체험하기(demo) — 서버 없이 학생 화면을 혼자 해 보기
 - 주소: `/demo.html`. 5개 주제(사건) 중 하나를 골라 학생 화면을 처음부터 끝까지 혼자 체험한다. 입장·로그인 없이 바로 열린다.
 - **저장은 서버가 아니라 이 기기(localStorage)** 에 주제별로 따로 한다. 화면 위쪽 **홈**은 주제 고르는 메뉴로, **초기화**는 그 주제를 처음부터 다시 하게 한다(쓴 글·대화·단계 안내 본 기록 삭제).
 - 학생 화면(`app.js`)을 그대로 쓴다. 대신 `demo-play.html`(PC)·`demo-play-m.html`(휴대폰)이 Firebase 모듈을 `public/demo/stubs/` 의 가짜(import map)로 바꿔, `public/demo/server.js`(가짜 서버)가 `getCase`·`choosePersona`·`aiRequest` 를 브라우저 안에서 처리한다. Firebase SDK 는 부르지 않는다(AI 호출만 위 `demoRequest`).
-- **AI 답은 실제 수업과 같은 AI다.** 화면이 서버 함수 `demoRequest`(`functions/demo.js`, 로그인 없이 HTTP 로 부름)에게 묻고, 서버는 실제와 같은 인물 프롬프트·상위 AI(감독자)·3~5단계 프롬프트를 쓴다. 웹 검색은 쓰지 않는다(3단계는 수업 자료만 근거). 쓴 글은 요청에 실려 오고 서버에는 저장하지 않는다.
+- **AI 답은 실제 수업과 같은 프롬프트를 쓰되, 모델은 체험용으로 가볍다(`DEMO_MODEL`, 비우면 `OPENAI_MODEL`).** 실제 수업의 인물 대화는 더 고성능 모델(`PERSONA_MODEL`)을 쓰므로 답의 질이 다를 수 있고, 체험 화면이 처음 들어올 때와 단계 안내 팝업에서 이를 알린다. 화면이 서버 함수 `demoRequest`(`functions/demo.js`, 로그인 없이 HTTP 로 부름)에게 묻고, 서버는 실제와 같은 인물 프롬프트·상위 AI(감독자)·3~5단계 프롬프트를 쓴다. 웹 검색은 쓰지 않는다(3단계는 수업 자료만 근거). 쓴 글은 요청에 실려 오고 서버에는 저장하지 않는다.
 - **횟수·비용 보호:** 기기(localStorage 의 `eps_demo_device`)·주제마다 인물 질문 5번, 2~5단계 AI 5번(`demoUsage/{기기}` 에 서버가 센다. 초기화해도 돌아오지 않는다. 실패한 호출은 돌려준다). 하루 전체 한도 `DEMO_DAILY_CAP`(기본 300), 모델 `DEMO_MODEL`(비우면 `OPENAI_MODEL`)은 `functions/.env` 로 바꾼다. 화면의 안내 띠·메뉴·단계마다 붙는 '데모라서' 줄(`demo/ui.js`)에도 실제와 다른 점을 적어 두고, 준비된 예시 답·웹 검색 없이 답한 3단계 답에는 답 안에도 표시가 붙는다. 체험이 실제와 달라지는 기능을 더하거나 고치면 `DIFF` 문구도 함께 고칠 것. OpenAI 키 쪽 사용 한도도 함께 걸어 둘 것.
 - 횟수를 다 썼거나, 서버가 배포 전이거나, 연결이 안 되면 **준비된 예시 답**으로 대신한다(인물의 말은 인물 자료에서 질문과 가까운 것을 골라 들려 주고 — `public/demo/chat.js`, 3~5단계는 모둠이 쓴 글과 수업 자료로 짜 맞춘 예시). 안내 알림이 뜬다.
 - 배포: `firebase deploy --only functions:demoRequest,hosting` (함수를 먼저 배포하지 않아도 체험은 준비된 답으로 동작한다).
@@ -132,7 +144,7 @@ cd functions && npm install && cd ..
 # OpenAI API 키를 비밀값으로 저장 (코드·저장소에 넣지 않습니다)
 firebase functions:secrets:set OPENAI_API_KEY
 
-# 교사 계정·모델·리허설 설정
+# 교사 계정·모델 설정
 cp functions/.env.example functions/.env     # 열어서 TEACHER_EMAILS 를 본인 구글 계정으로 수정
 
 firebase deploy
@@ -168,18 +180,31 @@ firebase deploy
 6. 문구가 새어 나갔으면 `TEACHER_SIGNUP_CODE`를 바꾸고 다시 배포하세요.
 
 ### 모델 선택 (OpenAI)
-`functions/.env`의 `OPENAI_MODEL`로 정합니다. 기본값은 **`gpt-5-mini`**(GPT-5 계열의 균형 모델)입니다.
-- GPT-5 계열은 추론 모델이라 `max_tokens`와 `temperature`를 받지 않습니다. 코드(`functions/openai.js`)가 모델 계열에 맞춰 `max_completion_tokens`와 `reasoning_effort`로 자동 변환하며, GPT-4 계열도 그대로 쓸 수 있습니다.
-- **용도별로 모델을 나눌 수 있습니다**: `PERSONA_MODEL`(1단계 인물 대화 전용, 기본 `gpt-5`), `SCENARIO_MODEL`(5단계 시뮬레이션만 더 강한 모델, 예: `gpt-5`), `GUARD_MODEL`(상위 AI 감독자 전용).
-- `REASONING_EFFORT`(기본 `low`)는 대화 응답 속도용입니다. 5단계 시뮬레이션은 코드에서 `medium`으로 고정됩니다. 응답이 느리면 `minimal`, 품질이 아쉬우면 `medium`을 시도하세요.
-- 정확한 모델명은 OpenAI 대시보드의 Models 페이지에서 확인하세요. 새 버전이 나오면 이름만 바꿔 `firebase deploy --only functions`를 다시 실행하면 됩니다.
+`functions/.env`에서 용도별로 정합니다. `.env`의 값이 코드 기본값보다 먼저입니다. 다만 지원이 끝나는 처음 GPT-5(`gpt-5`, `gpt-5-mini`, `gpt-5-nano`와 날짜 붙은 스냅샷)가 적혀 있으면 서버가 그 자리의 기본 모델로 바꿔 쓰므로, **`.env`를 고치지 않고 배포해도 새 모델로 동작**합니다. `TOPIC_MODEL`·`TOPIC_SEARCH_MODEL`·`TOPIC_DAILY_LIMIT`은 `.env`에 없으면 배포 때 묻지 않고 기본값을 씁니다.
+`gpt-5`·`gpt-5-mini`는 2026-12-11에 API에서 종료되므로, 기본값을 비용과 성능의 균형을 맞춘 GPT-5.6 조합(sol 최상위 / terra 균형 / luna 저가)으로 바꿨습니다(2026-10).
+
+| 설정 | 쓰는 곳 | 기본값 |
+|---|---|---|
+| `OPENAI_MODEL` | 2단계 생각 도우미, 3단계 사실 확인, 4단계 검토, 따로 정하지 않은 곳 | `gpt-5.6-luna` |
+| `PERSONA_MODEL` | 1단계 인물 대화 | `gpt-5.6-terra` |
+| `GUARD_MODEL` | 상위 AI 감독자(모든 인물 응답 검사) | `gpt-5.6-terra` |
+| `SCENARIO_MODEL` | 5단계 시뮬레이션 | `gpt-5.6-terra` |
+| `SEARCH_MODEL` | 인물의 사실 찾아보기·3단계 웹 검색 요약 | 비움(→ `OPENAI_MODEL`) |
+| `DEMO_MODEL` | 체험 페이지 | 비움(→ `OPENAI_MODEL`), `.env.example` 은 `gpt-5.6-luna` |
+| `TOPIC_MODEL` / `TOPIC_SEARCH_MODEL` | 내 주제 만들기 / 주제 조사(웹 검색) | `gpt-5.6-sol` / `gpt-5.6-terra` |
+
+- 추론 모델은 `max_tokens`와 `temperature`를 받지 않습니다. 코드(`functions/openai.js`)가 모델 계열에 맞춰 `max_completion_tokens`와 `reasoning_effort`로 바꿔 보내고, GPT-4 계열도 그대로 쓸 수 있습니다.
+- **사고량 값은 모델마다 받는 것이 다릅니다.** 코드 안에서는 가장 가벼운 사고량을 `minimal`로 적고, `openai.js`가 처음 GPT-5에는 `minimal`, 그 뒤 계열(gpt-5.1~5.6, gpt-6 Luna)에는 `none`, none 을 받지 않는 모델(gpt-6 Astra·Sol, o 시리즈)에는 `low`로 바꿔 보냅니다.
+- **GPT-5.6 이후 계열은 Chat Completions 에서 함수 도구와 사고량을 함께 쓰면 거절합니다.** 그래서 인물이 사실을 찾아보는 대화(lookup 도구를 주는 호출, `functions/lookup.js`)는 **Responses API** 로 부릅니다. 여기서는 도구와 사고량을 함께 쓸 수 있어 인물이 정한 사고량(`REASONING_EFFORT`, 기본 `low`)으로 생각하고 답합니다. 앞 차례의 사고 항목과 도구 호출을 다음 차례 입력에 이어 붙이고, 마지막 차례는 도구를 막아 반드시 글로 답하게 합니다.
+- `REASONING_EFFORT`(기본 `low`)는 대화 응답 속도용입니다. 5단계 시뮬레이션은 코드에서 `medium`으로 고정됩니다.
+- **모델을 바꾼 뒤에는 교사 화면 '인물·자료 점검' 탭의 '연결·AI 점검'을 누르세요.** 모델마다 쓰는 곳과 JSON 응답, 인물의 사실 찾아보기(도구 경로), 웹 검색, 주제 조사의 인용 링크까지 시험합니다.
 - 비용은 모델과 추론 사고량(reasoning 토큰도 출력 토큰으로 과금)에 따라 달라집니다. 1단계 대화는 인물 응답과 감독자 검사로 호출이 2번이므로, 수업 전에 OpenAI 대시보드에서 사용량 한도(Usage limits)를 설정해 두세요.
 
 ### 3. 첫 점검
 1. `/teacher.html`에서 구글 로그인 → "점검 (교사 전용)" 탭에 인물 9명이 보이는지 확인
 2. 수업 만들기 → 6자리 코드 확인 → 다른 기기(휴대폰)에서 `/` 접속해 코드·모둠 번호·별명으로 입장
 3. 학생 화면에서 편지를 읽고 인물과 바로 대화, 교사 화면 "수업 현황"에서 접속·단계와 대화 기록, 감독자 판정(`guard`) 확인
-4. 리허설이 끝나면 `functions/.env`의 `ALLOW_UNVERIFIED_PERSONAS`를 지우거나 `false`로 바꾸고 `firebase deploy --only functions`
+4. 학생에게는 원문 대조(`verified`)를 마친 인물·자료만 보입니다(예전의 리허설 설정 `ALLOW_UNVERIFIED_PERSONAS`는 없앴습니다). 수업 전에 미리 해 보려면 체험 페이지(`/demo.html`)를 씁니다.
 
 > Analytics는 연결하지 않았습니다(학생 대상 서비스). 웹 설정값의 `apiKey`는 프로젝트 식별용 공개 값이며, 접근 통제는 Firestore 보안 규칙과 Cloud Functions가 담당합니다.
 
@@ -317,7 +342,7 @@ firebase deploy
 1. `docs/PERSONA_SOURCES.md`(또는 교사 화면의 "점검 (교사 전용)" 탭)에서 출처 링크를 열어 진술과 대조합니다.
 2. 틀린 진술은 `functions/cases/`의 사건 파일에서 고치고, 확인한 출처에는 사건 파일 `SOURCES`의 그 항목에 `verified: true`를 적습니다.
 3. `cd functions && npm run export-sources > ../docs/PERSONA_SOURCES.md`로 점검표를 갱신하고 배포합니다.
-- 리허설은 `functions/.env`에 `ALLOW_UNVERIFIED_PERSONAS=true`를 넣으면 대조 전 인물도 보입니다. 실제 수업 전에는 지우세요.
+- 대조 전 인물·자료를 학생에게 보이게 하는 설정은 없습니다. 미리 해 보려면 체험 페이지(`/demo.html`)를 쓰세요.
 - 출처 제목 중 일부(J15, J17)는 설명 문구이며 실제 제목이 아닙니다.
 - 고용주(강태호)는 직접 인터뷰 자료가 부족해 보도된 고용 상황을 바탕으로 구성했습니다. 고용주 인터뷰를 찾으면 근거를 보강하세요. 난민 인정자 본인의 장기 정착 증언은 아직 없습니다.
 
@@ -330,7 +355,7 @@ firebase deploy
 
 ## 수업 전 체크리스트 (코드로 대신할 수 없는 것)
 1. **연결 점검 실행**: 교사 화면 → 인물·자료 점검 → *연결·AI 점검 실행*. 모든 항목이 "정상"인지, 웹 검색이 "찾음"인지 확인합니다.
-2. **원문 대조**: `functions/cases/`의 사건 파일에 있는 출처를 원문과 대조하고 `verified: true`를 적어 배포합니다(안 하면 인물과 자료가 학생에게 보이지 않습니다. 세 사건 모두 대조를 마쳤습니다. 리허설만 `ALLOW_UNVERIFIED_PERSONAS=true`).
+2. **원문 대조**: `functions/cases/`의 사건 파일에 있는 출처를 원문과 대조하고 `verified: true`를 적어 배포합니다(안 하면 인물과 자료가 학생에게 보이지 않습니다. 기본 주제 다섯 개 모두 대조를 마쳤습니다).
 3. **OpenAI 사용량 한도**: OpenAI 대시보드(Usage limits)에서 월 한도를 정합니다. 앱의 모둠당 한도와 별개의 안전장치입니다.
 4. **리허설**: 교사 계정과 학생 화면(다른 브라우저)으로 입장해 인물 대화(자료에 없는 사실 질문 포함), 3~5단계 AI, 로그아웃·재입장, 수업 닫기를 한 번씩 해 봅니다. 교사 화면의 대화 보기에서 검색 기록과 감독자 판정을 확인합니다.
 5. 수업이 끝나면 **기록 CSV**를 받아 두고 **수업 닫기**(또는 자동 닫힘), 보관 기간이 지나면 **수업 삭제**.

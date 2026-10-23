@@ -5,6 +5,23 @@
   if (!/^[a-z0-9]+$/.test(t)) { location.replace("demo.html"); return; }
   document.documentElement.classList.add("demo");
   try { sessionStorage.setItem("eps_code", t.toUpperCase()); } catch (e) {}
+  // 단계에 처음 들어갈 때 뜨는 안내 팝업 끝에 '체험에서는 이렇게 달라요'를 덧붙인다(app.js 의 maybeHelp 가 부른다)
+  var AI = "체험용 가벼운 AI라 실제 수업(더 고성능 AI)보다 답의 질이 떨어질 수 있어요.";
+  var DIFF = {
+    "1-pick": "모둠 친구가 없어서 모든 인물을 고를 수 있어요. 실제 수업에서는 모둠원마다 다른 인물을 맡아요.",
+    "1-chat": "인물의 대답은 " + AI + " 묻기는 5번까지이고, 인물이 웹 검색을 하지 않으며, 부적절한 말 경고·대화 멈춤·선생님 알림이 없어요.",
+    "1-note": "혼자 정리하고 선생님에게 제출되지 않아요. 실제 수업에서는 모둠원이 낸 글이 함께 보여요.",
+    "1-group": "모둠 친구 없이 혼자 문제를 정해요. 실제 수업에서는 모둠원과 실시간으로 함께 써요.",
+    "2": "생각 도우미는 " + AI + " 2~5단계 AI 도우미를 합쳐 5번까지예요.",
+    "3": "AI 검색 도우미는 웹 검색 없이 수업 자료만 근거로 답하고, " + AI + " (2~5단계 합쳐 5번까지)",
+    "4": "AI 의견은 " + AI + " (2~5단계 합쳐 5번까지) 모둠원과의 실시간 입력, 선생님 알림은 없어요.",
+    "5": "미래 이야기는 " + AI + " (2~5단계 합쳐 5번까지) 모둠원과의 실시간 입력, 선생님 알림은 없어요.",
+    "6": "모둠 친구와 함께 쓰지 않고, 쓴 글이 선생님 화면으로 가지 않아요.",
+    "7": "모둠 친구와 함께 쓰지 않고, 쓴 글이 선생님 화면으로 가지 않아요."
+  };
+  window.EPS_HELP_EXTRA = function (key) {
+    return DIFF[key] ? '<div class="help-demo" role="note"><b>체험에서는</b> ' + DIFF[key] + "</div>" : "";
+  };
   // 화면 가져오기(import map)를 못 쓰는 오래된 브라우저
   var ok = !!(window.HTMLScriptElement && HTMLScriptElement.supports && HTMLScriptElement.supports("importmap"));
   if (!ok) document.addEventListener("DOMContentLoaded", function () {

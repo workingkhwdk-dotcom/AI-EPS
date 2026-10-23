@@ -4,21 +4,23 @@ const admin = require("firebase-admin");
 const crypto = require("crypto");
 
 const {
-  EVENTS, PERSONAS, DEFAULT_EVENT, availablePersonas, personaSourceIds, toPublicSource, materialsFor, materialsAdmin,
-  casesFor, casesAdmin, aftermathFor, aftermathAdmin, BRIEFS, isRequired,
+  EVENTS, DEFAULT_EVENT, availablePersonas, personaSourceIds, toPublicSource, materialsFor, materialsAdmin,
+  casesFor, casesAdmin, aftermathFor, aftermathAdmin, isRequired, makeBundle, BUNDLES,
 } = require("./case");
 const { checkGate, toList, proposalText } = require("./policy");
 const conduct = require("./conduct");
 const { isPersonal } = require("./charter");
 const prompts = require("./prompts");
-const { chat, extractJson } = require("./openai");
+const { chat, extractJson, respondCited, respondTools } = require("./openai");
 const { guardMessages, parseVerdict, resolveOutput, piiFlags } = require("./guard");
 const { isTeacherEmail, trustedLogin } = require("./teachers");
 const { validatePassword, hashPassword, verifyPassword, normNick, credKey, lockedSeconds, afterFail, afterTotalFail } = require("./password");
 const { defaultMaterials, sanitizeMaterials, toStudentMaterials, materialsText } = require("./materials");
-const { chatWithLookup, webSearch, isSmallTalk } = require("./lookup");
+const { chatWithLookup, webSearch, isSmallTalk, lookupTool } = require("./lookup");
 const { sanitizeOverride, applyOverride } = require("./personaEdit");
 const demo = require("./demo");
+const { makeTopicApi } = require("./topicApi");
+const { fromStored } = require("./topicData");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { AUTO_CLOSE_CHOICES, autoCloseDue, staleAnonymousUids } = require("./maintenance");
 
@@ -26,27 +28,42 @@ admin.initializeApp();
 const db = admin.firestore();
 
 const OPENAI_API_KEY = defineSecret("OPENAI_API_KEY");
-// 기본 모델과 용도별 모델. 비워 두면 OPENAI_MODEL 을 쓴다.
-const OPENAI_MODEL = defineString("OPENAI_MODEL", { default: "gpt-5-mini" });
-const PERSONA_MODEL = defineString("PERSONA_MODEL", { default: "gpt-5" }); // 1단계 인물 대화 전용
-const SCENARIO_MODEL = defineString("SCENARIO_MODEL", { default: "" }); // 5단계 시뮬레이션 전용(더 강한 모델 지정 가능)
-const GUARD_MODEL = defineString("GUARD_MODEL", { default: "" }); // 상위 AI(규범 감독) 전용
-const FEEDBACK_MODELS = defineString("FEEDBACK_MODELS", { default: "" }); // 4단계 독립 검토에 쓸 모델들(쉼표). 비우면 OPENAI_MODEL 로 3회
-const REASONING_EFFORT = defineString("REASONING_EFFORT", { default: "low" }); // 추론 모델의 사고량: minimal|low|medium|high
+// 기본 모델과 용도별 모델. 비워 두면 OPENAI_MODEL 을 쓴다. 기본값은 비용과 성능의 균형을 맞춘 조합이다(2026-10, GPT-5.6 계열).
+//  - 학생이 가장 많이 쓰는 인물 대화·감독자: 균형 모델(terra). 감독자는 안전장치라 저가 모델로 낮추지 않는다.
+//  - 양이 많고 비교적 단순한 보조(2단계 생각 도우미, 3단계 사실 확인, 4단계 검토, 웹 검색 요약, 체험): 저가 모델(luna)
+//  - 추론이 필요한 5단계 시뮬레이션: terra. 가끔 쓰고 여러 수업에 오래 쓰이는 교사 주제 만들기: 최상위 모델(sol)
+// functions/.env 의 값이 이 기본값보다 먼저다. 다만 지원이 끝나는 처음 GPT-5(gpt-5·gpt-5-mini·gpt-5-nano 와 날짜 붙은 스냅샷,
+// 2026-12-11 API 종료)가 .env 에 남아 있으면 그 자리의 기본 모델로 바꿔 쓴다. 그래서 .env 를 고치지 않고 배포해도 새 모델로 돈다.
+const RETIRED_MODEL = /^gpt-5(-mini|-nano)?(-\d{4}-\d{2}-\d{2})?$/;
+const notRetired = (v, fallback) => (RETIRED_MODEL.test(String(v || "").trim()) ? fallback : String(v || "").trim());
+const modelParam = (name, def) => { const p = defineString(name, { default: def }); return { value: () => notRetired(p.value(), def) }; };
+// 이 기능 뒤에 생긴 설정은 Firebase 설정값(defineString)이 아니라 환경 변수로 읽는다. .env 에 줄이 없어도 배포 때 값을 묻지 않고 기본값을 쓴다.
+const envParam = (name, def) => ({ value: () => String(process.env[name] ?? "").trim() || def });
+const OPENAI_MODEL = modelParam("OPENAI_MODEL", "gpt-5.6-luna");
+const PERSONA_MODEL = modelParam("PERSONA_MODEL", "gpt-5.6-terra"); // 1단계 인물 대화 전용
+const SCENARIO_MODEL = modelParam("SCENARIO_MODEL", "gpt-5.6-terra"); // 5단계 시뮬레이션 전용
+const GUARD_MODEL = modelParam("GUARD_MODEL", "gpt-5.6-terra"); // 상위 AI(규범 감독) 전용
+// 4단계 독립 검토에 쓸 모델들(쉼표). 비우면 OPENAI_MODEL 로 3회. 지원이 끝난 이름은 빼고 OPENAI_MODEL 로 채운다.
+const FEEDBACK_MODELS_RAW = defineString("FEEDBACK_MODELS", { default: "" });
+const FEEDBACK_MODELS = { value: () => FEEDBACK_MODELS_RAW.value().split(",").map((m) => m.trim()).filter(Boolean).map((m) => notRetired(m, OPENAI_MODEL.value())).join(",") };
+const REASONING_EFFORT = defineString("REASONING_EFFORT", { default: "low" }); // 추론 모델의 사고량: minimal(가장 가벼움)|low|medium|high. 모델에 맞는 값으로는 openai.js 가 바꾼다
 const PERSONA_WEB_SEARCH = defineString("PERSONA_WEB_SEARCH", { default: "true" }); // 인물이 모르는 사실은 웹에서 찾아 본다(false 로 끄기)
 // 웹 검색을 허용할 도메인(쉼표). 비우면 제한 없음. 예: yna.co.kr,hani.co.kr,moj.go.kr,unhcr.org
 const SEARCH_ALLOWED_DOMAINS = defineString("SEARCH_ALLOWED_DOMAINS", { default: "" });
-const SEARCH_MODEL = defineString("SEARCH_MODEL", { default: "" }); // 웹 검색 호출 전용 모델(비우면 OPENAI_MODEL)
+const SEARCH_MODEL = modelParam("SEARCH_MODEL", ""); // 웹 검색 호출 전용 모델(비우면 OPENAI_MODEL)
 // 체험(demo) 페이지의 AI: 모델(비우면 OPENAI_MODEL)과 하루 전체 호출 한도(비용 보호)
-const DEMO_MODEL = defineString("DEMO_MODEL", { default: "" });
+const DEMO_MODEL = modelParam("DEMO_MODEL", "");
 const DEMO_DAILY_CAP = defineInt("DEMO_DAILY_CAP", { default: 300 });
+// 교사 주제 만들기(topics): 생성 모델, 웹 조사 모델(인용 링크가 문장에 정확히 붙어야 해서 저가 모델은 피한다), 교사 한 명이 하루에 새로 만들 수 있는 주제 수
+const TOPIC_MODEL = { value: () => notRetired(envParam("TOPIC_MODEL", "gpt-5.6-sol").value(), "gpt-5.6-sol") };
+const TOPIC_SEARCH_MODEL = { value: () => notRetired(envParam("TOPIC_SEARCH_MODEL", "gpt-5.6-terra").value(), "gpt-5.6-terra") };
+const TOPIC_DAILY_LIMIT = { value: () => Math.max(1, parseInt(envParam("TOPIC_DAILY_LIMIT", "3").value(), 10) || 3) };
 const TEACHER_EMAILS = defineString("TEACHER_EMAILS", { default: "" });
 // 교사 가입 인증 문구. 코드·저장소에는 두지 않고 functions/.env(git 에 올라가지 않음)의 TEACHER_SIGNUP_CODE 로만 정한다.
 // 비어 있으면 교사 가입이 꺼진다(관리자·TEACHER_EMAILS·config/teachers 로만 교사 지정).
 const TEACHER_SIGNUP_CODE = defineString("TEACHER_SIGNUP_CODE", { default: "" });
-// true 이면 출처 원문 대조 전(verified:false) 페르소나·자료도 사용 가능. 리허설 전용, 실제 수업에서는 false 로 둔다.
-const ALLOW_UNVERIFIED = defineString("ALLOW_UNVERIFIED_PERSONAS", { default: "false" });
-const allowUnverified = () => ALLOW_UNVERIFIED.value() === "true";
+// 학생에게는 출처 원문 대조(verified)를 마친 인물·자료만 나간다. 예전의 리허설 설정(ALLOW_UNVERIFIED_PERSONAS)은 없앴다.
+// 수업 전에 미리 해 보려면 체험(demo) 페이지를 쓴다. .env 에 그 줄이 남아 있어도 읽지 않는다.
 
 const REGION = "asia-northeast3"; // 서울
 const MAX_AI_CALLS_PER_GROUP = 150; // 수업별로 정하지 않았을 때의 모둠당 한도(3~5단계)
@@ -72,8 +89,10 @@ const MIN_INSTANCES = defineInt("MIN_INSTANCES", { default: 0 });
 const fastOpts = { region: REGION, cors: true, cpu: 1, memory: "512MiB", minInstances: MIN_INSTANCES, maxInstances: 3 }; // 3 × 80 = 동시에 240건
 // 추론 모델(특히 5단계 시뮬레이션)은 응답에 1분 넘게 걸릴 수 있어 넉넉히 둔다.
 const aiOpts = { region: REGION, cors: true, cpu: 1, secrets: [OPENAI_API_KEY], timeoutSeconds: 300, maxInstances: 4 }; // 4 × 80 = 동시에 320건
-// 교사 점검용 연결 확인: 가끔 한 번만 부른다
-const checkOpts = { ...aiOpts, maxInstances: 1 };
+// 교사 점검용 연결 확인: 가끔 한 번만 부르고 짧게 기다리기만 하므로 CPU 를 적게 잡는다
+const checkOpts = { ...aiOpts, cpu: "gcf_gen1", maxInstances: 1 };
+// 교사 주제 만들기: 단계마다 몇 분씩 AI 응답을 기다린다(대부분 기다리는 시간이라 CPU 는 적게, 시간은 길게).
+const topicOpts = { region: REGION, cors: true, cpu: "gcf_gen1", memory: "256MiB", secrets: [OPENAI_API_KEY], timeoutSeconds: 540, maxInstances: 3 };
 
 const FieldValue = () => admin.firestore.FieldValue;
 
@@ -154,6 +173,23 @@ async function closeIfDue(code, sess) {
   return true;
 }
 
+// 수업의 주제 묶음. 기본 주제는 코드(cases/*.js)에서, 교사가 만든 주제는 수업을 만들 때 복사해 둔 사본(private/topic)에서 읽는다.
+// 사본은 수업마다 따로라서, 교사가 원본 주제를 고치거나 지워도 진행 중인 수업은 그대로다. 같은 인스턴스에서는 잠깐 기억해 둔다.
+const topicRef = (code) => db.doc(`sessions/${code}/private/topic`);
+const topicCache = new Map();
+const TOPIC_CACHE_MS = 30 * 1000;
+async function bundleOf(code, sess) {
+  if (!sess?.topicId) return BUNDLES[sess?.eventId] || BUNDLES[DEFAULT_EVENT];
+  const hit = topicCache.get(code);
+  if (hit && Date.now() - hit.t < TOPIC_CACHE_MS) return hit.b;
+  const snap = await topicRef(code).get();
+  if (!snap.exists) throw new HttpsError("failed-precondition", "이 수업의 주제 자료를 찾을 수 없습니다. 선생님께 문의하세요.");
+  const b = makeBundle(fromStored(snap.data().bundle), { custom: true });
+  topicCache.set(code, { t: Date.now(), b });
+  return b;
+}
+const forgetTopic = (code) => topicCache.delete(code);
+
 async function newCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   for (let i = 0; i < 10; i++) {
@@ -228,16 +264,21 @@ exports.registerTeacher = onCall(opts, async (req) => {
 exports.createSession = onCall(opts, async (req) => {
   const auth = await requireTeacher(req);
   const groupCount = Math.min(Math.max(parseInt(req.data?.groupCount, 10) || 6, 1), MAX_GROUPS);
-  const eventId = EVENTS[req.data?.eventId] ? req.data.eventId : DEFAULT_EVENT;
-  if (!availablePersonas(eventId, allowUnverified()).length)
-    throw new HttpsError("failed-precondition", "원문 대조가 끝난 페르소나가 없습니다. case.js 의 출처 verified 를 확인하세요.");
-  const title = String(req.data?.title || EVENTS[eventId].title).slice(0, 80);
+  // 교사가 만든 주제(topicId)면 그 주제의 지금 내용을 수업에 복사한다. 아니면 기본 주제(eventId).
+  const topic = req.data?.topicId ? await topicApi.forClass(auth, req.data.topicId) : null;
+  const eventId = topic ? topic.bundle.EVENT.id : EVENTS[req.data?.eventId] ? req.data.eventId : DEFAULT_EVENT;
+  const b = topic ? makeBundle(fromStored(topic.bundle), { custom: true }) : BUNDLES[eventId];
+  if (!availablePersonas(b).length)
+    throw new HttpsError("failed-precondition", topic ? "원문 확인을 마친 인물이 없습니다. 내 주제에서 출처를 확인하세요." : "원문 대조가 끝난 페르소나가 없습니다. case.js 의 출처 verified 를 확인하세요.");
+  const title = String(req.data?.title || b.event.title).slice(0, 80);
   const code = await newCode();
   const batch = db.batch();
+  if (topic) batch.set(topicRef(code), { topicId: topic.id, title: topic.title, bundle: topic.bundle, copiedAt: FieldValue().serverTimestamp() });
   batch.set(db.doc(`sessions/${code}`), {
     teacherUid: auth.uid,
     title,
     eventId,
+    ...(topic ? { topicId: topic.id } : {}),
     groupCount,
     closed: false,
     started: false, // 교사가 '수업 시작'을 누르기 전까지는 대기실. 이 값이 없는 예전 수업은 시작된 것으로 본다.
@@ -317,7 +358,8 @@ exports.joinSession = onCall(fastOpts, async (req) => {
   if (!(groupNo >= 1 && groupNo <= sess.groupCount))
     throw new HttpsError("invalid-argument", "모둠 번호가 올바르지 않습니다.");
   const groupId = `g${groupNo}`;
-  if (!availablePersonas(sess.eventId, allowUnverified()).length) throw new HttpsError("failed-precondition", "아직 사용할 수 있는 인물이 없습니다. 선생님께 문의하세요.");
+  const b = await bundleOf(code, sess);
+  if (!availablePersonas(b).length) throw new HttpsError("failed-precondition", "아직 사용할 수 있는 인물이 없습니다. 선생님께 문의하세요.");
   const groupRef = db.doc(`sessions/${code}/groups/${groupId}`);
 
   // 1) 비밀번호 확인. 잠금은 틀린 사람(접속 계정)별로 먼저 걸리고, 별명 전체에는 더 느슨하게 걸린다(친구가 일부러 틀려서 막는 일 방지).
@@ -382,7 +424,7 @@ exports.joinSession = onCall(fastOpts, async (req) => {
   const saved = hashP ? await hashP : { salt: cred.salt, hash: cred.hash };
   const [, caseData] = await Promise.all([
     credRef.set({ ...saved, uid: auth.uid, groupId, fails: 0, lockUntil: 0 }),
-    studentCase(code, sess, auth.uid),
+    studentCase(code, sess, auth.uid, undefined, b),
   ]);
   return { groupId, nickname, started: sess.started !== false, chatLimit: sess.chatLimit || CHAT_LIMIT, case: caseData };
 });
@@ -395,12 +437,13 @@ async function personaIdOf(code, uid, member) {
 
 // 학생 화면이 쓰는 수업 내용. 모든 인물의 편지(이름·한 줄 소개·편지)와 내가 고른 인물, 모둠원이 고른 인물을 함께 보낸다.
 // 인물의 역할·근거·출처·말투는 보내지 않는다.
-async function studentCase(code, sess, uid, member) {
-  const ev = EVENTS[sess.eventId];
+async function studentCase(code, sess, uid, member, bundle) {
+  const b = bundle || (await bundleOf(code, sess));
+  const ev = b.event;
   const gid = member?.groupId;
   const [personas, materials, a, groupSnap] = await Promise.all([
-    personasFor(code, ev.id),
-    studentMaterials(code, ev.id),
+    personasFor(code, b),
+    studentMaterials(code, b),
     db.doc(`sessions/${code}/assign/${uid}`).get(),
     gid ? db.doc(`sessions/${code}/groups/${gid}`).get() : Promise.resolve(null),
   ]);
@@ -410,12 +453,12 @@ async function studentCase(code, sess, uid, member) {
     title: ev.title,
     summary: ev.summary,
     stakeholders: ev.stakeholders,
-    letters: personas.map((p) => ({ id: p.id, name: p.name, brief: BRIEFS[p.id] || p.label || "", letter: p.letter, required: isRequired(p), personal: isPersonal(p) })),
+    letters: personas.map((p) => ({ id: p.id, name: p.name, brief: b.briefs[p.id] || p.label || "", letter: p.letter, required: isRequired(p), personal: isPersonal(p) })),
     me: mine ? { id: mine.id, name: mine.name, letter: mine.letter, personal: isPersonal(mine) } : null,
     ui: ev.ui,
     materials,
-    cases: casesFor(ev.id, allowUnverified()),
-    aftermath: aftermathFor(ev.id, allowUnverified()),
+    cases: casesFor(b),
+    aftermath: aftermathFor(b),
   };
 }
 
@@ -430,7 +473,8 @@ exports.choosePersona = onCall(fastOpts, async (req) => {
   if (!sessSnap.exists || !memSnap.exists) throw new HttpsError("permission-denied", "이 수업의 참여자가 아닙니다.");
   const sess = sessSnap.data();
   if (await closeIfDue(code, sess)) throw new HttpsError("failed-precondition", CLOSED_MSG);
-  const personas = await personasFor(code, sess.eventId);
+  const b = await bundleOf(code, sess);
+  const personas = await personasFor(code, b);
   const persona = personas.find((p) => p.id === pid);
   if (!persona) throw new HttpsError("not-found", "인물을 찾을 수 없습니다.");
   const { groupId, nickname } = memSnap.data();
@@ -446,7 +490,7 @@ exports.choosePersona = onCall(fastOpts, async (req) => {
     if (picks[pid] && picks[pid].uid !== auth.uid) throw new HttpsError("already-exists", `${picks[pid].nick || "다른 친구"}가 이미 고른 인물이에요. 다른 인물을 골라 보세요.`);
     if (cur && isRequired(personas.find((p) => p.id === cur)) && !isRequired(persona)) {
       const another = Object.entries(picks).some(([id, pk]) => pk?.uid !== auth.uid && isRequired(personas.find((p) => p.id === id)));
-      const who = EVENTS[sess.eventId].ui.requiredWho;
+      const who = b.event.ui.requiredWho;
       if (!another) throw new HttpsError("failed-precondition", `모둠에 ${who} 인물을 맡은 친구가 한 명은 있어야 해요. 다른 친구가 그 인물을 고른 뒤에 바꿀 수 있어요.`);
     }
     const used = (ag.exists ? ag.data().personaIds || [] : []).slice();
@@ -559,9 +603,9 @@ exports.updateSession = onCall(opts, async (req) => {
 const personasRef = (code) => db.doc(`sessions/${code}/private/personas`);
 const overridesOf = async (code) => { const s = await personasRef(code).get(); return s.exists ? s.data().overrides || {} : {}; };
 // 이 수업에서 쓰는 인물 목록(교사가 고친 항목을 반영)
-async function personasFor(code, eventId) {
+async function personasFor(code, bundle) {
   const ov = await overridesOf(code);
-  return availablePersonas(eventId, allowUnverified()).map((p) => applyOverride(p, ov[p.id]));
+  return availablePersonas(bundle).map((p) => applyOverride(p, ov[p.id]));
 }
 
 exports.getPersonaOverrides = onCall(opts, async (req) => {
@@ -572,7 +616,7 @@ exports.getPersonaOverrides = onCall(opts, async (req) => {
 exports.savePersonaOverride = onCall(opts, async (req) => {
   const { code, sess } = await ownSession(req);
   const pid = String(req.data?.personaId || "");
-  if (!availablePersonas(sess.eventId, true).some((p) => p.id === pid)) throw new HttpsError("not-found", "인물을 찾을 수 없습니다.");
+  if (!availablePersonas(await bundleOf(code, sess), true).some((p) => p.id === pid)) throw new HttpsError("not-found", "인물을 찾을 수 없습니다.");
   let fields;
   try { fields = sanitizeOverride(req.data?.fields); } catch (e) { throw new HttpsError("invalid-argument", e.message); }
   const ov = await overridesOf(code);
@@ -641,18 +685,45 @@ exports.healthCheck = onCall(checkOpts, async (req) => {
   await requireTeacher(req);
   const apiKey = OPENAI_API_KEY.value();
   const timed = async (fn) => { const t = Date.now(); try { return { ok: true, ms: Date.now() - t, ...(await fn()) }; } catch (e) { return { ok: false, ms: Date.now() - t, error: String(e.message).slice(0, 200) }; } };
-  const ask = (model) => timed(async () => ({ model, reply: String(await chat({ apiKey, model, messages: [{ role: "user", content: "'ok'라고만 답해." }], maxTokens: 20, effort: "minimal" })).slice(0, 30) }));
-  const models = [...new Set([OPENAI_MODEL.value(), PERSONA_MODEL.value() || OPENAI_MODEL.value(), GUARD_MODEL.value() || OPENAI_MODEL.value(), SCENARIO_MODEL.value() || OPENAI_MODEL.value()])];
+  // 모델마다 어디에 쓰이는지 함께 보여 준다. 모델 이름을 바꾼 뒤 이 점검으로 모두 되는지 확인한다.
+  const base = OPENAI_MODEL.value();
+  const roles = new Map();
+  const use = (model, role) => { if (model) roles.set(model, [...(roles.get(model) || []), role]); };
+  use(base, "기본(2단계 도우미·3단계 확인·4단계 검토)");
+  use(PERSONA_MODEL.value() || base, "1단계 인물 대화");
+  use(GUARD_MODEL.value() || base, "감독자");
+  use(SCENARIO_MODEL.value() || base, "5단계 시뮬레이션");
+  FEEDBACK_MODELS.value().split(",").map((m) => m.trim()).filter(Boolean).forEach((m) => use(m, "4단계 검토"));
+  use(DEMO_MODEL.value() || base, "체험 페이지");
+  use(TOPIC_MODEL.value() || base, "내 주제 만들기");
+  // JSON 모드로 묻는다(감독자·도우미·시뮬레이션·주제 만들기가 JSON 으로 답을 받는다). 가장 가벼운 사고량은 모델에 맞게 바뀐다(openai.js).
+  const ask = (model) => timed(async () => ({ model, roles: roles.get(model), reply: JSON.stringify(extractJson(await chat({ apiKey, model, json: true, messages: [{ role: "user", content: 'JSON 으로 {"ok":true} 라고만 답해.' }], maxTokens: 40, effort: "minimal" }))).slice(0, 30) }));
   const domains = SEARCH_ALLOWED_DOMAINS.value().split(",").map((x) => x.trim()).filter(Boolean);
-  const [firestore, ...modelResults] = await Promise.all([
+  const ev = EVENTS[DEFAULT_EVENT];
+  const personaModel = PERSONA_MODEL.value() || base;
+  const searchOff = PERSONA_WEB_SEARCH.value() === "false";
+  const [firestore, models, lookup, search, topicSearch] = await Promise.all([
     timed(async () => { await db.doc("config/teachers").get(); return {}; }),
-    ...models.map(ask),
+    Promise.all([...roles.keys()].map(ask)),
+    // 인물의 사실 찾아보기: 인물 모델에 함수 도구(lookup)를 주고 정한 사고량으로 Responses API 를 부른다(lookup.js 와 같은 경로)
+    searchOff ? { skipped: true } : timed(async () => {
+      const f = lookupTool(ev).function;
+      const r = await respondTools({ apiKey, model: personaModel, maxTokens: 60, effort: REASONING_EFFORT.value(), tools: [{ type: "function", name: f.name, description: f.description, parameters: f.parameters }],
+        input: [{ role: "system", content: "도구는 쓰지 말고 '안녕하세요'라고만 답한다." }, { role: "user", content: "안녕하세요" }] });
+      return { model: personaModel, reply: (r.text || (r.calls.length ? "(도구 호출)" : "")).slice(0, 30) };
+    }),
+    searchOff ? { skipped: true } : timed(async () => { const r = await webSearch({ apiKey, model: SEARCH_MODEL.value() || base, event: ev, query: ev.search.example, domains }); if (r.error) throw new Error("검색 호출 실패(모델이 web_search 를 지원하는지 확인)"); return { model: SEARCH_MODEL.value() || base, found: r.found, sources: r.sources.length }; }),
+    // 주제 조사: 문장에 인용 링크가 붙어야 사실 은행에 들어간다(topicBuild.js). 인용이 붙는지 본다.
+    timed(async () => {
+      const model = TOPIC_SEARCH_MODEL.value() || TOPIC_MODEL.value() || base;
+      const r = await respondCited({ apiKey, model, effort: "low", maxTokens: 600, input: ev.search.example,
+        instructions: "웹에서 찾아 한국어로 '- [사실] 문장' 형식의 줄 2개만 쓴다. 문장마다 끝에 근거 기사를 인용한다." });
+      return { model, cites: r.cites.length };
+    }),
   ]);
-  const search = PERSONA_WEB_SEARCH.value() === "false" ? { skipped: true }
-    : await timed(async () => { const ev = EVENTS[DEFAULT_EVENT]; const r = await webSearch({ apiKey, model: SEARCH_MODEL.value() || OPENAI_MODEL.value(), event: ev, query: ev.search.example, domains }); return { found: r.found, sources: r.sources.length, error: r.error ? "검색 호출 실패(모델이 web_search 를 지원하는지 확인)" : undefined }; });
   return {
-    firestore, models: modelResults, search,
-    config: { webSearch: PERSONA_WEB_SEARCH.value() !== "false", allowedDomains: domains.length, allowUnverified: allowUnverified(), personas: availablePersonas(DEFAULT_EVENT, allowUnverified()).length },
+    firestore, models, lookup, search: searchOff ? { skipped: true } : search, topicSearch,
+    config: { webSearch: !searchOff, allowedDomains: domains.length, personas: availablePersonas(DEFAULT_EVENT).length },
   };
 });
 
@@ -663,7 +734,7 @@ exports.cloneSession = onCall(opts, async (req) => {
   const newCodeStr = await newCode();
   const batch = db.batch();
   batch.set(db.doc(`sessions/${newCodeStr}`), {
-    teacherUid: auth.uid, title, eventId: sess.eventId, groupCount: sess.groupCount, closed: false, started: false,
+    teacherUid: auth.uid, title, eventId: sess.eventId, ...(sess.topicId ? { topicId: sess.topicId } : {}), groupCount: sess.groupCount, closed: false, started: false,
     aiLimit: sess.aiLimit || MAX_AI_CALLS_PER_GROUP, chatLimit: sess.chatLimit || CHAT_LIMIT, webSearch: sess.webSearch !== false, coach: sess.coach !== false, autoCloseHours: sess.autoCloseHours || 0,
     createdAt: FieldValue().serverTimestamp(),
   });
@@ -672,6 +743,11 @@ exports.cloneSession = onCall(opts, async (req) => {
   if (mats.exists) batch.set(materialsRef(newCodeStr), { categories: mats.data().categories, updatedAt: FieldValue().serverTimestamp() });
   const ovs = await personasRef(code).get();
   if (ovs.exists) batch.set(personasRef(newCodeStr), { overrides: ovs.data().overrides || {}, updatedAt: FieldValue().serverTimestamp() });
+  // 교사가 만든 주제의 수업이면 주제 사본도 함께 가져간다(원본 주제를 지웠어도 복제할 수 있다)
+  if (sess.topicId) {
+    const t = await topicRef(code).get();
+    if (t.exists) batch.set(topicRef(newCodeStr), { ...t.data(), copiedAt: FieldValue().serverTimestamp() });
+  }
   await batch.commit();
   return { code: newCodeStr, title };
 });
@@ -691,7 +767,7 @@ exports.getMaterials = onCall(opts, async (req) => {
   const snap = await materialsRef(code).get();
   return snap.exists
     ? { categories: snap.data().categories || [], isDefault: false }
-    : { categories: defaultMaterials(sess.eventId, allowUnverified()), isDefault: true };
+    : { categories: defaultMaterials(await bundleOf(code, sess)), isDefault: true };
 });
 
 exports.saveMaterials = onCall(opts, async (req) => {
@@ -703,16 +779,16 @@ exports.saveMaterials = onCall(opts, async (req) => {
 });
 
 // 학생이 보는 2단계 자료: 교사가 이 수업의 자료를 고쳤다면 그 목록, 아니면 기본 자료
-async function studentMaterials(code, eventId) {
+async function studentMaterials(code, bundle) {
   const custom = await materialsRef(code).get();
-  return custom.exists ? toStudentMaterials(custom.data().categories) : materialsFor(eventId, allowUnverified());
+  return custom.exists ? toStudentMaterials(custom.data().categories) : materialsFor(bundle);
 }
 
 // 이 수업만의 자료를 지우고 기본 자료로 되돌린다
 exports.resetMaterials = onCall(opts, async (req) => {
   const { code, sess } = await ownSession(req);
   await materialsRef(code).delete();
-  return { categories: defaultMaterials(sess.eventId, allowUnverified()), isDefault: true };
+  return { categories: defaultMaterials(await bundleOf(code, sess)), isDefault: true };
 });
 
 // 화면이 쓰는 수업 설정.
@@ -721,28 +797,22 @@ exports.resetMaterials = onCall(opts, async (req) => {
 exports.getCase = onCall(fastOpts, async (req) => {
   const auth = requireAuth(req);
 
-  if (req.data?.eventId) {
-    await requireTeacher(req);
-    const ev = EVENTS[req.data.eventId];
-    if (!ev) throw new HttpsError("not-found", "사건을 찾을 수 없습니다.");
-    const full = (p) => ({
-      id: p.id, axis: p.axis, label: p.label, name: p.name, role: p.role, stance: p.stance, setting: p.setting, voice: p.voice, basis: p.basis, letter: p.letter, views: p.views, story: p.story, episodes: p.episodes, inner: p.inner, habits: p.habits, limits: p.limits || [], beliefs: (p.beliefs || []).map(([text, note]) => ({ text, note })),
-      sources: personaSourceIds(p).map(toPublicSource),
-      claims: p.claims.map(([text, src, kind]) => ({ text, src, kind })),
-    });
-    const materials = materialsAdmin(ev.id).map((c) => ({
-      ...c,
-      items: c.items.map((it) => ({ ...it, verified: it.src.every((id) => toPublicSource(id).verified) })),
-    }));
-    return {
-      event: { id: ev.id, title: ev.title, summary: ev.summary, teacherNote: ev.teacherNote, axes: ev.axes, requiredAxis: ev.requiredAxis,
-        background: (ev.background || []).map(([text, src, kind]) => ({ text, src, kind, verified: toPublicSource(src).verified })) },
-      personas: PERSONAS.filter((p) => p.events.includes(ev.id)).map(full),
-      materials,
-      cases: casesAdmin(ev.id).map((c) => ({ ...c, sources: c.src.map(toPublicSource) })),
-      aftermath: aftermathAdmin(ev.id).map((a) => ({ ...a, sources: a.src.map(toPublicSource) })),
-      allowUnverified: allowUnverified(),
-    };
+  // 교사: 기본 주제(eventId), 내가 만든 주제(topicId), 내 수업의 주제(code + admin)
+  if (req.data?.eventId || req.data?.topicId || req.data?.admin) {
+    let b;
+    if (req.data.admin) { const { code, sess } = await ownSession(req); b = await bundleOf(code, sess); }
+    else if (req.data.topicId) {
+      const auth = await requireTeacher(req);
+      const t = await topicApi.own(auth, req.data.topicId);
+      if (!t.file?.EVENT || !(t.file.PERSONAS || []).length) throw new HttpsError("failed-precondition", "아직 다 만들지 않은 주제입니다.");
+      b = makeBundle(t.file, { custom: true });
+    }
+    else {
+      await requireTeacher(req);
+      b = BUNDLES[req.data.eventId];
+      if (!b) throw new HttpsError("not-found", "사건을 찾을 수 없습니다.");
+    }
+    return adminCase(b);
   }
 
   const code = String(req.data?.code || "").toUpperCase();
@@ -751,6 +821,29 @@ exports.getCase = onCall(fastOpts, async (req) => {
   if (await closeIfDue(code, sess.data())) throw new HttpsError("failed-precondition", CLOSED_MSG);
   return studentCase(code, sess.data(), auth.uid, mem.data());
 });
+
+// 교사용 주제 전체: 인물별 근거 진술·출처 검증 현황, 자료 전체
+function adminCase(b) {
+  const ev = b.event, src = (id) => toPublicSource(id, b);
+  const full = (p) => ({
+    id: p.id, axis: p.axis, label: p.label, name: p.name, role: p.role, stance: p.stance, setting: p.setting, voice: p.voice, basis: p.basis, letter: p.letter, views: p.views, story: p.story, episodes: p.episodes, inner: p.inner, habits: p.habits, limits: p.limits || [], beliefs: (p.beliefs || []).map(([text, note]) => ({ text, note })),
+    sources: personaSourceIds(p).map(src),
+    claims: p.claims.map(([text, s, kind]) => ({ text, src: s, kind })),
+  });
+  const materials = materialsAdmin(b).map((c) => ({
+    ...c,
+    items: c.items.map((it) => ({ ...it, verified: it.src.every((id) => src(id).verified) })),
+  }));
+  return {
+    event: { id: ev.id, title: ev.title, summary: ev.summary, teacherNote: ev.teacherNote, axes: ev.axes, requiredAxis: ev.requiredAxis,
+      background: (ev.background || []).map(([text, s, kind]) => ({ text, src: s, kind, verified: src(s).verified })) },
+    personas: b.personas.filter((p) => p.events.includes(ev.id)).map(full),
+    materials,
+    cases: casesAdmin(b).map((c) => ({ ...c, sources: c.src.map(src) })),
+    aftermath: aftermathAdmin(b).map((a) => ({ ...a, sources: a.src.map(src) })),
+    custom: b.custom,
+  };
+}
 
 // ---------- AI 호출 ----------
 
@@ -786,9 +879,10 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
   const sessData = (await db.doc(`sessions/${code}`).get()).data();
   if (!sessData || (await closeIfDue(code, sessData))) throw new HttpsError("failed-precondition", CLOSED_MSG);
   if (sessData.started === false) throw new HttpsError("failed-precondition", WAITING_MSG);
-  const ev = EVENTS[sessData.eventId];
+  const bundle = await bundleOf(code, sessData);
+  const ev = bundle.event;
   const evCtx = { summary: ev.summary, premise: ev.summary };
-  const personas = await personasFor(code, ev.id);
+  const personas = await personasFor(code, bundle);
   const groupRef = db.doc(`sessions/${code}/groups/${groupId}`);
   const group = (await groupRef.get()).data() || {};
   const work = group.work || {};
@@ -958,7 +1052,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
         (c.srcType ? `\n학생들이 확인하려는 자료 종류: ${clip(c.srcType, 40)}` : "");
       // 모델의 기억이 아니라 수업 자료와 웹 검색 결과를 근거로 답하게 한다
       const [mats, found] = await Promise.all([
-        studentMaterials(code, ev.id).then((cats) => materialsText(cats)),
+        studentMaterials(code, bundle).then((cats) => materialsText(cats)),
         searchOn ? search(clip(c.question, 200)) : Promise.resolve(null),
       ]);
       messages = [{ role: "system", content: prompts.verifyPrompt(evCtx, { materials: mats, search: found }) }, { role: "user", content: input }];
@@ -1015,6 +1109,28 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
     throw new HttpsError("unavailable", "AI 응답을 받지 못했습니다. 잠시 후 다시 시도하세요.");
   }
 });
+
+// ---------- 교사 주제 만들기 ----------
+// AI 연결: 웹 조사(인용 위치 포함)와 JSON 답. JSON 을 읽지 못하면 한 번 더 묻는다.
+const topicAi = {
+  search: ({ instructions, input, maxTokens }) => respondCited({
+    apiKey: OPENAI_API_KEY.value(), model: TOPIC_SEARCH_MODEL.value() || TOPIC_MODEL.value() || OPENAI_MODEL.value(), instructions, input, maxTokens, effort: "low",
+  }),
+  json: async ({ messages, maxTokens, effort = "medium" }) => {
+    let last;
+    for (let i = 0; i < 2; i++) {
+      try {
+        return extractJson(await callModel({ apiKey: OPENAI_API_KEY.value(), model: TOPIC_MODEL.value() || OPENAI_MODEL.value(), messages, json: true, maxTokens, efforts: [effort] }));
+      } catch (e) { last = e; }
+    }
+    throw last;
+  },
+};
+const topicApi = makeTopicApi({
+  db, FieldValue, HttpsError, requireTeacher, ai: topicAi,
+  dailyLimit: () => TOPIC_DAILY_LIMIT.value(), onSessionTopic: forgetTopic,
+});
+exports.topics = onCall(topicOpts, (req) => topicApi.handle(req));
 
 // ---------- 체험(demo) 페이지의 AI ----------
 // 로그인 없이 누구나 부를 수 있어서 비용을 지키는 장치가 여러 겹이다: 기기·주제마다 횟수(인물 5번, 도우미 5번), 하루 전체 한도(DEMO_DAILY_CAP),
