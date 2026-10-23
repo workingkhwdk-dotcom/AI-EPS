@@ -32,24 +32,32 @@ const OPENAI_API_KEY = defineSecret("OPENAI_API_KEY");
 //  - 학생이 가장 많이 쓰는 인물 대화·감독자: 균형 모델(terra). 감독자는 안전장치라 저가 모델로 낮추지 않는다.
 //  - 양이 많고 비교적 단순한 보조(2단계 생각 도우미, 3단계 사실 확인, 4단계 검토, 웹 검색 요약, 체험): 저가 모델(luna)
 //  - 추론이 필요한 5단계 시뮬레이션: terra. 가끔 쓰고 여러 수업에 오래 쓰이는 교사 주제 만들기: 최상위 모델(sol)
-// functions/.env 의 값이 이 기본값보다 먼저다(.env 에 옛 모델 이름이 있으면 그 줄을 고칠 것).
-const OPENAI_MODEL = defineString("OPENAI_MODEL", { default: "gpt-5.6-luna" });
-const PERSONA_MODEL = defineString("PERSONA_MODEL", { default: "gpt-5.6-terra" }); // 1단계 인물 대화 전용
-const SCENARIO_MODEL = defineString("SCENARIO_MODEL", { default: "gpt-5.6-terra" }); // 5단계 시뮬레이션 전용
-const GUARD_MODEL = defineString("GUARD_MODEL", { default: "gpt-5.6-terra" }); // 상위 AI(규범 감독) 전용
-const FEEDBACK_MODELS = defineString("FEEDBACK_MODELS", { default: "" }); // 4단계 독립 검토에 쓸 모델들(쉼표). 비우면 OPENAI_MODEL 로 3회
+// functions/.env 의 값이 이 기본값보다 먼저다. 다만 지원이 끝나는 처음 GPT-5(gpt-5·gpt-5-mini·gpt-5-nano 와 날짜 붙은 스냅샷,
+// 2026-12-11 API 종료)가 .env 에 남아 있으면 그 자리의 기본 모델로 바꿔 쓴다. 그래서 .env 를 고치지 않고 배포해도 새 모델로 돈다.
+const RETIRED_MODEL = /^gpt-5(-mini|-nano)?(-\d{4}-\d{2}-\d{2})?$/;
+const notRetired = (v, fallback) => (RETIRED_MODEL.test(String(v || "").trim()) ? fallback : String(v || "").trim());
+const modelParam = (name, def) => { const p = defineString(name, { default: def }); return { value: () => notRetired(p.value(), def) }; };
+// 이 기능 뒤에 생긴 설정은 Firebase 설정값(defineString)이 아니라 환경 변수로 읽는다. .env 에 줄이 없어도 배포 때 값을 묻지 않고 기본값을 쓴다.
+const envParam = (name, def) => ({ value: () => String(process.env[name] ?? "").trim() || def });
+const OPENAI_MODEL = modelParam("OPENAI_MODEL", "gpt-5.6-luna");
+const PERSONA_MODEL = modelParam("PERSONA_MODEL", "gpt-5.6-terra"); // 1단계 인물 대화 전용
+const SCENARIO_MODEL = modelParam("SCENARIO_MODEL", "gpt-5.6-terra"); // 5단계 시뮬레이션 전용
+const GUARD_MODEL = modelParam("GUARD_MODEL", "gpt-5.6-terra"); // 상위 AI(규범 감독) 전용
+// 4단계 독립 검토에 쓸 모델들(쉼표). 비우면 OPENAI_MODEL 로 3회. 지원이 끝난 이름은 빼고 OPENAI_MODEL 로 채운다.
+const FEEDBACK_MODELS_RAW = defineString("FEEDBACK_MODELS", { default: "" });
+const FEEDBACK_MODELS = { value: () => FEEDBACK_MODELS_RAW.value().split(",").map((m) => m.trim()).filter(Boolean).map((m) => notRetired(m, OPENAI_MODEL.value())).join(",") };
 const REASONING_EFFORT = defineString("REASONING_EFFORT", { default: "low" }); // 추론 모델의 사고량: minimal(가장 가벼움)|low|medium|high. 모델에 맞는 값으로는 openai.js 가 바꾼다
 const PERSONA_WEB_SEARCH = defineString("PERSONA_WEB_SEARCH", { default: "true" }); // 인물이 모르는 사실은 웹에서 찾아 본다(false 로 끄기)
 // 웹 검색을 허용할 도메인(쉼표). 비우면 제한 없음. 예: yna.co.kr,hani.co.kr,moj.go.kr,unhcr.org
 const SEARCH_ALLOWED_DOMAINS = defineString("SEARCH_ALLOWED_DOMAINS", { default: "" });
-const SEARCH_MODEL = defineString("SEARCH_MODEL", { default: "" }); // 웹 검색 호출 전용 모델(비우면 OPENAI_MODEL)
+const SEARCH_MODEL = modelParam("SEARCH_MODEL", ""); // 웹 검색 호출 전용 모델(비우면 OPENAI_MODEL)
 // 체험(demo) 페이지의 AI: 모델(비우면 OPENAI_MODEL)과 하루 전체 호출 한도(비용 보호)
-const DEMO_MODEL = defineString("DEMO_MODEL", { default: "" });
+const DEMO_MODEL = modelParam("DEMO_MODEL", "");
 const DEMO_DAILY_CAP = defineInt("DEMO_DAILY_CAP", { default: 300 });
-// 교사 주제 만들기(topics): 생성 모델, 웹 조사 모델(비우면 TOPIC_MODEL. 인용 링크가 문장에 정확히 붙어야 해서 저가 모델은 피한다), 교사 한 명이 하루에 새로 만들 수 있는 주제 수
-const TOPIC_MODEL = defineString("TOPIC_MODEL", { default: "gpt-5.6-sol" });
-const TOPIC_SEARCH_MODEL = defineString("TOPIC_SEARCH_MODEL", { default: "gpt-5.6-terra" });
-const TOPIC_DAILY_LIMIT = defineInt("TOPIC_DAILY_LIMIT", { default: 3 });
+// 교사 주제 만들기(topics): 생성 모델, 웹 조사 모델(인용 링크가 문장에 정확히 붙어야 해서 저가 모델은 피한다), 교사 한 명이 하루에 새로 만들 수 있는 주제 수
+const TOPIC_MODEL = { value: () => notRetired(envParam("TOPIC_MODEL", "gpt-5.6-sol").value(), "gpt-5.6-sol") };
+const TOPIC_SEARCH_MODEL = { value: () => notRetired(envParam("TOPIC_SEARCH_MODEL", "gpt-5.6-terra").value(), "gpt-5.6-terra") };
+const TOPIC_DAILY_LIMIT = { value: () => Math.max(1, parseInt(envParam("TOPIC_DAILY_LIMIT", "3").value(), 10) || 3) };
 const TEACHER_EMAILS = defineString("TEACHER_EMAILS", { default: "" });
 // 교사 가입 인증 문구. 코드·저장소에는 두지 않고 functions/.env(git 에 올라가지 않음)의 TEACHER_SIGNUP_CODE 로만 정한다.
 // 비어 있으면 교사 가입이 꺼진다(관리자·TEACHER_EMAILS·config/teachers 로만 교사 지정).
