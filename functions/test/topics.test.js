@@ -2,7 +2,9 @@
 // 원문 확인 → 수업 만들기 → 학생 입장·인물 대화까지 이어서 확인한다.
 const test = require("node:test");
 const assert = require("node:assert");
-const { store } = require("./fake-firebase");
+const { store, strings } = require("./fake-firebase");
+// 선생님 컴퓨터의 .env 처럼 지원이 끝나는 옛 모델 이름이 남아 있는 상황(서버가 새 모델로 바꿔 써야 한다)
+Object.assign(strings, { PERSONA_MODEL: "gpt-5", GUARD_MODEL: "gpt-5-2025-08-07", SCENARIO_MODEL: "gpt-5", FEEDBACK_MODELS: "gpt-5-mini,gpt-5.6-sol" });
 const { ANGLES } = require("../topicBuild");
 
 // ---------- 가짜 OpenAI ----------
@@ -375,4 +377,16 @@ test("하루에 새로 만들 수 있는 주제는 3개이고, 다른 교사의 
   const o = await topics(other, { action: "start", candidate: cand });
   assert.equal(o.usage.topics, 1);
   await rejects(topics(teacher, { action: "start", candidate: { title: "x", summary: "짧다" } }), /20자 이상/);
+});
+
+test(".env 에 지원이 끝나는 옛 모델 이름(gpt-5 등)이 남아 있으면 그 자리의 새 기본 모델로 바꿔 쓴다", async () => {
+  const r = await api.healthCheck({ ...teacher, data: {} });
+  const roleOf = (m) => r.models.find((x) => x.model === m)?.roles || [];
+  assert.ok(roleOf("gpt-5.6-terra").includes("1단계 인물 대화"));
+  assert.ok(roleOf("gpt-5.6-terra").includes("감독자"));
+  assert.ok(roleOf("gpt-5.6-terra").includes("5단계 시뮬레이션"));
+  assert.ok(roleOf("gpt-5.6-sol").includes("4단계 검토") && roleOf("gpt-5.6-sol").includes("내 주제 만들기"));
+  assert.ok(!r.models.some((m) => /^gpt-5(-mini|-nano)?(-\d{4}-\d{2}-\d{2})?$/.test(m.model)), "옛 모델로는 부르지 않는다");
+  // 인물 대화도 새 모델로 불렸다
+  assert.ok(calls.filter((c) => c.kind === "chat").every((c) => c.body.model === "gpt-5.6-terra"));
 });

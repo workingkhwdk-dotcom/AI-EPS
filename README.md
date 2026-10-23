@@ -180,7 +180,7 @@ firebase deploy
 6. 문구가 새어 나갔으면 `TEACHER_SIGNUP_CODE`를 바꾸고 다시 배포하세요.
 
 ### 모델 선택 (OpenAI)
-`functions/.env`에서 용도별로 정합니다. **`.env`의 값이 코드 기본값보다 먼저**이므로, 옛 모델 이름이 적혀 있으면 그 줄을 고쳐야 합니다.
+`functions/.env`에서 용도별로 정합니다. `.env`의 값이 코드 기본값보다 먼저입니다. 다만 지원이 끝나는 처음 GPT-5(`gpt-5`, `gpt-5-mini`, `gpt-5-nano`와 날짜 붙은 스냅샷)가 적혀 있으면 서버가 그 자리의 기본 모델로 바꿔 쓰므로, **`.env`를 고치지 않고 배포해도 새 모델로 동작**합니다. `TOPIC_MODEL`·`TOPIC_SEARCH_MODEL`·`TOPIC_DAILY_LIMIT`은 `.env`에 없으면 배포 때 묻지 않고 기본값을 씁니다.
 `gpt-5`·`gpt-5-mini`는 2026-12-11에 API에서 종료되므로, 기본값을 비용과 성능의 균형을 맞춘 GPT-5.6 조합(sol 최상위 / terra 균형 / luna 저가)으로 바꿨습니다(2026-10).
 
 | 설정 | 쓰는 곳 | 기본값 |
