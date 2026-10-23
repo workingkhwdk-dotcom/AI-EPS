@@ -69,6 +69,7 @@
   <section id="main" class="hidden">
     <div class="seg" id="tabs">
       <button data-tab="classes" class="on">내 수업</button>
+      <button data-tab="topics">내 주제</button>
       <button data-tab="check">인물·자료 점검</button>
     </div>
 
@@ -192,6 +193,11 @@
             <div class="notice muted" id="s-guide"></div>
             <div class="row"><button class="btn btn-tinted btn-sm" id="s-copy-guide" type="button">안내문 복사</button></div>
           </div>
+          <div class="card hidden" id="s-topic-card">
+            <h3>내 주제</h3>
+            <p class="desc">이 수업은 내가 만든 주제로 만들었어요. 수업을 만든 뒤 <b>내 주제</b>에서 출처를 더 확인했거나 내용을 고쳤다면 이 수업에도 반영할 수 있어요.</p>
+            <button class="btn btn-tinted btn-sm" id="s-sync" type="button">주제의 최신 내용으로 바꾸기</button>
+          </div>
           <div class="card">
             <h3>수업 복제</h3>
             <p class="desc">다른 반에서 같은 수업을 할 때 (학생·기록 제외)</p>
@@ -204,6 +210,23 @@
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- 내 주제: 웹앱 안에서 새 수업 주제(사건)를 만든다(public/topics.js). 아래 칸은 화면이 채운다. -->
+    <div id="tab-topics" class="hidden">
+      <div id="tp-list-view">
+        <div class="card">
+          <div class="row" style="justify-content:space-between">
+            <h2 style="margin:0">내 주제</h2>
+            <button class="btn btn-primary btn-sm" id="tp-new" type="button">＋ 새 주제 만들기</button>
+          </div>
+          <p class="desc">우리 지역의 실제 사건으로 수업 주제를 만들어요. AI가 기사를 조사해 기본 주제와 같은 방식으로 인물 9명·자료·사례를 만들고, 선생님이 출처 원문을 확인한 뒤 수업에 써요. 만든 주제는 이 계정에서만 보여요.</p>
+          <div class="meta-line" id="tp-usage"></div>
+          <div id="tp-list" class="group" style="margin-top:14px"></div>
+        </div>
+      </div>
+      <div id="tp-wizard" class="hidden"></div>
+      <div id="tp-detail" class="hidden"></div>
     </div>
 
     <!-- 점검: 인물·자료의 근거. 수업 중에는 볼 필요가 없어 별도 탭에 접어 둔다 -->

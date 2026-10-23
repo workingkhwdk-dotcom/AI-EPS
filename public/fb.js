@@ -12,7 +12,8 @@ export const auth = getAuth(app);
 export const db = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
 const functions = getFunctions(app, "asia-northeast3");
 // 기본 제한 시간(70초)보다 길게: 추론 모델의 시뮬레이션은 오래 걸릴 수 있다.
-export const call = (name) => httpsCallable(functions, name, { timeout: 300000 });
+// 교사 주제 만들기처럼 몇 분 걸리는 호출은 timeout 을 더 길게 넘긴다.
+export const call = (name, timeout = 300000) => httpsCallable(functions, name, { timeout });
 
 export const esc = (s) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
