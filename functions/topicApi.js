@@ -110,8 +110,14 @@ function makeTopicApi({ db, FieldValue, HttpsError, requireTeacher, ai, dailyLim
     // ---------- 저장 ----------
     async list(auth) {
       const snap = await db.collection("teacherTopics").where("ownerUid", "==", auth.uid).get();
-      const topics = snap.docs.map((d) => { const x = d.data(); return summarize(d.id, x, usableInfo(fromStored(x.bundle))); }).sort((a, b) => b.updatedAt - a.updatedAt);
-      return { topics, usage: await usage(auth.uid), builderOpen: builderOpen() };
+      // 주제 하나가 깨져 있어도 목록 전체가 실패하지 않게: 그 주제는 '검토 필요'로 보이고 원인은 서버 로그에 남긴다
+      const topics = snap.docs.map((d) => {
+        const x = d.data();
+        try { return summarize(d.id, x, usableInfo(fromStored(x.bundle))); }
+        catch (e) { console.error("topics.list: 주제 요약 실패", d.id, e); return { ...summarize(d.id, { ...x, bundle: null }, { check: null, usable: 0 }), errors: 1 }; }
+      }).sort((a, b) => b.updatedAt - a.updatedAt);
+      const used = await usage(auth.uid).catch((e) => { console.error("topics.list: 사용량 읽기 실패", e); return null; });
+      return { topics, usage: used, builderOpen: builderOpen() };
     },
     async get(auth, d) { return full(await own(auth, d.topicId)); },
     // 교사가 고친 주제 저장(검토 화면). 만드는 중에는 막는다.
@@ -288,7 +294,8 @@ function makeTopicApi({ db, FieldValue, HttpsError, requireTeacher, ai, dailyLim
     const fn = actions[d.action];
     if (!fn) fail("invalid-argument", "알 수 없는 요청입니다.");
     if (AI_ACTIONS.includes(d.action) && !builderOpen()) fail("failed-precondition", "새 주제 만들기는 지금 잠시 닫혀 있어요. 이미 만든 주제는 그대로 쓸 수 있어요.");
-    return fn(auth, d);
+    try { return await fn(auth, d); }
+    catch (e) { if (!(e instanceof HttpsError)) console.error(`topics.${d.action} 실패`, e); throw e; }
   }
   return { handle, forClass, own, actions };
 }
