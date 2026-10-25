@@ -348,6 +348,63 @@ test("검토 화면에서 고친 주제 저장: 모르는 칸은 버리고, 주�
   await rejects(topics(other, { action: "syncSession", code }), /내가 만든 수업이 아닙니다/);
 });
 
+test("주제 파일: 다 만든 주제를 내보내고 다른 교사가 불러오면, 출처는 모두 '확인 전'이고 다시 확인해야 수업에 쓴다", async () => {
+  const src = await topics(teacher, { action: "get", topicId: tid });
+  const x = await topics(teacher, { action: "export", topicId: tid });
+  assert.equal(x.format, "ai-eps-topic");
+  assert.equal(x.version, 1);
+  assert.equal(x.file.PERSONAS.length, src.file.PERSONAS.length);
+  assert.doesNotMatch(JSON.stringify(x), /"verified"|"verifiedAt"|"facts"/, "확인 표시·사실 은행 연결은 파일에 넣지 않는다");
+  assert.ok(Object.values(x.file.SOURCES).some((s) => s.authorVerified));
+  await rejects(topics(other, { action: "export", topicId: tid }), /내가 만든 주제가 아닙니다/);
+
+  // 파일을 고쳐 '확인함'으로 바꾸거나 모르는 출처를 넣어도 받아 주지 않는다. 새 주제 만들기가 닫혀 있어도 불러올 수 있다.
+  const bad = JSON.parse(JSON.stringify(x));
+  Object.values(bad.file.SOURCES).forEach((s) => { s.verified = true; });
+  bad.file.SOURCES.X1 = { title: "가짜", url: "https://evil.example/" };
+  bad.file.EVENT.id = "jeju2018";
+  process.env.TOPIC_BUILDER_ENABLED = "false";
+  let t;
+  try { t = await topics(other, { action: "import", data: JSON.stringify(bad) }); } finally { process.env.TOPIC_BUILDER_ENABLED = "true"; }
+  assert.notEqual(t.id, tid);
+  assert.equal(t.file.EVENT.id, t.id);
+  assert.equal(t.title, src.file.EVENT.title);
+  assert.equal(t.build.step, "review");
+  assert.ok(t.imported.at);
+  assert.equal(t.research, null);
+  assert.equal(t.usable, 0);
+  assert.equal(t.check.errors.length, 0);
+  assert.deepEqual(Object.keys(t.file.SOURCES).sort(), Object.keys(src.file.SOURCES).sort());
+  assert.ok(Object.values(t.file.SOURCES).every((s) => s.verified === false));
+  assert.ok(Object.entries(x.file.SOURCES).every(([id, s]) => !s.authorVerified || t.file.SOURCES[id].check.startsWith("[만든 사람이 확인함]")));
+  assert.equal(store.get(`teacherTopics/${t.id}`).ownerUid, "T2");
+
+  await rejects(api.createSession({ ...other, data: { topicId: t.id, groupCount: 2 } }), /원문 확인을 마친 인물이 없습니다/);
+  await rejects(topics(other, { action: "regenPersona", topicId: t.id, personaId: t.file.PERSONAS[0].id }), /불러온 주제는 AI로 다시 만들 수 없어요/);
+  const v = await topics(other, { action: "verifySource", topicId: t.id, sourceIds: Object.keys(t.file.SOURCES) });
+  assert.equal(v.usable, src.usable);
+  const { code: c2 } = await api.createSession({ ...other, data: { topicId: t.id, groupCount: 2 } });
+  assert.equal(store.get(`sessions/${c2}`).topicId, t.id);
+  // 불러온 주제도 고쳐 저장하고 다시 내보낼 수 있다
+  const re = await topics(other, { action: "export", topicId: t.id });
+  assert.equal(re.file.PERSONAS.length, x.file.PERSONAS.length);
+  await topics(other, { action: "delete", topicId: t.id });
+});
+
+test("주제 파일: 형식이 다르거나 읽을 수 없는 파일, 인물이 없는 파일은 받지 않고, 주제 수 한도를 지킨다", async () => {
+  await rejects(topics(other, { action: "import", data: "{이건 JSON이 아니다" }), /읽지 못했어요/);
+  await rejects(topics(other, { action: "import", data: { format: "something", version: 1, file: {} } }), /AI-EPS 주제 파일이 아니에요/);
+  await rejects(topics(other, { action: "import", data: { format: "ai-eps-topic", version: 99, file: {} } }), /버전/);
+  await rejects(topics(other, { action: "import", data: { format: "ai-eps-topic", version: 1, file: { EVENT: { title: "빈 주제" }, PERSONAS: [] } } }), /인물이 없어요/);
+  await rejects(topics(other, { action: "import", data: "x".repeat(1024 * 1024 + 1) }), /너무 커요/);
+  const x = await topics(teacher, { action: "export", topicId: tid });
+  const T3 = { auth: { uid: "T3", token: { email: "c@school.kr", firebase: { sign_in_provider: "password" } } } };
+  store.set("teacherAccounts/T3", { email: "c@school.kr" });
+  for (let i = 0; i < 30; i++) store.set(`teacherTopics/t3${String(i).padStart(9, "0")}`, { ownerUid: "T3", title: "x" });
+  await rejects(topics(T3, { action: "import", data: x }), /30개까지/);
+  await rejects(topics(teacher, { action: "export", topicId: "t0000000000" }), /주제를 찾을 수 없습니다/);
+});
+
 test("교사: 내 수업·내 주제의 인물 점검을 보고, 원본 주제를 지워도 수업과 복제 수업은 그대로다", async () => {
   const a = await api.getCase({ ...teacher, data: { code, admin: true } });
   assert.equal(a.custom, true);

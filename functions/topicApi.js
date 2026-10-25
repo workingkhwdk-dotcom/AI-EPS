@@ -1,5 +1,6 @@
 // 교사 주제 만들기의 서버 함수(topics). 한 함수가 action 으로 나뉜다(Cloud Run CPU 한도 때문에 함수 수를 늘리지 않는다).
 //  - 저장: list / get / save / plan / verifySource / delete / syncSession
+//  - 파일: export / import (다 만든 주제를 .json 파일로 주고받는다. 불러온 주제의 출처는 모두 '확인 전'으로 시작한다)
 //  - AI  : ideas / start / research / frame / personas / extras / review / regenPersona
 // 주제는 만든 교사만 읽고 고친다(ownerUid). Firestore 규칙은 클라이언트의 직접 읽기·쓰기를 모두 막는다.
 // 설계와 단계는 docs/TOPIC_BUILDER.md.
@@ -7,7 +8,7 @@ const crypto = require("crypto");
 const build = require("./topicBuild");
 const compose = require("./topicCompose");
 const { checkBundle } = require("./topicCheck");
-const { toStored, fromStored, sanitizeFile, summarize } = require("./topicData");
+const { toStored, fromStored, sanitizeFile, summarize, SRC_ID } = require("./topicData");
 const { makeBundle, availablePersonas, isRequired } = require("./case");
 
 const STEPS = ["start", "research", "frame", "personas", "extras", "review"];
@@ -16,10 +17,19 @@ const MAX_TOPICS = 30; // 교사 한 명이 가질 수 있는 주제 수
 const MAX_CALLS = 120; // 주제 하나에 쓸 수 있는 AI 호출 수(다시 만들기 포함)
 const IDEAS_PER_DAY = 10;
 const PERSONA_BATCH = 3; // 인물 만들기 한 번에 만드는 인물 수
+const FILE_FORMAT = "ai-eps-topic", FILE_VERSION = 1; // 주제 파일(.json)의 형식 이름과 버전
+const MAX_FILE = 1024 * 1024; // 불러올 주제 파일 크기 한도(글자 수)
 const BUSY_MS = 9 * 60 * 1000; // 한 단계가 이보다 오래 '진행 중'이면 끝난 것으로 본다(함수 시간 제한 540초)
 
 const day = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10); // 한국 날짜
 const newTopicId = () => "t" + crypto.randomBytes(5).toString("hex");
+// 사실 은행(F1..) 표시는 조사 결과에만 이어진다. 파일로 주고받을 때는 뺀다.
+const dropFacts = (file) => ({
+  ...file,
+  MATERIALS: (file.MATERIALS || []).map((m) => ({ ...m, items: (m.items || []).map(({ facts, ...it }) => it) })),
+  POLICY_CASES: (file.POLICY_CASES || []).map(({ facts, ...c }) => c),
+  AFTERMATH: (file.AFTERMATH || []).map(({ facts, ...a }) => a),
+});
 
 function makeTopicApi({ db, FieldValue, HttpsError, requireTeacher, ai, dailyLimit, onSessionTopic, builderOpen = () => true }) {
   const ref = (id) => db.doc(`teacherTopics/${id}`);
@@ -57,6 +67,7 @@ function makeTopicApi({ db, FieldValue, HttpsError, requireTeacher, ai, dailyLim
   // 단계 하나를 맡는다: 다른 단계가 진행 중이면 막고, 호출 한도를 확인한다. fn 이 끝나면 진행 중 표시를 푼다.
   async function step(auth, id, name, allowed, fn) {
     const t = await own(auth, id);
+    if (t.imported) fail("failed-precondition", "불러온 주제는 AI로 다시 만들 수 없어요. 내용은 검토 화면에서 직접 고칠 수 있어요.");
     const b = t.build || {};
     if (!allowed.includes(b.step || "start")) fail("failed-precondition", `지금은 이 단계를 할 수 없습니다(현재: ${b.step || "start"}).`);
     if ((b.calls || 0) >= MAX_CALLS) fail("resource-exhausted", "이 주제에 쓸 수 있는 AI 사용량을 모두 썼습니다. 새 주제로 다시 만들어 주세요.");
@@ -88,7 +99,7 @@ function makeTopicApi({ db, FieldValue, HttpsError, requireTeacher, ai, dailyLim
     const info = usableInfo(t.file);
     return {
       id: t.id, title: t.title, status: t.status, input: t.input || {}, build: { step: t.build?.step || "start", calls: t.build?.calls || 0, busy: t.build?.busy || null, lastError: t.build?.lastError || null },
-      plan: t.plan || null, review: t.review || null, file: t.file,
+      plan: t.plan || null, review: t.review || null, imported: t.imported || null, file: t.file,
       research: r.exists ? { facts: r.data().facts || [], names: r.data().names || [], sources: r.data().SOURCES || {} } : null,
       check: info.check, usable: info.usable, requiredOk: info.required, maxCalls: MAX_CALLS,
     };
@@ -168,6 +179,41 @@ function makeTopicApi({ db, FieldValue, HttpsError, requireTeacher, ai, dailyLim
       await db.doc(`sessions/${code}/private/topic`).set({ topicId: t.id, title: t.title, bundle: t.bundle, copiedAt: FieldValue().serverTimestamp() });
       onSessionTopic(code);
       return { ok: true };
+    },
+
+    // ---------- 파일 ----------
+    // 다 만든 주제를 파일로 내보낸다. 원문 확인은 받는 교사가 다시 해야 하므로 '만든 사람이 확인함'으로만 남긴다.
+    async export(auth, d) {
+      const t = await own(auth, d.topicId);
+      if (t.build?.step !== "review") fail("failed-precondition", "주제를 다 만든 뒤에 내보낼 수 있습니다.");
+      const file = dropFacts(t.file);
+      file.SOURCES = Object.fromEntries(Object.entries(file.SOURCES || {}).map(([id, { verified, verifiedAt, ...s }]) => [id, { ...s, ...(verified ? { authorVerified: true } : {}) }]));
+      return { format: FILE_FORMAT, version: FILE_VERSION, exportedAt: Date.now(), title: t.title, file };
+    },
+    // 주제 파일을 내 주제로 불러온다. 칸·길이는 저장할 때와 같은 규칙(sanitizeFile)으로 정리하고, 출처는 모두 '확인 전'으로 둔다.
+    // AI를 쓰지 않으므로 새 주제 만들기 스위치가 닫혀 있어도 된다.
+    async import(auth, d) {
+      let x = d.data;
+      if (typeof x === "string") {
+        if (x.length > MAX_FILE) fail("invalid-argument", "주제 파일이 너무 커요.");
+        try { x = JSON.parse(x); } catch { fail("invalid-argument", "주제 파일을 읽지 못했어요. AI-EPS에서 내보낸 .json 파일인지 확인하세요."); }
+      } else if (JSON.stringify(x ?? null).length > MAX_FILE) fail("invalid-argument", "주제 파일이 너무 커요.");
+      if (x?.format !== FILE_FORMAT || !x.file || typeof x.file !== "object") fail("invalid-argument", "AI-EPS 주제 파일이 아니에요.");
+      if (x.version !== FILE_VERSION) fail("invalid-argument", "이 프로그램이 읽을 수 없는 주제 파일 버전이에요. 프로그램을 최신으로 바꾼 뒤 다시 시도하세요.");
+      const snap = await db.collection("teacherTopics").where("ownerUid", "==", auth.uid).get();
+      if (snap.docs.length >= MAX_TOPICS) fail("resource-exhausted", `주제는 ${MAX_TOPICS}개까지 둘 수 있어요. 쓰지 않는 주제를 지운 뒤 불러와 주세요.`);
+      const id = newTopicId();
+      const inSrc = x.file.SOURCES && typeof x.file.SOURCES === "object" ? x.file.SOURCES : {};
+      const SOURCES = Object.fromEntries(Object.entries(inSrc).filter(([sid, s]) => SRC_ID.test(sid) && s && typeof s === "object").slice(0, 80)
+        .map(([sid, s]) => [sid, { title: s.title, outlet: s.outlet, date: s.date, url: /^https?:\/\//i.test(String(s.url || "")) ? String(s.url) : "", check: (s.authorVerified ? "[만든 사람이 확인함] " : "") + String(s.check || ""), verified: false }]));
+      const title = clipIn(x.file.EVENT?.title || x.title, 80);
+      const file = dropFacts(sanitizeFile({ ...x.file, SOURCES }, { SOURCES, EVENT: { id, title } }));
+      if (!file.EVENT.title) fail("invalid-argument", "주제 파일에 사건 이름이 없어요.");
+      if (!file.PERSONAS.length) fail("invalid-argument", "주제 파일에 인물이 없어요.");
+      const t = { ownerUid: auth.uid, title: file.EVENT.title, status: "review", input: {}, build: { step: "review", calls: 0 }, plan: null, review: null,
+        imported: { at: Date.now(), title: clipIn(x.title, 80) || file.EVENT.title }, bundle: toStored(file) };
+      await ref(id).set({ ...t, createdAt: FieldValue().serverTimestamp(), updatedAt: FieldValue().serverTimestamp() });
+      return full({ id, ...t, file });
     },
 
     // ---------- AI ----------

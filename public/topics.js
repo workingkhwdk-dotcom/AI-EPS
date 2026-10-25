@@ -2,6 +2,7 @@
 //  1) 아이디어 → 사건 후보(실제 보도) → 고르기(또는 직접 적기) → 대화 시점·꼭 들어야 할 사람 정하기
 //  2) 조사 → 사건 틀·인물 구성안(교사가 보고 고치거나 다시 짜기) → 인물 9명 → 자료·사례·이후 전개 → AI 점검
 //  3) 검토: 출처 원문 확인(확인한 출처만 학생에게 쓰인다), 인물·사건·자료 고치기, 인물 다시 만들기 → 이 주제로 수업 만들기
+//  4) 파일: 다 만든 주제를 .json 파일로 내보내고, 다른 선생님이 내보낸 파일을 불러온다(불러온 주제의 출처는 다시 확인한다)
 // 주제는 만든 교사 계정에만 속한다. 설계는 docs/TOPIC_BUILDER.md.
 import { call, esc, toast, errMsg } from "./fb.js";
 import { waitHtml } from "./wait.js";
@@ -21,6 +22,8 @@ let builderOpen = true, list = [], usage = null, cur = null, draft = null, dirty
 export function initTopics(h) {
   hooks = { ...hooks, ...h };
   $("#tp-new").onclick = () => openWizard();
+  $("#tp-import").onclick = () => $("#tp-import-file").click();
+  $("#tp-import-file").onchange = (e) => { const f = e.target.files[0]; e.target.value = ""; if (f) importFile(f); };
   $("#tp-list").onclick = (e) => { const b = e.target.closest("[data-topic]"); if (b) openTopic(b.dataset.topic); };
   window.addEventListener("beforeunload", (e) => { if (dirty || running) { e.preventDefault(); e.returnValue = ""; } });
 }
@@ -46,6 +49,29 @@ function renderList() {
     return `<div class="cell cls"><div class="grow"><b>${esc(t.title)}</b> ${tag}<br><span class="meta-line">${esc(info)}${t.updatedAt ? ` · ${new Date(t.updatedAt).toLocaleString("ko-KR")}` : ""}</span></div><button class="btn btn-tinted btn-sm" data-topic="${esc(t.id)}">열기</button></div>`;
   }).join("") || `<div class="cell meta-line">아직 만든 주제가 없어요.${builderOpen ? " '＋ 새 주제 만들기'로 우리 지역의 사건을 수업 주제로 만들어 보세요." : ""}</div>`;
 }
+// ---------- 주제 파일 ----------
+async function importFile(f) {
+  if (f.size > 1024 * 1024) return toast("주제 파일이 너무 커요(1MB까지).", true);
+  const b = $("#tp-import"); b.disabled = true;
+  try {
+    const t = await api("import", { data: await f.text() });
+    toast(`'${t.title}' 주제를 불러왔어요. 출처 원문을 확인하면 수업에 쓸 수 있어요.`);
+    loadTopics();
+    setCur(t); showView("detail"); renderDetail();
+  } catch (e) { toast(errMsg(e), true); }
+  finally { b.disabled = false; }
+}
+async function exportFile() {
+  if (dirty) return toast("고친 내용을 먼저 저장한 뒤 내보내세요.", true);
+  try {
+    const r = await api("export", { topicId: cur.id });
+    const url = URL.createObjectURL(new Blob([JSON.stringify(r, null, 2)], { type: "application/json" }));
+    const a = Object.assign(document.createElement("a"), { href: url, download: `${(r.title || "주제").replace(/[\\/:*?"<>|]+/g, " ").trim().slice(0, 60)}.json` });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) { toast(errMsg(e), true); }
+}
+
 function showView(v) {
   $("#tp-list-view").classList.toggle("hidden", v !== "list");
   $("#tp-wizard").classList.toggle("hidden", v !== "wizard");
@@ -201,10 +227,11 @@ function renderDetail(runningStep, since) {
   if (!cur) return;
   const s = cur.build.step;
   const head = `<div class="card"><div class="row" style="justify-content:space-between"><button class="btn btn-plain btn-sm" id="tp-back" type="button">← 내 주제</button>
-      <button class="btn btn-danger btn-sm" id="tp-del" type="button" ${running ? "disabled" : ""}>주제 삭제</button></div>
+      <div class="row" style="gap:6px">${s === "review" ? `<button class="btn btn-plain btn-sm" id="tp-export" type="button" title="다른 선생님과 나눌 수 있는 .json 파일로 내려받아요">주제 파일로 내보내기</button>` : ""}
+        <button class="btn btn-danger btn-sm" id="tp-del" type="button" ${running ? "disabled" : ""}>주제 삭제</button></div></div>
     <h2 style="margin:10px 0 4px">${esc(cur.file?.EVENT?.title || cur.title)}</h2>
     <div class="meta-line">${s === "review" ? (cur.check?.errors?.length ? "고칠 곳이 있어요" : cur.usable ? `수업에 쓸 수 있어요 · 학생에게 보이는 인물 ${cur.usable}명` : "출처 원문을 확인하면 수업에 쓸 수 있어요") : "만드는 중"} · AI 사용 ${cur.build.calls}/${cur.maxCalls}</div>
-    ${stepsBar(runningStep)}
+    ${cur.imported ? `<div class="notice muted" style="margin-top:10px">파일에서 불러온 주제예요${cur.imported.at ? ` (${new Date(cur.imported.at).toLocaleDateString("ko-KR")})` : ""}. 출처마다 원문을 열어 다시 확인해야 학생에게 쓰여요. AI로 인물을 다시 만들 수는 없고, 내용은 아래에서 직접 고칠 수 있어요.</div>` : stepsBar(runningStep)}
     ${runningStep ? `<div style="margin-top:10px">${waitHtml({ steps: RUN_TEXT[runningStep], since })}</div><div class="meta-line">단계마다 저장돼요. 화면을 닫았다가 다시 열면 이어서 할 수 있어요.</div>` : ""}
     ${!runningStep && cur.build.lastError && s !== "review" ? `<div class="notice yellow" style="margin-top:10px">지난번 '${esc(cur.build.lastError.step)}' 단계가 끝나지 못했어요: ${esc(cur.build.lastError.message)}</div>` : ""}
     ${!runningStep && cur.build.busy ? `<div class="notice yellow" style="margin-top:10px">다른 창에서 이 주제를 만드는 중일 수 있어요. 잠시 뒤 <button class="link" type="button" id="tp-reload">새로 고침</button>하세요.</div>` : ""}
@@ -321,8 +348,8 @@ function reviewHtml() {
           ${(p.beliefs || []).length ? `<div class="notice yellow" style="margin-top:10px"><b>틀릴 수 있는 믿음</b>${p.beliefs.map((b) => `<div style="margin-top:4px">· ${esc(b[0])}<div class="meta-line">실제: ${esc(b[1])}</div></div>`).join("")}</div>` : ""}
           <div style="margin-top:10px"><b>근거 진술 (기사 문장 그대로)</b>${p.claims.map((c) => `<div class="meta-line" style="color:var(--ink);margin-top:4px"><span class="tag ${c[2] === "주장" || c[2] === "의견" ? "y" : ""}">${esc(c[2])}</span> ${esc(c[0])} ${srcTag(c[1])}</div>`).join("")}</div>
           <div class="meta-line" style="margin-top:6px">융합 근거: ${esc(p.basis)}</div>
-          <div class="row" style="margin-top:12px;gap:6px;flex-wrap:wrap"><input type="text" data-regen-note="${esc(p.id)}" maxlength="400" placeholder="다시 만들 때 바랄 점 (예: 반대 이유를 더 분명하게)" style="flex:1;min-width:200px" />
-            <button class="btn btn-plain btn-sm" data-regen="${esc(p.id)}" type="button">이 인물 다시 만들기</button></div>
+          ${cur.imported ? "" : `<div class="row" style="margin-top:12px;gap:6px;flex-wrap:wrap"><input type="text" data-regen-note="${esc(p.id)}" maxlength="400" placeholder="다시 만들 때 바랄 점 (예: 반대 이유를 더 분명하게)" style="flex:1;min-width:200px" />
+            <button class="btn btn-plain btn-sm" data-regen="${esc(p.id)}" type="button">이 인물 다시 만들기</button></div>`}
         </div></details>`;
       }).join("")}
     </div>
@@ -377,6 +404,7 @@ function bindDetail() {
     if (!(await confirmModal(`'${esc(cur.title)}' 주제를 삭제할까요?`, "조사 결과와 인물이 모두 지워지고 되돌릴 수 없어요. 이 주제로 이미 만든 수업은 그대로 쓸 수 있어요.", "삭제", "취소", true))) return;
     try { await api("delete", { topicId: cur.id }); toast("주제를 삭제했어요"); dirty = false; backToList(); } catch (e) { toast(errMsg(e), true); }
   };
+  const ex = $("#tp-export"); if (ex) ex.onclick = exportFile;
   const rl = $("#tp-reload"); if (rl) rl.onclick = () => openTopic(cur.id);
   const go = $("#tp-go"); if (go) go.onclick = () => runPipeline();
   const make = $("#tp-make");
