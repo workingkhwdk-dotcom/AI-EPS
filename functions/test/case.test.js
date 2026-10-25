@@ -6,8 +6,15 @@ const { personaPrompt } = require("../prompts");
 const KINDS = ["증언", "사실", "주장", "의견"];
 const s0 = (id) => SOURCES[id];
 
-test("사건은 제주 예멘·쓰레기 수출·강서 특수학교·주남저수지·창원 인구 다섯 가지이고, 사건마다 인물 9명이 네 축에 나뉘며 축마다 2명 이상이다", () => {
-  assert.deepEqual(Object.keys(EVENTS), ["jeju2018", "waste2019", "school2018", "junam2025", "changwon2025"]);
+// 원문 대조를 마친 기본 주제 다섯 개, 새 주제 다섯 개(NEW).
+// 새 주제 다섯 개는 기본 주제와 같은 방식(출처마다 검색으로 기사 내용을 다시 찾아 대조)으로 대조를 마쳤다(SEARCHED).
+const CHECKED = ["jeju2018", "waste2019", "school2018", "junam2025", "changwon2025"];
+const NEW = ["phone2026", "climate2024", "wildfire2025", "smallschool2026", "dogmeat2024"];
+const SEARCHED = NEW;
+const sourceIdsOf = (ids) => ids.flatMap((id) => Object.keys(require(`../cases/${id}`).SOURCES));
+
+test("사건은 제주 예멘·쓰레기 수출·강서 특수학교·주남저수지·창원 인구 다섯 가지와 새 주제 다섯 가지이고, 사건마다 인물 9명이 네 축에 나뉘며 축마다 2명 이상이다", () => {
+  assert.deepEqual(Object.keys(EVENTS), [...CHECKED, ...NEW]);
   assert.equal(DEFAULT_EVENT, "jeju2018");
   assert.equal(new Set(PERSONAS.map((p) => p.id)).size, PERSONAS.length);
   assert.ok(PERSONAS.every((p) => p.events.length === 1 && EVENTS[p.events[0]]));
@@ -103,15 +110,48 @@ test("검증되지 않은 주장은 '주장' 종류로 표시된다 (집회 발�
   assert.equal(locals.find((i) => i.text.includes("500여 명")).kind, "주장");
 });
 
-test("모든 사건이 출처 대조를 마쳐 검증됨이고, 대조 기록이 남아 있으며, 인물과 자료가 학생에게 노출된다", () => {
-  const ids = (re) => Object.keys(SOURCES).filter((id) => re.test(id));
-  assert.ok(Object.values(SOURCES).every((s) => s.verified === true));
+test("기본 주제 다섯 개는 출처 대조를 마쳐 검증됨이고, 대조 기록이 남아 있으며, 인물과 자료가 학생에게 노출된다", () => {
+  const checked = sourceIdsOf(CHECKED);
+  assert.ok(checked.every((id) => SOURCES[id].verified === true));
+  const ids = (re) => checked.filter((id) => re.test(id));
   assert.ok(ids(/^[JCAN]\d/).every((id) => s0(id).crossCheck), "제주 출처는 교차 확인 기록(CROSS_CHECK)");
   assert.ok(ids(/^([WS]|JN|P)/).every((id) => /대조함/.test(SOURCES[id].check)), "쓰레기·특수학교·주남저수지·창원 인구 출처는 check 에 [대조함]");
-  for (const ev of Object.keys(EVENTS)) {
+  for (const ev of CHECKED) {
     assert.equal(availablePersonas(ev, false).length, 9, ev);
     assert.deepEqual(materialsFor(ev, false).map((c) => c.id), MATERIALS[ev].map((c) => c.id), ev);
   }
+});
+
+test("새 주제 다섯 개는 출처 대조를 마쳐 검증됨이고, 출처마다 [대조함] 기록이 있으며, 인물과 자료가 학생에게 노출된다", () => {
+  for (const ev of SEARCHED) {
+    const file = require(`../cases/${ev}`);
+    for (const [id, s] of Object.entries(file.SOURCES)) {
+      assert.equal(s.verified, true, `${ev} ${id}: verified`);
+      assert.match(s.check, /^\[대조함\]/, `${ev} ${id}: check 는 [대조함] 으로 시작한다`);
+      assert.doesNotMatch(s.check, /원문 미대조|검색 요약만 봄/, `${ev} ${id}: 미대조 표시가 남아 있지 않다`);
+    }
+    assert.equal(availablePersonas(ev, false).length, 9, ev);
+    assert.deepEqual(materialsFor(ev, false).map((c) => c.id), MATERIALS[ev].map((c) => c.id), ev);
+    assert.equal(casesFor(ev, false).length, CASES[ev].length, ev);
+    assert.equal(aftermathFor(ev, false).length, AFTERMATH[ev].length, ev);
+  }
+});
+
+test("새 주제 다섯 개: 그 사건의 시점·범위만 담고, 다른 사건 내용은 섞이지 않으며, 실존 인물·실제 가해자 이름은 나오지 않는다", () => {
+  const others = { phone2026: /난민|산불|개농장|통폐합|청구인/, climate2024: /스마트폰|산불|개농장|통폐합/, wildfire2025: /스마트폰|청구인|개농장|통폐합/,
+    smallschool2026: /스마트폰|청구인|산불|개농장/, dogmeat2024: /스마트폰|청구인|산불|통폐합/ };
+  const when = { phone2026: /2026년 3월/, climate2024: /2026년 3월/, wildfire2025: /2025년 5월/, smallschool2026: /2026년 6월/, dogmeat2024: /2025년 8월/ };
+  for (const ev of NEW) {
+    assert.match(EVENTS[ev].now, when[ev], ev);
+    for (const p of PERSONAS.filter((x) => x.events.includes(ev))) {
+      const prompt = personaPrompt(EVENTS[ev], p);
+      assert.ok(prompt.includes(EVENTS[ev].now) && EVENTS[ev].background.every((c) => prompt.includes(c[0])), p.id);
+      assert.doesNotMatch(prompt, /예멘|필리핀|공진초|주남|창원 인구/, p.id);
+      assert.doesNotMatch([...p.letter, ...p.story, ...p.episodes, ...p.views].join(" "), others[ev], p.id);
+    }
+  }
+  // 전직 대통령·장관 등 실존 인물과 재판받은 실화자의 이름은 인물 이야기에 쓰지 않는다
+  assert.doesNotMatch(PERSONAS.filter((x) => NEW.includes(x.events[0])).flatMap((p) => [...p.letter, ...p.story, ...p.episodes]).join(" "), /원민경|송미령|김정호/);
 });
 
 test("학생용 자료에는 출처 ID·URL 없이 매체·날짜 캡션만 있다", () => {
@@ -327,4 +367,49 @@ test("인물마다 틀릴 수 있는 믿음(beliefs)이 있어 인물끼리 같�
     }
   }
   assert.match(personaPrompt(EVENTS.jeju2018, PERSONAS.find((p) => p.id === "j_resident")), /자기 처지에서|네 처지에서/);
+});
+
+test("새 주제 다섯 개: 인물들의 삶이 서로 스치고(양쪽 이야기에 같은 장면), 모든 사건이 자료·사례·인물 이야기의 풍부함 기준을 채운다", () => {
+  const life = (id) => { const p = PERSONAS.find((x) => x.id === id); assert.ok(p, id); return [...p.story, ...p.episodes].join(" "); };
+  const both = (a, b, mark) => { assert.match(life(a), new RegExp(mark), `${a}: ${mark}`); assert.match(life(b), new RegExp(mark), `${b}: ${mark}`); };
+  const sep = (a, am, b, bm) => { assert.match(life(a), new RegExp(am), `${a}: ${am}`); assert.match(life(b), new RegExp(bm), `${b}: ${bm}`); };
+  // 스마트폰
+  both("ph_middle", "ph_mom", "학교로 전화를"); both("ph_middle", "ph_teacher", "뒷자리 아이를");
+  both("ph_assist", "ph_head", "매번 설명하지 않게 해 주세요"); both("ph_dad", "ph_activist", "학부모 단체");
+  sep("ph_head", "장학사에게 전화를", "ph_officer", "교감이 전화로");
+  // 기후소송
+  both("cl_plaintiff", "cl_activist", "우리 이겼는데 왜"); both("cl_future", "cl_citizen", "그럼 어떻게 하면 좋을까요");
+  both("cl_voc", "cl_sme", "대표님, 이 일 앞으로 괜찮을까요"); both("cl_activist", "cl_coal", "가족 이야기");
+  both("cl_aide", "cl_activist", "복도"); both("cl_activist", "cl_officer", "하한이 목표가 될 거예요");
+  // 산불
+  both("wf_grandma", "wf_volunteer", "사과 한 알"); both("wf_chief", "wf_forestry", "우리 마을 언제 불 꺼집니까");
+  both("wf_teen", "wf_volunteer", "우리 집 이제 없어요"); both("wf_forester", "wf_activist", "내 산 좀 같이 걸어");
+  both("wf_diner", "wf_county", "손을 맞잡");
+  // 작은 학교
+  both("sm_pupil", "sm_teacher", "우리 학교 없어져요"); both("sm_chief", "sm_store", "평상"); both("sm_returnee", "sm_chief", "감자를 한 상자");
+  both("sm_parent", "sm_returnee", "학부모 모임"); both("sm_office", "sm_ministry", "돈보다 선생님이 필요하다"); both("sm_activist", "sm_ministry", "이게 혁신입니까");
+  // 개식용
+  both("dm_farmer", "dm_neighbor", "이제 좀 조용하겠네요"); both("dm_farmer", "dm_local", "이게 다예요"); both("dm_son", "dm_farmer", "아버지, 미안해요");
+  both("dm_activist", "dm_vet", "이십 마리를 받아 줄 수 있나요"); both("dm_restaurant", "dm_student", "메뉴판"); both("dm_ministry", "dm_activist", "언제까지요");
+
+  // 풍부함 기준: 열 개 사건 모두
+  for (const ev of Object.keys(EVENTS)) {
+    const mats = materialsFor(ev, true);
+    assert.ok(mats.length >= 6, `${ev}: 자료 분류`);
+    assert.ok(mats.reduce((a, c) => a + c.items.length, 0) >= 35, `${ev}: 자료 항목`);
+    assert.ok(mats.some((c) => c.stats && c.stats.length >= 3), `${ev}: 숫자 타일`);
+    assert.ok(CASES[ev].length >= 4, `${ev}: 4단계 사례`);
+    assert.ok(AFTERMATH[ev].length >= 6, `${ev}: 이후 전개`);
+    const ps = PERSONAS.filter((p) => p.events.includes(ev));
+    assert.ok(ps.reduce((a, p) => a + p.claims.length, 0) / ps.length >= 7, `${ev}: 인물당 근거 진술`);
+    assert.ok(ps.every((p) => p.episodes.length >= 4 && p.story.length >= 6), `${ev}: 인물 이야기`);
+    assert.ok(EVENTS[ev].teacherNote.length >= 400, `${ev}: 교사 메모`);
+  }
+  // 새 주제 다섯 개는 낱말 풀이와 '같은 사실, 다른 해석' 분류를 갖는다
+  for (const ev of NEW) {
+    const ids = MATERIALS[ev].map((c) => c.id);
+    assert.ok(ids.includes("words") && ids.includes("readings"), ev);
+    assert.ok(MATERIALS[ev].find((c) => c.id === "words").items.length >= 6, ev);
+    assert.ok(MATERIALS[ev].find((c) => c.id === "readings").items.length >= 5, ev);
+  }
 });

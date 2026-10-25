@@ -13,6 +13,8 @@ const topics = [];
 for (const id of Object.keys(c.EVENTS)) {
   const ev = c.EVENTS[id];
   const personas = c.availablePersonas(id, false);
+  // 원문 대조(verified)를 마치지 않아 학생에게 보일 인물이 없는 사건은 체험에도 내보내지 않는다
+  if (!personas.length) { console.log(`건너뜀(원문 대조 전): ${id}`); continue; }
   const data = {
     id, title: ev.title, summary: ev.summary, stakeholders: ev.stakeholders, ui: ev.ui,
     letters: personas.map((p) => ({ id: p.id, name: p.name, brief: c.BRIEFS[p.id] || p.label || "", letter: p.letter, required: c.isRequired(p), personal: isPersonal(p) })),

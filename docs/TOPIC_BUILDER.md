@@ -23,7 +23,7 @@
 ## 저장 구조
 
 - `teacherTopics/{topicId}`: `ownerUid`, `title`, `status`(building | review | ready), `createdAt`, `updatedAt`, `input`(교사가 넣은 아이디어·범위 답),
-  `bundle`(SOURCES·EVENT·PERSONAS·MATERIALS·POLICY_CASES·AFTERMATH·BRIEFS, 기본 주제 파일과 같은 모양), `plan`(인물 구성안), `review`(점검 기록), `build`(단계·호출 수).
+  `bundle`(SOURCES·EVENT·PERSONAS·MATERIALS·POLICY_CASES·AFTERMATH·BRIEFS, 기본 주제 파일과 같은 모양), `plan`(인물 구성안), `review`(점검 기록), `build`(단계·호출 수), `imported`(파일에서 불러온 주제면 `{at, title, signed}`). `config/topicFile`: 주제 파일 서명 키(처음 내보낼 때 생성).
 - `teacherTopics/{topicId}/parts/research`: 사실 은행(출처·사실). 크기가 커서 따로 둔다.
 - `topicUsage/{uid}`: 하루 생성 횟수(기본 3, `TOPIC_DAILY_LIMIT`), 아이디어 찾기 횟수(기본 10).
 - 수업을 만들면 그때의 주제를 `sessions/{code}/private/topic` 에 복사한다(원본을 고치거나 지워도 진행 중인 수업은 그대로).
@@ -33,6 +33,9 @@
 
 - `topics` 함수 하나가 action 으로 나뉜다(Cloud Run CPU 한도 때문에 함수 수를 늘리지 않는다. `functions/topicApi.js`).
   - 저장: list / get / save(교사 수정) / plan(구성안) / verifySource / delete / syncSession(수업 사본 갱신)
+  - 파일: export(`{format:"ai-eps-topic", version:1, title, file, plan, review, research, sig}`. sig 는 config/topicFile 의 키로 만든 HMAC-SHA256(키 순서와 무관한 정규화 JSON 기준))
+    / import(형식·버전·크기(4MB)·주제 수 확인 → 서명이 맞으면 원문 확인·구성안·점검 기록·조사 결과까지 그대로, `imported.signed: true` 라 AI 단계도 된다.
+      서명이 없거나 다르면 출처 ID(T1..)만 받아 모두 verified:false, facts 를 빼고 조사 결과 없이 저장하며 AI 단계를 막는다. 어느 쪽이든 sanitizeFile 로 정리하고 build.step "review" 로 저장)
   - AI: ideas / start / research / frame / personas(3명씩 여러 번) / extras / review / regenPersona
 - 단계마다 따로 부르므로 한 번의 호출이 오래 걸리지 않고(최대 540초), 실패하면 그 단계만 다시 한다. 화면을 닫아도 이어서 만들 수 있다.
 - 기존 함수는 `bundleOf(code, sess)` 로 주제를 읽는다(기본 주제면 코드, 교사 주제면 수업 사본).

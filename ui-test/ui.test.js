@@ -1624,7 +1624,7 @@ async function demoPage(ctxOpts = {}, ai = null) {
 
 const dismissHelp = async (pg) => { await pg.waitForTimeout(500); while (await pg.locator('.modal .btn:has-text("이해했어요")').count()) { await pg.click('.modal .btn:has-text("이해했어요")'); await pg.waitForTimeout(400); } };
 
-test("체험: 메뉴에 주제 5개, 시작하면 입장 없이 학생 화면이 열리고 홈·초기화 단추가 있다(Firebase 호출 없음)", async () => {
+test("체험: 메뉴에 주제 10개(PC는 다섯 개씩 두 줄), 시작하면 입장 없이 학생 화면이 열리고 홈·초기화 단추가 있다(Firebase 호출 없음)", async () => {
   const { pg, ctx, errors, hits } = await demoPage();
   await pg.goto(`${base}/demo.html`);
   await pg.waitForSelector(".topic");
@@ -1634,12 +1634,14 @@ test("체험: 메뉴에 주제 5개, 시작하면 입장 없이 학생 화면이
   await pg.click(".modal.about-pop .btn-primary");
   await pg.reload(); await pg.waitForSelector(".topic"); await pg.waitForTimeout(300);
   assert.equal(await pg.locator(".modal").count(), 0);
-  // 독립된 주제 5개가 한 화면에(PC는 한 줄로) 보이고, 카드 어디를 눌러도 열린다
-  assert.match(await pg.locator(".topics-head").innerText(), /독립된 주제 5개/);
+  // 독립된 주제 10개가 PC에서는 다섯 개씩 두 줄로 보이고, 카드 어디를 눌러도 열린다
+  assert.match(await pg.locator(".topics-head").innerText(), /독립된 주제 10개/);
   const tops = await pg.locator(".topic").evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
-  assert.equal(new Set(tops).size, 1, "넓은 화면에서는 다섯 주제가 한 줄");
-  assert.equal(await pg.locator(".topic").count(), 5);
-  assert.equal(await pg.locator('.topic a.btn-primary[href^="demo-play.html?t="]').count(), 5);
+  const rows = [...new Set(tops)];
+  assert.equal(rows.length, 2, "넓은 화면에서는 두 줄");
+  assert.deepEqual(rows.map((y) => tops.filter((t) => t === y).length), [5, 5], "한 줄에 다섯 주제");
+  assert.equal(await pg.locator(".topic").count(), 10);
+  assert.equal(await pg.locator('.topic a.btn-primary[href^="demo-play.html?t="]').count(), 10);
   await pg.locator(".topic a.btn-primary").first().click();
   await pg.waitForSelector("#app:not(.hidden)");
   assert.match(pg.url(), /demo-play\.html\?t=jeju2018$/);
@@ -1715,10 +1717,13 @@ test("체험: 주제마다 저장이 따로이고(메뉴에 '이어서 하기'),
   await pg.click("#demo-home");
   await pg.waitForURL(/demo\.html$/);
   await pg.waitForSelector(".topic");
-  // 휴대폰: 다섯 주제가 한 화면 안에 다 보인다
+  // 휴대폰: 주제는 한 줄짜리 목록이고, 다섯째 주제까지 첫 화면에 보인다(나머지는 아래로 내려 본다)
   if (await pg.locator(".modal.about-pop").count()) await pg.click(".modal.about-pop .btn-primary");
-  const last = await pg.locator(".topic").last().boundingBox();
-  assert.ok(last.y + last.height <= 844, `다섯째 주제까지 첫 화면에 보인다(${Math.round(last.y + last.height)}px)`);
+  const fifth = await pg.locator(".topic").nth(4).boundingBox();
+  assert.ok(fifth.y + fifth.height <= 844, `다섯째 주제까지 첫 화면에 보인다(${Math.round(fifth.y + fifth.height)}px)`);
+  const xs = await pg.locator(".topic").evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().left)));
+  assert.equal(new Set(xs).size, 1, "휴대폰에서는 한 줄에 하나씩");
+  assert.ok(await pg.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "가로로 넘치지 않는다");
   assert.equal(await pg.locator(".topic .saved").count(), 1, "하던 주제 하나만 표시");
   assert.match(await pg.locator(".topic:has(.saved) a.btn-primary").innerText(), /이어서 하기/);
   assert.deepEqual(errors, []);
