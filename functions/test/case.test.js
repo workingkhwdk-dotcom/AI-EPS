@@ -7,12 +7,10 @@ const KINDS = ["증언", "사실", "주장", "의견"];
 const s0 = (id) => SOURCES[id];
 
 // 원문 대조를 마친 기본 주제 다섯 개, 새 주제 다섯 개(NEW).
-// 새 주제 가운데 네 개는 기본 주제와 같은 방식(출처마다 검색으로 기사 내용을 다시 찾아 대조)으로 대조를 마쳤고(SEARCHED),
-// 개식용 종식은 대조를 끝내지 못해 아직 미검증이다(UNCHECKED).
+// 새 주제 다섯 개는 기본 주제와 같은 방식(출처마다 검색으로 기사 내용을 다시 찾아 대조)으로 대조를 마쳤다(SEARCHED).
 const CHECKED = ["jeju2018", "waste2019", "school2018", "junam2025", "changwon2025"];
 const NEW = ["phone2026", "climate2024", "wildfire2025", "smallschool2026", "dogmeat2024"];
-const SEARCHED = ["phone2026", "climate2024", "wildfire2025", "smallschool2026"];
-const UNCHECKED = ["dogmeat2024"];
+const SEARCHED = NEW;
 const sourceIdsOf = (ids) => ids.flatMap((id) => Object.keys(require(`../cases/${id}`).SOURCES));
 
 test("사건은 제주 예멘·쓰레기 수출·강서 특수학교·주남저수지·창원 인구 다섯 가지와 새 주제 다섯 가지이고, 사건마다 인물 9명이 네 축에 나뉘며 축마다 2명 이상이다", () => {
@@ -124,7 +122,7 @@ test("기본 주제 다섯 개는 출처 대조를 마쳐 검증됨이고, 대�
   }
 });
 
-test("새 주제 가운데 스마트폰·기후소송·산불·작은 학교 네 개는 출처 대조를 마쳐 검증됨이고, 출처마다 [대조함] 기록이 있으며, 인물과 자료가 학생에게 노출된다", () => {
+test("새 주제 다섯 개는 출처 대조를 마쳐 검증됨이고, 출처마다 [대조함] 기록이 있으며, 인물과 자료가 학생에게 노출된다", () => {
   for (const ev of SEARCHED) {
     const file = require(`../cases/${ev}`);
     for (const [id, s] of Object.entries(file.SOURCES)) {
@@ -136,26 +134,6 @@ test("새 주제 가운데 스마트폰·기후소송·산불·작은 학교 네
     assert.deepEqual(materialsFor(ev, false).map((c) => c.id), MATERIALS[ev].map((c) => c.id), ev);
     assert.equal(casesFor(ev, false).length, CASES[ev].length, ev);
     assert.equal(aftermathFor(ev, false).length, AFTERMATH[ev].length, ev);
-  }
-});
-
-test("개식용 종식은 출처 대조를 끝내지 못해 미검증이므로 학생에게 인물·자료·사례·이후 전개가 나가지 않고, 교사 점검에서는 모두 볼 수 있다", () => {
-  const unchecked = sourceIdsOf(UNCHECKED);
-  assert.ok(unchecked.length > 30);
-  for (const id of unchecked) {
-    assert.notEqual(SOURCES[id].verified, true, `${id}: 원문을 대조하지 않았으므로 verified: true 가 아니어야 한다`);
-    assert.doesNotMatch(SOURCES[id].check, /\[대조함\]/, `${id}: 대조하지 않은 출처에 [대조함] 을 적지 않는다`);
-    assert.match(SOURCES[id].check, /미대조|제목만 확인/, `${id}: check 에 원문 미대조 상태를 적는다`);
-  }
-  for (const ev of UNCHECKED) {
-    assert.equal(availablePersonas(ev, false).length, 0, ev);
-    assert.equal(availablePersonas(ev, true).length, 9, ev);
-    assert.equal(materialsFor(ev, false).length, 0, ev);
-    assert.equal(casesFor(ev, false).length, 0, ev);
-    assert.equal(aftermathFor(ev, false).length, 0, ev);
-    assert.equal(materialsFor(ev, true).length, MATERIALS[ev].length, ev);
-    assert.equal(casesFor(ev, true).length, CASES[ev].length, ev);
-    assert.equal(aftermathFor(ev, true).length, AFTERMATH[ev].length, ev);
   }
 });
 
