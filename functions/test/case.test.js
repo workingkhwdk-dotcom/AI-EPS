@@ -6,8 +6,13 @@ const { personaPrompt } = require("../prompts");
 const KINDS = ["증언", "사실", "주장", "의견"];
 const s0 = (id) => SOURCES[id];
 
-test("사건은 제주 예멘·쓰레기 수출·강서 특수학교·주남저수지·창원 인구 다섯 가지이고, 사건마다 인물 9명이 네 축에 나뉘며 축마다 2명 이상이다", () => {
-  assert.deepEqual(Object.keys(EVENTS), ["jeju2018", "waste2019", "school2018", "junam2025", "changwon2025"]);
+// 원문 대조를 마친 기본 주제 다섯 개와, 출처 원문 대조를 아직 하지 않은 새 주제 다섯 개
+const CHECKED = ["jeju2018", "waste2019", "school2018", "junam2025", "changwon2025"];
+const UNCHECKED = ["phone2026", "climate2024", "wildfire2025", "smallschool2026", "dogmeat2024"];
+const sourceIdsOf = (ids) => ids.flatMap((id) => Object.keys(require(`../cases/${id}`).SOURCES));
+
+test("사건은 제주 예멘·쓰레기 수출·강서 특수학교·주남저수지·창원 인구 다섯 가지와 새 주제 다섯 가지이고, 사건마다 인물 9명이 네 축에 나뉘며 축마다 2명 이상이다", () => {
+  assert.deepEqual(Object.keys(EVENTS), [...CHECKED, ...UNCHECKED]);
   assert.equal(DEFAULT_EVENT, "jeju2018");
   assert.equal(new Set(PERSONAS.map((p) => p.id)).size, PERSONAS.length);
   assert.ok(PERSONAS.every((p) => p.events.length === 1 && EVENTS[p.events[0]]));
@@ -103,15 +108,53 @@ test("검증되지 않은 주장은 '주장' 종류로 표시된다 (집회 발�
   assert.equal(locals.find((i) => i.text.includes("500여 명")).kind, "주장");
 });
 
-test("모든 사건이 출처 대조를 마쳐 검증됨이고, 대조 기록이 남아 있으며, 인물과 자료가 학생에게 노출된다", () => {
-  const ids = (re) => Object.keys(SOURCES).filter((id) => re.test(id));
-  assert.ok(Object.values(SOURCES).every((s) => s.verified === true));
+test("기본 주제 다섯 개는 출처 대조를 마쳐 검증됨이고, 대조 기록이 남아 있으며, 인물과 자료가 학생에게 노출된다", () => {
+  const checked = sourceIdsOf(CHECKED);
+  assert.ok(checked.every((id) => SOURCES[id].verified === true));
+  const ids = (re) => checked.filter((id) => re.test(id));
   assert.ok(ids(/^[JCAN]\d/).every((id) => s0(id).crossCheck), "제주 출처는 교차 확인 기록(CROSS_CHECK)");
   assert.ok(ids(/^([WS]|JN|P)/).every((id) => /대조함/.test(SOURCES[id].check)), "쓰레기·특수학교·주남저수지·창원 인구 출처는 check 에 [대조함]");
-  for (const ev of Object.keys(EVENTS)) {
+  for (const ev of CHECKED) {
     assert.equal(availablePersonas(ev, false).length, 9, ev);
     assert.deepEqual(materialsFor(ev, false).map((c) => c.id), MATERIALS[ev].map((c) => c.id), ev);
   }
+});
+
+test("새 주제 다섯 개는 출처 원문을 아직 대조하지 못해 미검증이므로 학생에게 인물·자료·사례·이후 전개가 나가지 않고, 교사 점검에서는 모두 볼 수 있다", () => {
+  const unchecked = sourceIdsOf(UNCHECKED);
+  assert.ok(unchecked.length > 100);
+  for (const id of unchecked) {
+    assert.notEqual(SOURCES[id].verified, true, `${id}: 원문을 대조하지 않았으므로 verified: true 가 아니어야 한다`);
+    assert.doesNotMatch(SOURCES[id].check, /\[대조함\]/, `${id}: 대조하지 않은 출처에 [대조함] 을 적지 않는다`);
+    assert.match(SOURCES[id].check, /미대조|제목만 확인/, `${id}: check 에 원문 미대조 상태를 적는다`);
+  }
+  for (const ev of UNCHECKED) {
+    assert.equal(availablePersonas(ev, false).length, 0, ev);
+    assert.equal(availablePersonas(ev, true).length, 9, ev);
+    assert.equal(materialsFor(ev, false).length, 0, ev);
+    assert.equal(casesFor(ev, false).length, 0, ev);
+    assert.equal(aftermathFor(ev, false).length, 0, ev);
+    assert.equal(materialsFor(ev, true).length, MATERIALS[ev].length, ev);
+    assert.equal(casesFor(ev, true).length, CASES[ev].length, ev);
+    assert.equal(aftermathFor(ev, true).length, AFTERMATH[ev].length, ev);
+  }
+});
+
+test("새 주제 다섯 개: 그 사건의 시점·범위만 담고, 다른 사건 내용은 섞이지 않으며, 실존 인물·실제 가해자 이름은 나오지 않는다", () => {
+  const others = { phone2026: /난민|산불|개농장|통폐합|청구인/, climate2024: /스마트폰|산불|개농장|통폐합/, wildfire2025: /스마트폰|청구인|개농장|통폐합/,
+    smallschool2026: /스마트폰|청구인|산불|개농장/, dogmeat2024: /스마트폰|청구인|산불|통폐합/ };
+  const when = { phone2026: /2026년 3월/, climate2024: /2026년 3월/, wildfire2025: /2025년 5월/, smallschool2026: /2026년 6월/, dogmeat2024: /2025년 8월/ };
+  for (const ev of UNCHECKED) {
+    assert.match(EVENTS[ev].now, when[ev], ev);
+    for (const p of PERSONAS.filter((x) => x.events.includes(ev))) {
+      const prompt = personaPrompt(EVENTS[ev], p);
+      assert.ok(prompt.includes(EVENTS[ev].now) && EVENTS[ev].background.every((c) => prompt.includes(c[0])), p.id);
+      assert.doesNotMatch(prompt, /예멘|필리핀|공진초|주남|창원 인구/, p.id);
+      assert.doesNotMatch([...p.letter, ...p.story, ...p.episodes, ...p.views].join(" "), others[ev], p.id);
+    }
+  }
+  // 전직 대통령·장관 등 실존 인물과 재판받은 실화자의 이름은 인물 이야기에 쓰지 않는다
+  assert.doesNotMatch(PERSONAS.filter((x) => UNCHECKED.includes(x.events[0])).flatMap((p) => [...p.letter, ...p.story, ...p.episodes]).join(" "), /원민경|송미령|김정호/);
 });
 
 test("학생용 자료에는 출처 ID·URL 없이 매체·날짜 캡션만 있다", () => {
