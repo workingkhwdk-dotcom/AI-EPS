@@ -11,6 +11,8 @@ test("요청 확인: 기기 표시·주제·종류·단계가 맞아야 하고, 
   assert.ok(demo.parse({ deviceId: dev, topic: "jeju2018", kind: "chat" }));
   assert.throws(() => demo.parse({ deviceId: "x", topic: "jeju2018", kind: "chat" }), /기기/);
   assert.throws(() => demo.parse({ deviceId: dev, topic: "nope", kind: "chat" }), /주제/);
+  for (const topic of ["constructor", "__proto__", "toString"]) assert.throws(() => demo.parse({ deviceId: dev, topic, kind: "chat" }), /주제/);
+  assert.throws(() => demo.parse({ deviceId: "day-2026-10-25", topic: "jeju2018", kind: "chat" }), /기기/, "하루 전체 횟수 문서와 겹치는 이름");
   assert.throws(() => demo.parse({ deviceId: dev, topic: "jeju2018", kind: "x" }), /종류/);
   assert.throws(() => demo.parse({ deviceId: dev, topic: "jeju2018", kind: "ai", stage: 1 }), /단계/);
   assert.throws(() => demo.parse({ deviceId: dev, topic: "jeju2018", kind: "ai", stage: 6 }), /단계/);

@@ -23,9 +23,10 @@ const clip = (v, n) => String(v ?? "").trim().slice(0, n);
 function parse(data) {
   const d = data && typeof data === "object" ? data : {};
   const deviceId = String(d.deviceId || "");
-  if (!/^[A-Za-z0-9-]{12,64}$/.test(deviceId)) throw bad("기기 표시가 올바르지 않아요.");
+  // day- 로 시작하는 이름은 하루 전체 횟수 문서(demoUsage/day-YYYY-MM-DD)와 겹치므로 받지 않는다
+  if (!/^[A-Za-z0-9-]{12,64}$/.test(deviceId) || /^day-/i.test(deviceId)) throw bad("기기 표시가 올바르지 않아요.");
   const topic = String(d.topic || "");
-  if (!EVENTS[topic]) throw bad("주제를 찾을 수 없어요.");
+  if (!Object.hasOwn(EVENTS, topic)) throw bad("주제를 찾을 수 없어요."); // constructor 같은 객체 기본 속성 이름은 주제가 아니다
   const kind = d.kind === "chat" ? "chat" : d.kind === "ai" ? "ai" : "";
   if (!kind) throw bad("요청 종류가 올바르지 않아요.");
   const stage = Number(d.stage);
