@@ -51,11 +51,11 @@ function renderList() {
 }
 // ---------- 주제 파일 ----------
 async function importFile(f) {
-  if (f.size > 1024 * 1024) return toast("주제 파일이 너무 커요(1MB까지).", true);
+  if (f.size > 4 * 1024 * 1024) return toast("주제 파일이 너무 커요(4MB까지).", true);
   const b = $("#tp-import"); b.disabled = true;
   try {
     const t = await api("import", { data: await f.text() });
-    toast(`'${t.title}' 주제를 불러왔어요. 출처 원문을 확인하면 수업에 쓸 수 있어요.`);
+    toast(t.imported?.signed ? `'${t.title}' 주제를 불러왔어요. 만든 그대로 바로 쓸 수 있어요.` : `'${t.title}' 주제를 불러왔어요. 출처 원문을 확인하면 수업에 쓸 수 있어요.`);
     loadTopics();
     setCur(t); showView("detail"); renderDetail();
   } catch (e) { toast(errMsg(e), true); }
@@ -231,7 +231,9 @@ function renderDetail(runningStep, since) {
         <button class="btn btn-danger btn-sm" id="tp-del" type="button" ${running ? "disabled" : ""}>주제 삭제</button></div></div>
     <h2 style="margin:10px 0 4px">${esc(cur.file?.EVENT?.title || cur.title)}</h2>
     <div class="meta-line">${s === "review" ? (cur.check?.errors?.length ? "고칠 곳이 있어요" : cur.usable ? `수업에 쓸 수 있어요 · 학생에게 보이는 인물 ${cur.usable}명` : "출처 원문을 확인하면 수업에 쓸 수 있어요") : "만드는 중"} · AI 사용 ${cur.build.calls}/${cur.maxCalls}</div>
-    ${cur.imported ? `<div class="notice muted" style="margin-top:10px">파일에서 불러온 주제예요${cur.imported.at ? ` (${new Date(cur.imported.at).toLocaleDateString("ko-KR")})` : ""}. 출처마다 원문을 열어 다시 확인해야 학생에게 쓰여요. AI로 인물을 다시 만들 수는 없고, 내용은 아래에서 직접 고칠 수 있어요.</div>` : stepsBar(runningStep)}
+    ${cur.imported ? `<div class="notice muted" style="margin-top:10px">파일에서 불러온 주제예요${cur.imported.at ? ` (${new Date(cur.imported.at).toLocaleDateString("ko-KR")})` : ""}. ${cur.imported.signed
+      ? "만든 선생님이 원문을 확인한 상태 그대로예요. 수업 전에 한 번 훑어보고 쓰세요."
+      : "파일이 다른 곳에서 왔거나 내용이 바뀌어서 출처 원문 확인이 풀렸어요. 출처마다 원문을 열어 다시 확인해야 학생에게 쓰여요. AI로 인물을 다시 만들 수는 없고, 내용은 아래에서 직접 고칠 수 있어요."}</div>` : stepsBar(runningStep)}
     ${runningStep ? `<div style="margin-top:10px">${waitHtml({ steps: RUN_TEXT[runningStep], since })}</div><div class="meta-line">단계마다 저장돼요. 화면을 닫았다가 다시 열면 이어서 할 수 있어요.</div>` : ""}
     ${!runningStep && cur.build.lastError && s !== "review" ? `<div class="notice yellow" style="margin-top:10px">지난번 '${esc(cur.build.lastError.step)}' 단계가 끝나지 못했어요: ${esc(cur.build.lastError.message)}</div>` : ""}
     ${!runningStep && cur.build.busy ? `<div class="notice yellow" style="margin-top:10px">다른 창에서 이 주제를 만드는 중일 수 있어요. 잠시 뒤 <button class="link" type="button" id="tp-reload">새로 고침</button>하세요.</div>` : ""}
@@ -348,7 +350,7 @@ function reviewHtml() {
           ${(p.beliefs || []).length ? `<div class="notice yellow" style="margin-top:10px"><b>틀릴 수 있는 믿음</b>${p.beliefs.map((b) => `<div style="margin-top:4px">· ${esc(b[0])}<div class="meta-line">실제: ${esc(b[1])}</div></div>`).join("")}</div>` : ""}
           <div style="margin-top:10px"><b>근거 진술 (기사 문장 그대로)</b>${p.claims.map((c) => `<div class="meta-line" style="color:var(--ink);margin-top:4px"><span class="tag ${c[2] === "주장" || c[2] === "의견" ? "y" : ""}">${esc(c[2])}</span> ${esc(c[0])} ${srcTag(c[1])}</div>`).join("")}</div>
           <div class="meta-line" style="margin-top:6px">융합 근거: ${esc(p.basis)}</div>
-          ${cur.imported ? "" : `<div class="row" style="margin-top:12px;gap:6px;flex-wrap:wrap"><input type="text" data-regen-note="${esc(p.id)}" maxlength="400" placeholder="다시 만들 때 바랄 점 (예: 반대 이유를 더 분명하게)" style="flex:1;min-width:200px" />
+          ${cur.imported && !cur.imported.signed ? "" : `<div class="row" style="margin-top:12px;gap:6px;flex-wrap:wrap"><input type="text" data-regen-note="${esc(p.id)}" maxlength="400" placeholder="다시 만들 때 바랄 점 (예: 반대 이유를 더 분명하게)" style="flex:1;min-width:200px" />
             <button class="btn btn-plain btn-sm" data-regen="${esc(p.id)}" type="button">이 인물 다시 만들기</button></div>`}
         </div></details>`;
       }).join("")}
