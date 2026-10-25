@@ -371,3 +371,48 @@ test("인물마다 틀릴 수 있는 믿음(beliefs)이 있어 인물끼리 같�
   }
   assert.match(personaPrompt(EVENTS.jeju2018, PERSONAS.find((p) => p.id === "j_resident")), /자기 처지에서|네 처지에서/);
 });
+
+test("새 주제 다섯 개: 인물들의 삶이 서로 스치고(양쪽 이야기에 같은 장면), 모든 사건이 자료·사례·인물 이야기의 풍부함 기준을 채운다", () => {
+  const life = (id) => { const p = PERSONAS.find((x) => x.id === id); assert.ok(p, id); return [...p.story, ...p.episodes].join(" "); };
+  const both = (a, b, mark) => { assert.match(life(a), new RegExp(mark), `${a}: ${mark}`); assert.match(life(b), new RegExp(mark), `${b}: ${mark}`); };
+  const sep = (a, am, b, bm) => { assert.match(life(a), new RegExp(am), `${a}: ${am}`); assert.match(life(b), new RegExp(bm), `${b}: ${bm}`); };
+  // 스마트폰
+  both("ph_middle", "ph_mom", "학교로 전화를"); both("ph_middle", "ph_teacher", "뒷자리 아이를");
+  both("ph_assist", "ph_head", "매번 설명하지 않게 해 주세요"); both("ph_dad", "ph_activist", "학부모 단체");
+  sep("ph_head", "장학사에게 전화를", "ph_officer", "교감이 전화로");
+  // 기후소송
+  both("cl_plaintiff", "cl_activist", "우리 이겼는데 왜"); both("cl_future", "cl_citizen", "그럼 어떻게 하면 좋을까요");
+  both("cl_voc", "cl_sme", "대표님, 이 일 앞으로 괜찮을까요"); both("cl_activist", "cl_coal", "가족 이야기");
+  both("cl_aide", "cl_activist", "복도"); both("cl_activist", "cl_officer", "하한이 목표가 될 거예요");
+  // 산불
+  both("wf_grandma", "wf_volunteer", "사과 한 알"); both("wf_chief", "wf_forestry", "우리 마을 언제 불 꺼집니까");
+  both("wf_teen", "wf_volunteer", "우리 집 이제 없어요"); both("wf_forester", "wf_activist", "내 산 좀 같이 걸어");
+  both("wf_diner", "wf_county", "손을 맞잡");
+  // 작은 학교
+  both("sm_pupil", "sm_teacher", "우리 학교 없어져요"); both("sm_chief", "sm_store", "평상"); both("sm_returnee", "sm_chief", "감자를 한 상자");
+  both("sm_parent", "sm_returnee", "학부모 모임"); both("sm_office", "sm_ministry", "돈보다 선생님이 필요하다"); both("sm_activist", "sm_ministry", "이게 혁신입니까");
+  // 개식용
+  both("dm_farmer", "dm_neighbor", "이제 좀 조용하겠네요"); both("dm_farmer", "dm_local", "이게 다예요"); both("dm_son", "dm_farmer", "아버지, 미안해요");
+  both("dm_activist", "dm_vet", "이십 마리를 받아 줄 수 있나요"); both("dm_restaurant", "dm_student", "메뉴판"); both("dm_ministry", "dm_activist", "언제까지요");
+
+  // 풍부함 기준: 열 개 사건 모두
+  for (const ev of Object.keys(EVENTS)) {
+    const mats = materialsFor(ev, true);
+    assert.ok(mats.length >= 6, `${ev}: 자료 분류`);
+    assert.ok(mats.reduce((a, c) => a + c.items.length, 0) >= 35, `${ev}: 자료 항목`);
+    assert.ok(mats.some((c) => c.stats && c.stats.length >= 3), `${ev}: 숫자 타일`);
+    assert.ok(CASES[ev].length >= 4, `${ev}: 4단계 사례`);
+    assert.ok(AFTERMATH[ev].length >= 6, `${ev}: 이후 전개`);
+    const ps = PERSONAS.filter((p) => p.events.includes(ev));
+    assert.ok(ps.reduce((a, p) => a + p.claims.length, 0) / ps.length >= 7, `${ev}: 인물당 근거 진술`);
+    assert.ok(ps.every((p) => p.episodes.length >= 4 && p.story.length >= 6), `${ev}: 인물 이야기`);
+    assert.ok(EVENTS[ev].teacherNote.length >= 400, `${ev}: 교사 메모`);
+  }
+  // 새 주제 다섯 개는 낱말 풀이와 '같은 사실, 다른 해석' 분류를 갖는다
+  for (const ev of UNCHECKED) {
+    const ids = MATERIALS[ev].map((c) => c.id);
+    assert.ok(ids.includes("words") && ids.includes("readings"), ev);
+    assert.ok(MATERIALS[ev].find((c) => c.id === "words").items.length >= 6, ev);
+    assert.ok(MATERIALS[ev].find((c) => c.id === "readings").items.length >= 5, ev);
+  }
+});
