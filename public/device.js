@@ -78,9 +78,11 @@
       requestAnimationFrame(function () {
         tick = false;
         var b = document.body, y = window.scrollY, d = y - lastY;
+        // 맨 위 근처에서는 항상 보인다. 창이 떠 있거나 입력 중에 화면이 맨 위로 옮겨 가도(예: 인물을 고르면 대화 화면 맨 위로 간다)
+        // 숨긴 채로 남지 않게, 이 확인을 먼저 한다(맨 위에서는 더 올릴 수 없어 다시 꺼낼 방법이 없다).
+        if (y < 80) { b.classList.remove("chrome-hidden"); lastY = y; return; }
         if (b.classList.contains("typing") || b.classList.contains("modal-open")) { lastY = y; return; }
-        if (y < 80) { b.classList.remove("chrome-hidden"); lastY = y; }
-        else if (d > 12) { b.classList.add("chrome-hidden"); lastY = y; }
+        if (d > 12) { b.classList.add("chrome-hidden"); lastY = y; }
         else if (d < -12) { b.classList.remove("chrome-hidden"); lastY = y; }
       });
     }, { passive: true });

@@ -196,7 +196,7 @@ function makeTopicApi({ db, FieldValue, HttpsError, requireTeacher, ai, dailyLim
     // 내 수업의 주제 사본을 지금 주제 내용으로 바꾼다(수업을 만든 뒤 출처를 더 확인했을 때)
     async syncSession(auth, d) {
       const code = String(d.code || "").trim().toUpperCase();
-      const s = code ? await db.doc(`sessions/${code}`).get() : null;
+      const s = /^[A-Z0-9]{1,20}$/.test(code) ? await db.doc(`sessions/${code}`).get() : null;
       if (!s?.exists || s.data().teacherUid !== auth.uid) fail("permission-denied", "내가 만든 수업이 아닙니다.");
       if (!s.data().topicId) fail("failed-precondition", "기본 주제로 만든 수업입니다.");
       const t = await forClass(auth, s.data().topicId);

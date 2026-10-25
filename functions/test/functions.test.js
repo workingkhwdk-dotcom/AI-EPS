@@ -161,6 +161,22 @@ test("Firestore config/teachers 에 이메일을 넣으면 재배포 없이 교�
   assert.match((await api.createSession({ ...admin, data: { groupCount: 1 } })).code, /^[A-Z2-9]{6}$/);
 });
 
+test("수업 코드는 영문·숫자만 받고('/'·빈 값은 Firestore 경로에 넣지 않는다), 기본 주제 ID 는 객체 기본 속성 이름을 주제로 보지 않는다", async () => {
+  for (const bad of ["", "AB/CD", "../X", "A B"]) {
+    await assert.rejects(api.joinSession({ ...student("Z1"), data: { code: bad, groupNo: 1, nickname: "가", password: "1234" } }), /수업 코드를 찾을 수 없습니다/);
+    await assert.rejects(api.choosePersona({ ...student("Z1"), data: { code: bad, personaId: "x" } }), /참여자가 아닙니다/);
+    await assert.rejects(api.getCase({ ...student("Z1"), data: { code: bad } }), /참여자가 아닙니다/);
+    await assert.rejects(api.aiRequest({ ...student("Z1"), data: { code: bad, stage: 1, type: "persona_chat", payload: { message: "안녕" } } }), /수업 코드가 없습니다/);
+    await assert.rejects(api.updateSession({ ...teacher, data: { code: bad, started: true } }), /수업을 찾을 수 없습니다/);
+  }
+  const { code: c } = await api.createSession({ ...teacher, data: { groupCount: 1, eventId: "constructor" } });
+  assert.equal(store.get(`sessions/${c}`).eventId, "jeju2018");
+  for (const id of ["constructor", "__proto__", "toString"]) await assert.rejects(api.getCase({ ...teacher, data: { eventId: id } }), /사건을 찾을 수 없습니다/);
+  // 소문자 코드도 받아 준다(대문자로 바꾼다)
+  await api.updateSession({ ...teacher, data: { code: c.toLowerCase(), started: true } });
+  assert.equal(store.get(`sessions/${c}`).started, true);
+});
+
 test("교사가 아니면 수업을 만들 수 없다", async () => {
   await assert.rejects(api.createSession({ ...student("S0"), data: {} }), /교사/);
 });
@@ -1182,4 +1198,94 @@ test("선생님 한마디: 교사만 보낼 수 있고, 모둠을 고를 수 있
   assert.deepEqual(store.get(`sessions/${c}`).notice.groups, [], "모둠을 안 고르면 모두에게");
   const r = await api.updateSession({ ...teacher, data: { code: c, notice: { text: "" } } });
   assert.equal(store.get(`sessions/${c}`).notice, undefined); assert.equal(r.notice, null);
+});
+
+// ---------- 열 개 사건 전체 수업 ----------
+// 사건마다 교사가 수업을 만들고, 학생 9명(두 모둠)이 입장해 인물을 고르고 대화한 뒤, 모둠이 2~5단계 AI 를 모두 쓰고 6·7단계는 막히는지 본다.
+// AI 에게 보내는 글과 학생에게 가는 내용에 undefined·NaN·[object Object] 가 섞이지 않는지, 프롬프트가 그 사건의 것인지도 본다.
+const CASE_IDS = Object.keys(require("../case").EVENTS);
+const simBad = [];
+const scan = (label, s) => { const t = typeof s === "string" ? s : JSON.stringify(s); for (const re of [/undefined/, /\[object Object\]/, /NaN/]) if (re.test(t)) simBad.push(`${label}: ${re} … ${t.slice(Math.max(0, t.search(re) - 80), t.search(re) + 40)}`); };
+test("열 개 사건 모두: 수업 만들기 → 9명 입장·인물 고르기·대화 → 2~5단계 AI → 6·7단계는 AI 없음, 복제·삭제까지 오류 없이 된다", async () => {
+  assert.equal(CASE_IDS.length, 10);
+  let n = 0;
+  for (const ev of CASE_IDS) {
+    calls.length = 0;
+    const { code: c } = await api.createSession({ ...teacher, data: { groupCount: 2, eventId: ev } });
+    code = c;
+    assert.equal(store.get(`sessions/${c}`).eventId, ev, ev);
+    await api.updateSession({ ...teacher, data: { code: c, started: true } });
+    const adm = await api.getCase({ ...teacher, data: { code: c, admin: true } });
+    scan(ev + " admin getCase", adm);
+    // 9명: 1모둠 5명, 2모둠 4명
+    const uids = [];
+    for (let i = 0; i < 9; i++) {
+      const uid = `${ev}_S${i}`; uids.push(uid);
+      const j = await api.joinSession({ ...student(uid), data: { code: c, groupNo: i < 5 ? 1 : 2, nickname: "학생" + i, password: "1234" } });
+      if (i === 0) {
+        scan(ev + " studentCase", j.case);
+        assert.equal(j.case.letters.length, 9, ev + " 학생에게 인물 9명");
+        for (const k of ["materials", "cases", "aftermath"]) assert.ok(j.case[k]?.length, `${ev} ${k}`);
+      }
+    }
+    const sc = (await api.getCase({ ...student(uids[0]), data: { code: c } }));
+    const letters = sc.letters;
+    // 모둠마다 꼭 필요한 인물을 먼저 고른다
+    for (const [g, members] of [[1, uids.slice(0, 5)], [2, uids.slice(5)]]) {
+      const req = letters.filter((l) => l.required), rest = letters.filter((l) => !l.required);
+      const order = g === 1 ? [req[0], ...rest] : [req[1] || req[0], ...rest.slice().reverse()];
+      for (let i = 0; i < members.length; i++) {
+        const r = await api.choosePersona({ ...student(members[i]), data: { code: c, personaId: order[i].id } });
+        scan(ev + " choosePersona", r);
+      }
+    }
+    // 1단계: 모두 인물과 대화
+    for (const uid of uids) {
+      const r = await api.aiRequest({ ...student(uid), data: { code: c, stage: 1, type: "persona_chat", payload: { message: "요즘 어떤 일이 제일 힘드세요? 왜 그렇게 생각하세요?" } } });
+      assert.ok(r.result, ev + " 대화 답");
+    }
+    const personaSys = calls.filter((x) => x.kind === "persona").map((x) => x.body.messages?.[0]?.content || x.body.instructions || "");
+    personaSys.forEach((s, i) => scan(`${ev} persona prompt ${i}`, s));
+    const guards = calls.filter((x) => x.kind === "guard");
+    guards.forEach((x, i) => scan(`${ev} guard prompt ${i}`, x.body.messages[0].content + x.body.messages[1].content));
+    // 모둠 산출물 채우기(학생 화면이 Firestore 에 직접 쓰는 것)
+    const work = {
+      s1: { problem: { situation: "주민과 당사자가 서로 다른 걱정을 하고 있다", hmw: "어떻게 하면 서로의 걱정을 함께 줄일 수 있을까?" } },
+      s2: { links: { L1: { by: uids[0], uid: uids[0], prior: "처음엔 간단하다고 봤다", surprise: "인물의 사정이 복잡했다", source: "뉴스에서 본 장면 때문에 그렇게 생각했다", scene: "우리 반에서도 비슷한 일이 있었다", question: "누가 결정하나?", t: 1 } },
+        causes: { C1: { text: "정보가 부족했다", level: "개인", t: 1 }, C2: { text: "제도가 늦게 바뀌었다", level: "제도", t: 2 } },
+        checks: { K1: { causeId: "C1", heard: "정보가 없었다", question: "실제로 안내가 얼마나 있었나?", real: "자료에 없다", srcType: "기사", t: 1 } } },
+      s3: { chain: { cause: "제도가 늦게 바뀌어 사람들이 준비할 시간이 없었다", evidence: "자료의 날짜" } },
+      s4: { proposals: { P1: { text: "지역 주민과 당사자가 함께 참여하는 정기 협의회를 만들고 결과를 공개한다", cause: "정보 부족", ref: "다른 지역 사례", t: 1 } }, final: "지역 주민과 당사자가 함께 참여하는 정기 협의회를 만들고, 결과를 누리집에 공개한다" },
+      s5: { predictions: { R1: { stakeholder: "주민", text: "처음엔 귀찮아하지만 점차 참여할 것이다", t: 1 }, R2: { stakeholder: "당사자", text: "목소리를 낼 수 있어 반길 것이다", t: 2 } } },
+    };
+    for (const g of ["g1", "g2"]) store.set(`sessions/${c}/groups/${g}`, { ...store.get(`sessions/${c}/groups/${g}`), work });
+    for (const [g, uid] of [["g1", uids[0]], ["g2", uids[5]]]) {
+      if (g === "g2") work.s2.links.L1.by = work.s2.links.L1.uid = uid, store.set(`sessions/${c}/groups/g2`, { ...store.get(`sessions/${c}/groups/g2`), work });
+      const reqs = [
+        [2, "coach", { focus: "link", linkId: "L1" }], [2, "coach", { focus: "cause" }], [3, "verify_query", { checkId: "K1" }],
+        [4, "proposal_feedback", { proposalId: "P1" }], [5, "scenario", { proposalId: "final", round: 1 }], [5, "scenario", { proposalId: "P1", round: 3 }], [5, "scenario", { proposalId: "final", round: 5 }],
+      ];
+      for (const [stage, type, payload] of reqs) {
+        const r = await api.aiRequest({ ...student(uid), data: { code: c, stage, type, payload } });
+        assert.ok(r.result, `${ev} ${g} ${stage}단계 답`);
+      }
+      for (const stage of [6, 7]) await assert.rejects(api.aiRequest({ ...student(uid), data: { code: c, stage, type: "x", payload: {} } }), /AI를 쓸 수 없어요/);
+    }
+    for (const k of ["coach", "verify", "review", "scenario"]) {
+      const cs = calls.filter((x) => x.kind === k);
+      assert.ok(cs.length, `${ev} ${k} 호출`);
+      cs.forEach((x, i) => scan(`${ev} ${k} prompt ${i}`, x.body.messages.map((m) => m.content).join("\n")));
+      // 다른 사건 제목이 섞이지 않는다
+      const title = require("../case").EVENTS[ev].title;
+      assert.ok(cs.every((x) => x.body.messages[0].content.includes(title.split(" ")[0]) || x.body.messages[0].content.includes(require("../case").EVENTS[ev].summary.slice(0, 20))), `${ev} ${k} 프롬프트에 그 사건`);
+    }
+    // 교사 기능
+    const mats = await api.getMaterials({ ...teacher, data: { code: c } }); scan(ev + " getMaterials", mats);
+    const cl = await api.cloneSession({ ...teacher, data: { code: c } });
+    assert.equal(store.get(`sessions/${cl.code}`).eventId, ev);
+    await api.deleteSession({ ...teacher, data: { code: cl.code } });
+    n++;
+  }
+  assert.equal(n, 10);
+  assert.deepEqual([...new Set(simBad)], []);
 });
