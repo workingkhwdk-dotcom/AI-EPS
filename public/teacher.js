@@ -208,7 +208,7 @@ $("#create-btn").onclick = async () => {
   try {
     const title = $("#t-title").value;
     const ev = caseArgs($("#t-event").value);
-    const { data } = await call("createSession")({ title, ...ev, groupCount: Number($("#t-groups").value), chatLimit: Number($("#t-chatlimit").value) });
+    const { data } = await call("createSession")({ title, ...ev, groupCount: Number($("#t-groups").value), chatLimit: Number($("#t-chatlimit").value), level: $("#t-level").value });
     toast(`수업을 만들었습니다. 코드: ${data.code}`);
     toggleNew(false);
     openSession(data.code, title.trim() || "수업", ev.topicId);
@@ -222,7 +222,7 @@ function listSessions(uid) {
   listUnsub = onSnapshot(query(collection(db, "sessions"), where("teacherUid", "==", uid)), (s) => {
     sessionRows = s.docs.map((d) => ({ code: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
     $("#sessions").innerHTML = sessionRows.map((r) =>
-      `<div class="cell cls"><div class="grow"><b>${esc(r.title)}</b>${r.closed ? ` <span class="tag r">닫힘</span>` : r.started === false ? ` <span class="tag y">대기 중</span>` : ` <span class="tag">진행 중</span>`}<br><span class="meta-line"><span class="code">${r.code}</span> · ${r.groupCount}모둠 · ${fmt(r.createdAt)}</span></div><button class="btn btn-tinted btn-sm" data-code="${r.code}">열기</button></div>`
+      `<div class="cell cls"><div class="grow"><b>${esc(r.title)}</b>${r.closed ? ` <span class="tag r">닫힘</span>` : r.started === false ? ` <span class="tag y">대기 중</span>` : ` <span class="tag">진행 중</span>`}${r.level === "middle" ? ` <span class="tag b">중학교</span>` : ""}<br><span class="meta-line"><span class="code">${r.code}</span> · ${r.groupCount}모둠 · ${fmt(r.createdAt)}</span></div><button class="btn btn-tinted btn-sm" data-code="${r.code}">열기</button></div>`
     ).join("") || `<div class="cell meta-line">아직 수업이 없어요. '＋ 새 수업 만들기'로 시작하세요.</div>`;
     if (current) {
       const cur = sessionRows.find((r) => r.code === current);
@@ -587,9 +587,9 @@ function stageSections(n, g) {
       return [
         { title: "개인 제출 (모둠원이 만난 인물)", rows: listOf(w.s1?.findings).map((f) => [
           `${f.nick || "모둠원"} → ${f.persona || "인물"}${f.submitted === false ? " (수정 중·미제출)" : ""}`,
-          joinLines(["대화 전 내 생각", f.prior], ["누구", f.who], ["힘든 것", f.hard], ["바라는 것", f.want], ["'어?' 했던 순간", f.surprise], ["기억에 남는 말", f.quote], ["정말 그럴까?", f.doubt], ["", f.text]), f.nick]) },
+          joinLines(["대화 전 내 생각", f.prior], ["누구", f.who], ["힘든 것", f.hard], ["바라는 것", f.want], ["당연하게 여기는 것", f.premise], ["'어?' 했던 순간", f.surprise], ["기억에 남는 말", f.quote], ["정말 그럴까?", f.doubt], ["", f.text]), f.nick]) },
         { title: "모둠 문제 정의", rows: [
-          ["같은 점", pb.common], ["서로 다르게 말한 것", pb.disputes], ["부딪히는 점", pb.conflict], ["문제 상황", pb.situation], ["우리가 풀 질문", pb.hmw],
+          ["같은 점", pb.common], ["서로 다르게 말한 것", pb.disputes], ["부딪히는 점", pb.conflict], ["부딪히는 가치", [pb.valueA, pb.valueB].filter(Boolean).join(" ↔ ")], ["가치를 함께 지키기 어려운 까닭", pb.valueWhy], ["문제 상황", pb.situation], ["우리가 풀 질문", pb.hmw],
           ["점검표", hasKeys(pb.checks) ? `${countTrue(pb.checks)} / ${PROBLEM_CHECK_N}` : ""]].filter(([, v]) => tx(v)) },
       ];
     }
@@ -599,10 +599,11 @@ function stageSections(n, g) {
         ["처지", r.situation], ["이어지는 점", r.point], ["확인 방법", r.confirm],
         ...ofStage(2).filter((l) => l.payload?.linkId === r.id).map((l) => ["생각 도우미", prettyLog(l)]), ["더 생각한 것", w.s2?.linkMore?.[r.id]]), r.nick]) },
       { title: "원인 추측", rows: [...listOf(w.s2?.causes).map((c) => [c.level || "원인", c.text, c.nick]),
+        ...listOf(w.s2?.causeLinks).map((l) => ["원인 잇기", `${listOf(w.s2?.causes).find((x) => x.id === l.from)?.text || "(삭제됨)"} → ${l.rel || ""} → ${listOf(w.s2?.causes).find((x) => x.id === l.to)?.text || "(삭제됨)"}`, l.nick]),
         ...ofStage(2).filter((l) => l.payload?.focus === "cause").map((l) => ["생각 도우미", prettyLog(l), l.nickname])] },
       { title: "검증 질문", rows: listOf(w.s2?.checks).map((c) => [`확인할 말: ${c.heard || ""}`, joinLines(
         ["관련 원인 추측", c.causeId ? listOf(w.s2?.causes).find((x) => x.id === c.causeId)?.text || "(삭제됨)" : ""],
-        ["검증 질문", c.question], ["확인할 자료", c.srcType], ["자료 비교", c.real]), c.nick]) },
+        ["사실·의견", c.fo], ["검증 질문", c.question], ["틀렸다면", c.refute], ["확인할 곳", c.look], ["확인할 자료", c.srcType], ["자료 비교", c.real]), c.nick]) },
     ];
     case 3: {
       const checks = listOf(w.s2?.checks);
@@ -610,39 +611,39 @@ function stageSections(n, g) {
       return [
         { title: "검증 결과", rows: ofStage(3).map((l) => {
           const c = checks.find((x) => x.id === l.payload?.checkId), v = w.s3?.checks?.[l.id] || {};
-          return [`질문: ${c?.question || l.input}`, joinLines(["판정", v.verdict], ["판정 근거", v.source], ["AI 답 점검", v.reason], ["AI 답", l.output]), l.nickname];
+          return [`질문: ${c?.question || l.input}`, joinLines(["판정", v.verdict], ["판정 근거", v.source], ["다른 자료", v.source2], ["자료를 만든 쪽", v.maker], ["AI 답 점검", v.reason], ["AI 답", l.output]), l.nickname];
         }) },
         { title: "원인 가설 점검", rows: listOf(w.s2?.causes).map((q) => [q.text, w.s3?.causes?.[q.id]?.status || "판단 안 함", q.nick]) },
-        { title: "핵심 원인", rows: [["확인된 사실", ch.evidence], ["뜻하는 것", ch.meaning], ["핵심 원인", ch.cause]].filter(([, v]) => tx(v)) },
+        { title: "핵심 원인", rows: [["확인된 사실", ch.evidence], ["뜻하는 것", ch.meaning], ["핵심 원인", ch.cause], ["뿌리 따져 보기", ch.root]].filter(([, v]) => tx(v)) },
       ];
     }
     case 4: {
       const props = listOf(w.s4?.proposals);
       return [
-        { title: "모둠 대안", rows: props.map((p) => ["대안", joinLines(["", p.text], ["겨냥하는 원인", p.cause], ["참고한 사례", p.ref]), p.nick]) },
+        { title: "모둠 대안", rows: props.map((p) => ["대안", joinLines(["", p.text], ["겨냥하는 원인", p.cause], ["참고한 사례", p.ref], ["사례와 다른 점", p.transfer], ["얻는 것", w.s4?.trade?.[p.id]?.gain], ["포기하는 것", w.s4?.trade?.[p.id]?.cost]), p.nick]) },
         { title: "AI 검토와 모둠 판단", rows: ofStage(4).map((l) => {
           const p = props.find((x) => x.id === l.payload?.proposalId), d = w.s4?.decisions?.[l.id] || {};
           return [`검토 대상: ${(p?.text || l.input).slice(0, 60)}`, joinLines(["판단", d.choice], ["공통 지적", d.compare], ["이유", d.reason],
             ["AI 검토", (parse(l.output).reviews || []).map((r) => `[${r.label}] ${r.text}`).join("\n")]), l.nickname];
         }) },
-        { title: "최종 대안", rows: [["최종 대안", w.s4?.final], ["고른 이유", w.s4?.finalReason], ["문제 질문의 두 바람", w.s4?.finalFit]].filter(([, v]) => tx(v)) },
+        { title: "최종 대안", rows: [["앞세운 가치(견주기)", w.s4?.tradeValue], ["최종 대안", w.s4?.final], ["고른 이유", w.s4?.finalReason], ["문제 질문의 두 바람", w.s4?.finalFit], ["점검: 효과", w.s4?.check?.effect], ["점검: 힘들어지는 사람", w.s4?.check?.fair]].filter(([, v]) => tx(v)) },
       ];
     }
     case 5: return [
-      { title: "이해관계자 반응 예측", rows: listOf(w.s5?.predictions).map((r) => [r.stakeholder, r.text, r.nick]) },
+      { title: "이해관계자 반응 예측", rows: [...listOf(w.s5?.predictions).map((r) => [r.stakeholder, r.text, r.nick]), ...(tx(w.s5?.chain) ? [["연쇄 반응", w.s5.chain]] : [])] },
       { title: "시나리오와 모둠 판단", rows: ofStage(5).map((l) => {
         const sc = parse(l.output).scenarios || [], sel = w.s5?.selection?.[l.id] || {};
         return [`${l.payload?.proposalId === "final" ? "최종 대안" : "후보 대안"} · ${l.payload?.round}년 후`, joinLines(
           ["", sc.map((x, i) => `${sel.idx === i ? "✓ " : "· "}${x.title}`).join("\n")],
-          ["고른 시나리오의 작동 기제", sc[sel.idx]?.mechanism], ["작동 기제 점검", sel.mech], ["고른 이유", sel.reason]), l.nickname];
+          ["고른 시나리오의 작동 기제", sc[sel.idx]?.mechanism], ["내 예측과 견주기", sel.vs], ["작동 기제 점검", sel.mech], ["고른 이유", sel.reason]), l.nickname];
       }) },
       { title: "예상되는 문제", rows: [["예상 문제", w.s5?.newProblem]].filter(([, v]) => tx(v)) },
     ];
     case 6: {
       const p = w.s6?.plan || {};
-      return [{ title: p.type === "patch" ? "대안 보완안" : "행동 계획", rows: [["대상", p.target], ["내용", p.content], ["방법", p.method], ["기대 효과", p.effect], ["어려움과 대응", p.difficulty]].filter(([, v]) => tx(v)) }];
+      return [{ title: p.type === "patch" ? "대안 보완안" : "행동 계획", rows: [["대상", p.target], ["내용", p.content], ["권한·제안 경로", p.authority], ["방법", p.method], ["기대 효과", p.effect], ["어려움과 대응", p.difficulty]].filter(([, v]) => tx(v)) }];
     }
-    case 7: return [{ title: "돌아보기", rows: [["발표 정리", w.s7?.share], ["실제 전개와 비교", w.s7?.compare], ["AI 활용 점검", hasKeys(w.s7?.checks) ? `${countTrue(w.s7.checks)} / ${REFLECT_N}` : ""], ["성찰", w.s7?.reflection]].filter(([, v]) => tx(v)) }];
+    case 7: return [{ title: "돌아보기", rows: [["발표 정리", w.s7?.share], ["실제 전개와 비교", w.s7?.compare], ["달랐던 까닭", w.s7?.why], ["AI 활용 점검", hasKeys(w.s7?.checks) ? `${countTrue(w.s7.checks)} / ${REFLECT_N}` : ""], ["성찰", w.s7?.reflection]].filter(([, v]) => tx(v)) }];
   }
   return [];
 }
@@ -835,15 +836,47 @@ function fillSettings() {
   $("#s-web").value = r.webSearch === false ? "0" : "1";
   $("#s-coach").value = r.coach === false ? "0" : "1";
   $("#s-auto").value = String(r.autoCloseHours || 0);
+  $("#s-level").value = r.level === "middle" ? "middle" : "high";
+  renderDeep(r.deep || {});
   $("#s-topic-card").classList.toggle("hidden", !r.topicId);
   $("#s-guide").style.whiteSpace = "pre-wrap";
   $("#s-guide").textContent = studentGuide();
 }
+// ---------- 학교급과 심화 활동 (functions/level.js 와 같은 목록) ----------
+// 학교급을 바꾸면 심화 활동 체크는 그 학교급의 기본값(고등학교 모두 켬, 중학교 모두 끔)으로 맞춘다. 그 뒤 하나씩 바꿀 수 있다.
+const DEEP = [
+  ["beliefs", "1단계 · 인물이 틀린 믿음을 맞는 사실과 섞어 그럴듯하게 말해요 (찾기 어렵게)"],
+  ["premise", "1단계 · 인물이 당연하게 여기는 것(전제)과 부딪히는 가치 찾기"],
+  ["causeMap", "2·3단계 · 원인끼리 잇기(인과 지도)와 뿌리가 되는 원인 따지기"],
+  ["sources", "3단계 · 다른 자료로 한 번 더 확인하고, 자료를 만든 쪽 따지기"],
+  ["tradeoff", "4단계 · 해결책 두 개를 얻는 것·포기하는 것으로 견주기, 사례를 옮길 때의 조건"],
+  ["chain", "5단계 · 한 사람의 반응이 다른 사람에게 미치는 연쇄 예측"],
+  ["power", "6단계 · 결정 권한이 있는 곳과 제안 경로 찾기"],
+  ["why", "7단계 · 실제와 달랐던 까닭 분석"],
+];
+const LEVEL_NAMES = { high: "고등학교", middle: "중학교" };
+const LEVEL_NOTE = {
+  high: "AI가 고등학생 수준으로 말하고, 심화 활동이 모두 켜진 채로 시작해요(수업 설정에서 바꿀 수 있어요).",
+  middle: "AI가 더 짧고 쉬운 말로 답해요. 원인 갈래 2개, 판정 3가지, 사실·의견 가르기, 해결책 점검, 1년 뒤 미래로 단순하게 진행하고, 심화 활동은 꺼진 채로 시작해요.",
+};
+function renderDeep(d) {
+  $("#s-deep").innerHTML = DEEP.map(([k, label]) => `<label class="cell" style="cursor:pointer"><input type="checkbox" data-deep="${k}" ${d[k] === true ? "checked" : ""} style="width:20px;height:20px;margin-top:2px"><span class="grow">${esc(label)}</span></label>`).join("");
+}
+const deepNow = () => Object.fromEntries([...document.querySelectorAll("#s-deep [data-deep]")].map((el) => [el.dataset.deep, el.checked]));
+$("#s-level").onchange = () => renderDeep(Object.fromEntries(DEEP.map(([k]) => [k, $("#s-level").value === "high"])));
+$("#t-level").onchange = () => { $("#t-level-note").textContent = LEVEL_NOTE[$("#t-level").value]; };
+$("#t-level-note").textContent = LEVEL_NOTE.high;
+
 $("#s-save").onclick = async () => {
   try {
+    const r = curRow(), level = $("#s-level").value, deep = deepNow();
+    const changed = (r?.level === "middle" ? "middle" : "high") !== level || DEEP.some(([k]) => (r?.deep?.[k] === true) !== deep[k]);
+    // 진행 중인 수업에서 학교급·심화 활동을 바꾸면 학생 화면의 칸이 바로 바뀐다. 이미 쓴 내용은 그대로 남는다.
+    if (changed && r?.started !== false && !(await confirmModal("학교급·심화 활동을 바꿀까요?", "학생 화면의 활동 칸이 바로 바뀌어요. 이미 쓴 내용은 그대로 남지만, 새로 생긴 칸을 채워야 단계가 완료될 수 있어요.", "바꾸기", "취소"))) return;
     await call("updateSession")({
       code: current, title: $("#s-title").value, groupCount: Number($("#s-groups").value),
       aiLimit: Number($("#s-ailimit").value), chatLimit: Number($("#s-chatlimit").value), webSearch: $("#s-web").value === "1", coach: $("#s-coach").value === "1", autoCloseHours: Number($("#s-auto").value),
+      level, deep,
     });
     toast("저장했습니다");
     setTimeout(fillSettings, 400);
