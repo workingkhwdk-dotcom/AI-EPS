@@ -1,12 +1,12 @@
 // 체험 화면의 덧붙임: 머리글의 '홈'·'초기화' 단추, '체험' 표시, 안내 띠. 학생 화면(app.js)은 그대로 쓴다.
-import { TOPIC, resetTopic, flush } from "./store.js";
+import { TOPIC, LEVEL, resetTopic, flush } from "./store.js";
 
 const $ = (s) => document.querySelector(s);
 const right = $(".hdr-right");
 const nameOf = async () => { try { return (await (await fetch("demo/topics.json")).json()).find((t) => t.id === TOPIC)?.title || ""; } catch { return ""; } };
 
 // 머리글: 학교 이름 줄 옆에 '체험' 표시, 오른쪽에 홈·초기화
-$(".logo")?.insertAdjacentHTML("beforeend", "<em>체험</em>");
+$(".logo")?.insertAdjacentHTML("beforeend", `<em>${LEVEL === "middle" ? "중학교 체험" : "고등학교 체험"}</em>`);
 right?.insertAdjacentHTML("afterbegin",
   `<button class="btn-out" id="demo-home" type="button" aria-label="주제 고르는 처음 화면으로">홈</button><button class="btn-out" id="demo-reset" type="button" aria-label="이 주제를 처음부터 다시 하기">초기화</button>`);
 
@@ -16,7 +16,7 @@ $("#demo-home").onclick = async () => { await settle(); location.href = "demo.ht
 $("#demo-reset").onclick = async () => {
   const name = await nameOf();
   if (!confirm(`${name ? `'${name}' ` : ""}체험을 처음부터 다시 할까요?\n\n지금까지 쓴 글과 대화가 모두 지워져요.`)) return;
-  resetTopic(TOPIC);
+  resetTopic(TOPIC, LEVEL);
   location.reload();
 };
 
@@ -34,5 +34,6 @@ if (!hidden) {
 }
 
 // 'PC 화면으로 보기' ↔ '모바일 화면으로 보기' 링크가 체험 화면으로 가게 한다
-document.querySelectorAll('a[href^="index.html"]').forEach((a) => { a.href = `demo-play.html?view=pc&t=${TOPIC}`; });
-document.querySelectorAll('a[href^="m.html"]').forEach((a) => { a.href = `demo-play-m.html?view=m&t=${TOPIC}`; });
+const lv = LEVEL === "middle" ? "&lv=middle" : "";
+document.querySelectorAll('a[href^="index.html"]').forEach((a) => { a.href = `demo-play.html?view=pc&t=${TOPIC}${lv}`; });
+document.querySelectorAll('a[href^="m.html"]').forEach((a) => { a.href = `demo-play-m.html?view=m&t=${TOPIC}${lv}`; });
