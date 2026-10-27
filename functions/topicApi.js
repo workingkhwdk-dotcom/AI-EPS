@@ -252,10 +252,10 @@ function makeTopicApi({ db, FieldValue, HttpsError, requireTeacher, ai, dailyLim
     // ---------- AI ----------
     // 아이디어 → 사건 후보(주제를 만들기 전이라 저장하지 않는다). 하루 10번.
     async ideas(auth, d) {
-      const input = { idea: clipIn(d.idea, 300), grade: clipIn(d.grade, 100), focus: clipIn(d.focus, 300), avoid: clipIn(d.avoid, 200) };
+      const input = { idea: clipIn(d.idea, 300), grade: clipIn(d.grade, 100), focus: clipIn(d.focus, 300), avoid: clipIn(d.avoid, 200), level: d.level === "middle" ? "middle" : "high" };
       if (input.idea.length < 2) fail("invalid-argument", "다루고 싶은 지역이나 주제를 적어 주세요.");
       await bump(auth.uid, "ideas", IDEAS_PER_DAY, `사건 후보 찾기는 하루 ${IDEAS_PER_DAY}번까지예요. 내일 다시 해 주세요.`);
-      try { return { ...(await build.ideas(input, ai)), usage: await usage(auth.uid) }; }
+      try { return { ...(await build.ideas(input, build.levelAi(ai, input.level))), usage: await usage(auth.uid) }; }
       catch (e) {
         await unbump(auth.uid, "ideas");
         if (/찾지 못했어요|적어 주세요/.test(e.message)) fail("not-found", e.message);
@@ -277,7 +277,7 @@ function makeTopicApi({ db, FieldValue, HttpsError, requireTeacher, ai, dailyLim
       if (snap.docs.length >= MAX_TOPICS) fail("resource-exhausted", `주제는 ${MAX_TOPICS}개까지 둘 수 있어요. 쓰지 않는 주제를 지운 뒤 만들어 주세요.`);
       await bump(auth.uid, "topics", dailyLimit(), `새 주제는 하루 ${dailyLimit()}개까지 만들 수 있어요. 내일 다시 만들어 주세요.`);
       const id = newTopicId();
-      const input = { idea: clipIn(d.idea, 300), grade: clipIn(d.grade, 100), focus: clipIn(d.focus, 300), avoid: clipIn(d.avoid, 200), candidate,
+      const input = { idea: clipIn(d.idea, 300), grade: clipIn(d.grade, 100), focus: clipIn(d.focus, 300), avoid: clipIn(d.avoid, 200), level: d.level === "middle" ? "middle" : "high", candidate,
         now: clipIn(d.now, 200) || candidate.now, requiredWho: clipIn(d.requiredWho, 120) || candidate.requiredWho };
       await ref(id).set({ ownerUid: auth.uid, title: candidate.title, status: "building", input, build: { step: "start", calls: 0 }, plan: null, review: null,
         bundle: null, createdAt: FieldValue().serverTimestamp(), updatedAt: FieldValue().serverTimestamp() });
@@ -285,7 +285,7 @@ function makeTopicApi({ db, FieldValue, HttpsError, requireTeacher, ai, dailyLim
     },
     async research(auth, d) {
       return step(auth, d.topicId, "research", ["start", "research"], async (t, count) => {
-        const r = await build.research({ input: t.input }, ai);
+        const r = await build.research({ input: t.input }, build.levelAi(ai, t.input?.level));
         count(r.calls);
         await researchRef(t.id).set({ SOURCES: r.SOURCES, facts: r.facts, names: r.names, errors: r.errors, at: Date.now() });
         await save(t.id, { "build.step": "research", bundle: toStored({ SOURCES: r.SOURCES, EVENT: null, PERSONAS: [], MATERIALS: [], POLICY_CASES: [], AFTERMATH: [], BRIEFS: {} }), plan: null, review: null });
@@ -295,7 +295,7 @@ function makeTopicApi({ db, FieldValue, HttpsError, requireTeacher, ai, dailyLim
     async frame(auth, d) {
       return step(auth, d.topicId, "frame", ["research", "frame"], async (t, count) => {
         const research = await loadResearch(t.id);
-        const r = await compose.frame({ topicId: t.id, input: t.input, research }, ai);
+        const r = await compose.frame({ topicId: t.id, input: t.input, research }, build.levelAi(ai, t.input?.level));
         count(r.calls);
         const file = { SOURCES: research.SOURCES, EVENT: r.EVENT, PERSONAS: [], MATERIALS: [], POLICY_CASES: [], AFTERMATH: [], BRIEFS: {} };
         await save(t.id, { "build.step": "frame", bundle: toStored(file), plan: r.plan, title: r.EVENT.title, review: null });
@@ -311,7 +311,7 @@ function makeTopicApi({ db, FieldValue, HttpsError, requireTeacher, ai, dailyLim
         const todo = t.plan.personas.filter((p) => !done.has(p.id)).slice(0, PERSONA_BATCH);
         const problems = { ...(t.review?.problems || {}) };
         const made = await build.pool(todo, PERSONA_BATCH, async (slot) => {
-          const r = await compose.persona({ file, plan: t.plan, slotId: slot.id, research }, ai);
+          const r = await compose.persona({ file, plan: t.plan, slotId: slot.id, research }, build.levelAi(ai, t.input?.level));
           count(r.calls);
           return r;
         });
@@ -325,7 +325,7 @@ function makeTopicApi({ db, FieldValue, HttpsError, requireTeacher, ai, dailyLim
     async extras(auth, d) {
       return step(auth, d.topicId, "extras", ["personas", "extras"], async (t, count) => {
         const research = await loadResearch(t.id);
-        const r = await compose.extras({ file: t.file, research }, ai);
+        const r = await compose.extras({ file: t.file, research }, build.levelAi(ai, t.input?.level));
         count(r.calls);
         const file = { ...t.file, MATERIALS: r.MATERIALS, POLICY_CASES: r.POLICY_CASES, AFTERMATH: r.AFTERMATH };
         await save(t.id, { "build.step": "extras", bundle: toStored(file) });
@@ -338,7 +338,7 @@ function makeTopicApi({ db, FieldValue, HttpsError, requireTeacher, ai, dailyLim
         const file = t.file;
         // 출처는 조사 결과 전체에서 다시 고른다(교사가 확인한 표시는 남긴다)
         file.SOURCES = Object.fromEntries(Object.entries(research.SOURCES).map(([id, s]) => [id, { ...s, verified: file.SOURCES?.[id]?.verified === true, ...(file.SOURCES?.[id]?.verifiedAt ? { verifiedAt: file.SOURCES[id].verifiedAt } : {}) }]));
-        const r = await compose.review({ file, plan: t.plan, research }, ai);
+        const r = await compose.review({ file, plan: t.plan, research }, build.levelAi(ai, t.input?.level));
         count(r.calls);
         const rev = { problems: t.review?.problems || {}, fixes: r.fixes, materialFixes: r.materialFixes, balance: r.balance, at: Date.now() };
         await save(t.id, { "build.step": "review", status: "review", bundle: toStored(file), review: rev });
@@ -354,11 +354,11 @@ function makeTopicApi({ db, FieldValue, HttpsError, requireTeacher, ai, dailyLim
         const prev = file.PERSONAS.find((p) => p.id === pid);
         if (!prev) fail("not-found", "인물을 찾을 수 없습니다.");
         file.SOURCES = Object.fromEntries(Object.entries(research.SOURCES).map(([id, s]) => [id, { ...s, verified: file.SOURCES?.[id]?.verified === true }]));
-        const r = await compose.persona({ file, plan: t.plan, slotId: pid, research, note: d.note, prev }, ai);
+        const r = await compose.persona({ file, plan: t.plan, slotId: pid, research, note: d.note, prev }, build.levelAi(ai, t.input?.level));
         count(r.calls);
         file.PERSONAS = file.PERSONAS.map((p) => (p.id === pid ? r.persona : p));
         file.BRIEFS[pid] = r.brief;
-        const rv = await compose.review({ file, plan: t.plan, research, only: [pid] }, ai);
+        const rv = await compose.review({ file, plan: t.plan, research, only: [pid] }, build.levelAi(ai, t.input?.level));
         count(rv.calls);
         const rev = { ...(t.review || {}), problems: { ...(t.review?.problems || {}), [pid]: r.problems }, fixes: [...(t.review?.fixes || []).filter((x) => x.persona !== pid), ...rv.fixes] };
         await save(t.id, { bundle: toStored(file), review: rev });

@@ -269,4 +269,18 @@ async function sourceMeta(SOURCES, facts, citeTitles, ai) {
   return calls;
 }
 
-module.exports = { PRINCIPLES, ANGLES, ideas, parseIdeas, parseFacts, cleanFactText, normUrl, outletFromUrl, research, sourceMeta, pool, txt, arr, clip, kindOf, EXAMPLE, META, checkBundle, charterText };
+// ---------- 학교급 ----------
+// 교사가 중학교 수업용으로 만드는 주제면, 모든 단계의 지시문에서 대상 학생을 중학생으로 바꾸고 읽기 수준 원칙을 더한다.
+// 단계 함수마다 학교급을 넘기지 않도록 ai 를 감싼다(지시문 = search 의 instructions, json 의 system 메시지).
+const MID_READING = "[읽는 학생] 이 주제는 중학생 수업용이다. 학생이 읽는 글(편지, 자료, 사례 카드)은 문장을 짧게(한 문장 40자 안팎) 쓰고, 어려운 한자어·제도·통계 용어는 쉬운 말로 풀거나 괄호로 짧게 뜻을 붙인다. 중학생에게 지나치게 무겁거나 자극적인 장면은 덜어 낸다.";
+const toMiddle = (s) => `${String(s).replace(/고등학생/g, "중학생").replace(/고등학교/g, "중학교")}\n${MID_READING}`;
+function levelAi(ai, level) {
+  if (level !== "middle") return ai;
+  return {
+    ...ai,
+    search: (o) => ai.search({ ...o, instructions: toMiddle(o.instructions) }),
+    json: (o) => ai.json({ ...o, messages: o.messages.map((m) => (m.role === "system" ? { ...m, content: toMiddle(m.content) } : m)) }),
+  };
+}
+
+module.exports = { levelAi, PRINCIPLES, ANGLES, ideas, parseIdeas, parseFacts, cleanFactText, normUrl, outletFromUrl, research, sourceMeta, pool, txt, arr, clip, kindOf, EXAMPLE, META, checkBundle, charterText };

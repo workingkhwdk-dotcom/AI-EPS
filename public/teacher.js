@@ -187,6 +187,8 @@ initTopics({
     showTab("classes"); closeSession(); toggleNew(true);
     $("#t-event").value = TOPIC + t.id;
     $("#t-title").value = topicClassTitle(t);
+    // 중학교용으로 만든 주제면 학교급도 중학교로 맞춰 둔다(바꿀 수 있다)
+    $("#t-level").value = t.input?.level === "middle" ? "middle" : "high"; $("#t-level").onchange();
     $("#new-form").scrollIntoView({ behavior: "smooth", block: "start" });
   },
 });

@@ -150,7 +150,7 @@ function feedbackPrompt(ev, lens = "feasibility") {
 function scenarioPrompt(ev, round) {
   if (isMid(ev.level)) return [
     common(ev.level),
-    `[역할] 학생 모둠이 선택한 대안이 실행되고 ${round}년이 지났을 때 나타날 수 있는 미래를 쉬운 이야기로 보여 주는 도우미다.`,
+    `[역할] 학생 모둠이 선택한 대안이 실행되고 ${round}년이 지났을 때 나타날 수 있는 미래를 쉬운 이야기로 보여 주는 시뮬레이션 도우미다.`,
     `[사건 맥락] ${ev.premise}`,
     problemLine(ev),
     ...causeLines(ev),

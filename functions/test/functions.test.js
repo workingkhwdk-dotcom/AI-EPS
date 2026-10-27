@@ -1289,3 +1289,73 @@ test("열한 개 사건 모두: 수업 만들기 → 9명 입장·인물 고르�
   assert.equal(n, 11);
   assert.deepEqual([...new Set(simBad)], []);
 });
+
+// ---------- 학교급(중·고)과 심화 활동 ----------
+test("학교급: 새 수업은 학교급의 심화 활동 기본값을 갖고(고등학교 모두 켬, 중학교 모두 끔), 예전 수업은 고등학교·심화 끔으로 본다", async () => {
+  const { DEEP_KEYS } = require("../level");
+  const hi = (await api.createSession({ ...teacher, data: { groupCount: 1 } })).code;
+  assert.equal(store.get(`sessions/${hi}`).level, "high");
+  assert.ok(DEEP_KEYS.every((k) => store.get(`sessions/${hi}`).deep[k] === true));
+  const mid = (await api.createSession({ ...teacher, data: { groupCount: 1, level: "middle" } })).code;
+  assert.equal(store.get(`sessions/${mid}`).level, "middle");
+  assert.ok(DEEP_KEYS.every((k) => store.get(`sessions/${mid}`).deep[k] === false));
+  await assert.rejects(api.createSession({ ...teacher, data: { groupCount: 1, level: "elementary" } }), /학교급/);
+  await assert.rejects(api.updateSession({ ...teacher, data: { code: mid, deep: "x" } }), /심화 활동/);
+  // 교사가 하나씩 바꾸고(모르는 키는 버린다), 복제하면 그대로 간다
+  await api.updateSession({ ...teacher, data: { code: mid, deep: { causeMap: true, hack: true } } });
+  assert.deepEqual(Object.keys(store.get(`sessions/${mid}`).deep).sort(), [...DEEP_KEYS].sort());
+  assert.equal(store.get(`sessions/${mid}`).deep.causeMap, true);
+  const cl = await api.cloneSession({ ...teacher, data: { code: mid } });
+  assert.equal(store.get(`sessions/${cl.code}`).level, "middle");
+  assert.equal(store.get(`sessions/${cl.code}`).deep.causeMap, true);
+  // 예전 수업(level·deep 없음): 입장 응답이 고등학교·심화 끔
+  const old = await mk(1);
+  const s = store.get(`sessions/${old}`); delete s.level; delete s.deep; store.set(`sessions/${old}`, s);
+  const r = await join("LV0", old, "옛", "pass1234");
+  assert.equal(r.level, "high");
+  assert.ok(Object.values(r.deep).every((v) => v === false));
+});
+
+test("학교급: 중학교 수업은 AI가 중학생 수준으로 답하고, 검토자 2명·미래는 1년 후만이며, 인물의 믿음은 확인하기 쉽게 말한다", async () => {
+  const c = (await api.createSession({ ...teacher, data: { groupCount: 1, level: "middle" } })).code;
+  await api.updateSession({ ...teacher, data: { code: c, started: true } });
+  await join("LV1", c, "중", "pass1234");
+  const work = sixWork();
+  store.set(`sessions/${c}/groups/g1`, { ...store.get(`sessions/${c}/groups/g1`), work });
+  const req = (stage, type, payload) => api.aiRequest({ ...student("LV1"), data: { code: c, stage, type, payload } });
+  calls.length = 0;
+  const r4 = await req(4, "proposal_feedback", { proposalId: "a1" });
+  assert.deepEqual(r4.result.reviews.map((x) => x.lens), ["feasibility", "stakeholders"]);
+  assert.deepEqual(r4.result.reviews.map((x) => x.label), ["정말 할 수 있을까", "사람들의 반응"]);
+  assert.ok(calls.filter((x) => x.kind === "review").every((x) => /중학생/.test(x.body.messages[0].content)));
+  await assert.rejects(req(5, "scenario", { proposalId: "final", round: 3 }), /1년 후/);
+  calls.length = 0;
+  await req(5, "scenario", { proposalId: "final", round: 1 });
+  assert.match(calls.find((x) => x.kind === "scenario").body.messages[0].content, /중학생[\s\S]*3~5문장/);
+  calls.length = 0;
+  await req(1, "persona_chat", { message: "요즘 어떠세요?" });
+  const persona = calls.find((x) => x.kind === "persona"), guard = calls.find((x) => x.kind === "guard");
+  const psys = (persona.body.messages || persona.body.input)[0].content;
+  assert.match(psys, /한국 중학생이 수업에서/);
+  assert.match(psys, /보통 1~3문장/);
+  assert.match(guard.body.messages[0].content, /중학생 수업용/);
+});
+
+test("심화 활동: 원인 잇기를 켜면 생각 도우미가 모둠이 이은 원인 관계를 보고, 인물의 믿음은 그럴듯하게 섞어 말한다", async () => {
+  const c = await mk(1); // 새 고등학교 수업: 심화 모두 켬
+  await join("LV2", c, "고", "pass1234");
+  store.set(`sessions/${c}/groups/g1`, { ...store.get(`sessions/${c}/groups/g1`), work: {
+    s1: { problem: { hmw: "어떻게 하면 일자리를 얻으면서도 도민이 안심할 수 있을까?" } },
+    s2: { causes: { c1: { text: "말이 안 통해서 일을 못 구함", level: "사람들의 생각·선택", t: 1 }, c2: { text: "출도 제한으로 일자리가 적음", level: "법·제도·규칙", t: 2 } },
+      causeLinks: { l1: { from: "c2", to: "c1", rel: "을(를) 더 키워요", t: 3 } } } } });
+  calls.length = 0;
+  await api.aiRequest({ ...student("LV2"), data: { code: c, stage: 2, type: "coach", payload: { focus: "cause" } } });
+  const coach = calls.find((x) => x.kind === "coach").body;
+  assert.match(coach.messages[0].content, /따로 놂/);
+  assert.match(coach.messages[1].content, /출도 제한으로 일자리가 적음 → 을\(를\) 더 키워요 → 말이 안 통해서/);
+  calls.length = 0;
+  await api.aiRequest({ ...student("LV2"), data: { code: c, stage: 1, type: "persona_chat", payload: { message: "요즘 어떠세요?" } } });
+  const p = calls.find((x) => x.kind === "persona");
+  const sys = (p.body.messages || p.body.input)[0].content;
+  assert.match(sys, /네가 믿고 있는 것[\s\S]*한 번은 반박/, "첫 인물(아델)은 틀릴 수 있는 믿음이 있다");
+});
