@@ -318,18 +318,33 @@ test("창원 두 사건: 2020년대 사건이고, 그 사건의 시점·범위�
   assert.match(life("cw_elder"), /시청 직원이 경로당/); assert.match(life("cw_officer"), /경로당 설명회/);                // 정병철 ↔ 한지훈
 });
 
-test("새 주제 여섯 개: 인물과 공통 배경은 대화 시점 뒤에 나온 출처를 쓰지 않고, 7단계 이후 전개는 대화 시점 전의 출처를 쓰지 않는다", () => {
-  // 시점 전부터 시행 중인 제도를 뒤에 나온 기사로 확인한 경우만 예외(산불 임시주택 운영지침, 2025년 기초연금 금액, 정년·수급 연령)
-  const STANDING = ["FA1", "Y26", "Y28"];
+test("모든 사건: 인물·공통 배경·2단계 자료는 대화 시점 뒤에 나온 출처를 쓰지 않고, 7단계 이후 전개는 대화 시점 전의 출처를 쓰지 않는다", () => {
+  // 대화 시점 전의 사실(시행 중인 제도, 이미 나온 통계·조사)을 뒤에 나온 글로 확인한 경우만 예외. 출처의 check 에 이유를 적었다.
+  const STANDING = ["FA1", "Y26", "Y28", "N12", "PA2", "JNC5"];
   const ym = (d) => { const m = /^(\d{4})(?:-(\d{2}))?/.exec(d || ""); return m ? [+m[1], m[2] ? +m[2] : 0] : null; };
-  for (const ev of NEW) {
+  for (const ev of Object.keys(EVENTS)) {
     const f = require(`../cases/${ev}`);
     const [ny, nm] = /(\d{4})년 (\d{1,2})월/.exec(EVENTS[ev].now).slice(1).map(Number);
     const after = (id) => { const d = ym(f.SOURCES[id].date); return d && (d[0] > ny || (d[0] === ny && d[1] > nm)); };
     const before = (id) => { const d = ym(f.SOURCES[id].date); return d && d[1] && (d[0] < ny || (d[0] === ny && d[1] < nm)); };
-    const used = [...EVENTS[ev].background.map((c) => c[1]), ...f.PERSONAS.flatMap((p) => p.claims.map((c) => c[1]))];
-    assert.deepEqual([...new Set(used.filter((id) => after(id) && !STANDING.includes(id)))], [], `${ev}: 인물·배경이 시점 뒤 출처를 씀`);
+    const used = [...EVENTS[ev].background.map((c) => c[1]), ...f.PERSONAS.flatMap((p) => p.claims.map((c) => c[1])),
+      ...f.MATERIALS.flatMap((m) => [...(m.statsSrc || []), ...m.items.flatMap((i) => i.src)])];
+    assert.deepEqual([...new Set(used.filter((id) => after(id) && !STANDING.includes(id)))], [], `${ev}: 인물·배경·2단계 자료가 시점 뒤 출처를 씀`);
     assert.deepEqual(f.AFTERMATH.flatMap((a) => a.src).filter(before), [], `${ev}: 7단계가 시점 전 출처를 씀`);
+  }
+  for (const id of STANDING) assert.match(SOURCES[id].check, /대화 시점/, `${id}: 예외인 이유를 check 에 적는다`);
+});
+
+test("모든 사건: 인물마다 틀릴 수 있는 믿음과 실제 메모가 있고, 낱말 풀이와 '같은 사실, 다른 해석' 분류를 갖는다", () => {
+  for (const p of PERSONAS) {
+    assert.ok((p.beliefs || []).length >= 1, `${p.id}: 믿음`);
+    for (const [b, memo] of p.beliefs) assert.ok(b.length > 15 && memo.length > 15, p.id);
+  }
+  for (const ev of Object.keys(EVENTS)) {
+    const ids = MATERIALS[ev].map((c) => c.id);
+    assert.ok(ids.includes("words") && ids.includes("readings"), ev);
+    assert.ok(MATERIALS[ev].find((c) => c.id === "words").items.length >= 6, `${ev}: 낱말 풀이`);
+    assert.ok(MATERIALS[ev].find((c) => c.id === "readings").items.length >= 5, `${ev}: 같은 사실, 다른 해석`);
   }
 });
 
