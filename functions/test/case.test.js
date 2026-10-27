@@ -318,6 +318,21 @@ test("창원 두 사건: 2020년대 사건이고, 그 사건의 시점·범위�
   assert.match(life("cw_elder"), /시청 직원이 경로당/); assert.match(life("cw_officer"), /경로당 설명회/);                // 정병철 ↔ 한지훈
 });
 
+test("새 주제 여섯 개: 인물과 공통 배경은 대화 시점 뒤에 나온 출처를 쓰지 않고, 7단계 이후 전개는 대화 시점 전의 출처를 쓰지 않는다", () => {
+  // 시점 전부터 시행 중인 제도를 뒤에 나온 기사로 확인한 경우만 예외(산불 임시주택 운영지침, 2025년 기초연금 금액, 정년·수급 연령)
+  const STANDING = ["FA1", "Y26", "Y28"];
+  const ym = (d) => { const m = /^(\d{4})(?:-(\d{2}))?/.exec(d || ""); return m ? [+m[1], m[2] ? +m[2] : 0] : null; };
+  for (const ev of NEW) {
+    const f = require(`../cases/${ev}`);
+    const [ny, nm] = /(\d{4})년 (\d{1,2})월/.exec(EVENTS[ev].now).slice(1).map(Number);
+    const after = (id) => { const d = ym(f.SOURCES[id].date); return d && (d[0] > ny || (d[0] === ny && d[1] > nm)); };
+    const before = (id) => { const d = ym(f.SOURCES[id].date); return d && d[1] && (d[0] < ny || (d[0] === ny && d[1] < nm)); };
+    const used = [...EVENTS[ev].background.map((c) => c[1]), ...f.PERSONAS.flatMap((p) => p.claims.map((c) => c[1]))];
+    assert.deepEqual([...new Set(used.filter((id) => after(id) && !STANDING.includes(id)))], [], `${ev}: 인물·배경이 시점 뒤 출처를 씀`);
+    assert.deepEqual(f.AFTERMATH.flatMap((a) => a.src).filter(before), [], `${ev}: 7단계가 시점 전 출처를 씀`);
+  }
+});
+
 test("국민연금 개혁 사건: 실존 정치인·장관 이름이 나오지 않고, 같은 세대 안에서도 입장이 갈리며, 이후 전개는 대화 시점 뒤의 출처만 쓴다", () => {
   assert.ok(EVENTS.pension2025.scope.outOfScope.some((x) => /실존 인물/.test(x)));
   for (const p of PERSONAS.filter((x) => x.events.includes("pension2025")))
