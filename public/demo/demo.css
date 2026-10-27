@@ -19,7 +19,7 @@
 .demo-about{ margin-top:10px; font-size:13.5px; }
 .topics-head{ display:flex; flex-wrap:wrap; align-items:baseline; justify-content:center; gap:4px 10px; margin:22px 0 12px; font-size:15px; }
 .topics-head span{ font-size:13px; color:var(--ink-3); }
-.topics{ display:grid; gap:12px; grid-template-columns:repeat(5,minmax(0,1fr)); }
+.topics{ display:grid; gap:12px; grid-template-columns:repeat(3,minmax(0,1fr)); }
 .topic{ position:relative; display:flex; flex-direction:column; gap:8px; background:var(--surface); border-radius:20px; box-shadow:var(--shadow); padding:16px; transition:box-shadow .15s ease; }
 /* 올려놓으면 테두리를 밝힌다 */
 .topic:hover{ box-shadow:0 0 0 2px var(--blue), var(--shadow); }
@@ -36,15 +36,14 @@
 .topic{ cursor:pointer; }
 .topic .saved{ font-size:12px; font-weight:800; color:var(--green-ink); }
 .demo-foot{ text-align:center; color:var(--ink-3); font-size:12.5px; margin-top:22px; line-height:1.7; }
-@media (max-width:1199px){ .topics{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
 /* 휴대폰: 번호·제목·버튼만 남긴 짧은 줄 5개가 한 화면에 */
 @media (max-width:699px){
   .demo-wrap{ padding:12px 12px 28px; }
   .demo-hero h1{ font-size:20px; margin-bottom:10px; }
   .demo-steps{ font-size:12.5px; gap:4px 8px; } .demo-steps li + li::before{ margin-right:6px; }
   .topics-head{ margin:16px 0 10px; }
-  .topics{ grid-template-columns:1fr; gap:8px; }
-  .topic{ flex-direction:row; align-items:center; gap:12px; padding:12px 12px 12px 14px; border-radius:16px; }
+  .topics{ grid-template-columns:1fr; gap:6px; }
+  .topic{ flex-direction:row; align-items:center; gap:12px; padding:10px 12px 10px 14px; border-radius:16px; }
   .topic .t-no{ display:flex; flex:none; width:32px; height:32px; border-radius:50%; background:var(--grad); color:#fff; font-weight:800; align-items:center; justify-content:center; }
   .topic .t-main{ gap:2px; }
   .topic h2{ font-size:15px; }

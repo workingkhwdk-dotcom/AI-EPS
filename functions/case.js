@@ -10,12 +10,12 @@
 //  4) 출처는 원문과 대조해 사건 파일에 verified: true 를 적기 전에는 학생에게 노출되지 않는다.
 //     (아래 함수의 allowUnverified 는 검증 여부와 상관없이 전부 보려는 테스트용이다. 수업 서버는 쓰지 않는다.)
 //  5) 인물 위에는 상위 AI(사건 규범 감독자, charter.js)가 있어 사건 범위(EVENT.scope)와 근거 진술을 벗어난 응답을 차단한다.
-//  6) 출처 ID 는 사건마다 다른 머리글자를 쓴다(제주 J·C·A·N, 쓰레기 수출 W·WC·WA, 특수학교 S·SC·SA, 주남저수지 JN·JNC·JNA, 창원 인구 P·PC·PA). 모든 사건의 출처를 한 목록으로 합쳐 쓰기 때문이다.
+//  6) 출처 ID 는 사건마다 다른 머리글자를 쓴다(제주 J·C·A·N, 쓰레기 수출 W·WC·WA, 특수학교 S·SC·SA, 주남저수지 JN·JNC·JNA, 창원 인구 P·PC·PA, 국민연금 개혁 Y·YC·YA). 모든 사건의 출처를 한 목록으로 합쳐 쓰기 때문이다.
 //
 // 주의: 진술은 AI가 웹 검색 결과 요약을 바탕으로 정리했다. 대조 상태는 docs/PERSONA_SOURCES.md 에 있다.
 
 const CASE_FILES = [require("./cases/jeju2018"), require("./cases/waste2019"), require("./cases/school2018"),
-  require("./cases/junam2025"), require("./cases/changwon2025")];
+  require("./cases/junam2025"), require("./cases/changwon2025"), require("./cases/pension2025")];
 
 // 출처 하나를 정리한다: 설명 제목 표시와 검증 여부는 참·거짓으로만 둔다(verified: true 를 적지 않은 출처는 미검증)
 const normSource = (s) => ({ ...s, titleIsDescriptive: !!s.titleIsDescriptive, verified: s.verified === true });

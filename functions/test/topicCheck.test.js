@@ -2,10 +2,10 @@ const test = require("node:test");
 const assert = require("node:assert");
 const { checkBundle } = require("../topicCheck");
 
-const FILES = ["jeju2018", "waste2019", "school2018", "junam2025", "changwon2025"].map((f) => require(`../cases/${f}`));
+const FILES = ["jeju2018", "waste2019", "school2018", "junam2025", "changwon2025", "pension2025"].map((f) => require(`../cases/${f}`));
 const copy = (x) => JSON.parse(JSON.stringify(x));
 
-test("기본 주제 다섯 개는 구조 검사에서 오류도 경고도 없다(교사 주제와 같은 기준)", () => {
+test("기본 주제 여섯 개는 구조 검사에서 오류도 경고도 없다(교사 주제와 같은 기준)", () => {
   for (const f of FILES) {
     const r = checkBundle(f);
     assert.deepEqual(r.errors, [], f.EVENT.id);
