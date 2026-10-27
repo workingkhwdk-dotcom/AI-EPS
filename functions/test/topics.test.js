@@ -348,6 +348,82 @@ test("검토 화면에서 고친 주제 저장: 모르는 칸은 버리고, 주�
   await rejects(topics(other, { action: "syncSession", code }), /내가 만든 수업이 아닙니다/);
 });
 
+test("주제 파일: 이 서버에서 내보낸 파일을 다른 교사가 불러오면 원문 확인·조사 결과까지 그대로 옮겨져 바로 수업에 쓰고 AI 다시 만들기도 된다", async () => {
+  const src = await topics(teacher, { action: "get", topicId: tid });
+  const x = await topics(teacher, { action: "export", topicId: tid });
+  assert.equal(x.format, "ai-eps-topic");
+  assert.equal(x.version, 1);
+  assert.match(x.sig, /^[0-9a-f]{64}$/);
+  assert.ok(store.get("config/topicFile").key, "서명 키는 처음 내보낼 때 서버 설정에 만들어 둔다");
+  assert.ok(x.research.facts.length > 0);
+  assert.ok(x.plan.personas.length);
+  await rejects(topics(other, { action: "export", topicId: tid }), /내가 만든 주제가 아닙니다/);
+
+  // 파일로 내려받았다가 다시 올리는 것처럼(들여쓰기 넣은 글). 새 주제 만들기가 닫혀 있어도 불러올 수 있다.
+  process.env.TOPIC_BUILDER_ENABLED = "false";
+  let t;
+  try { t = await topics(other, { action: "import", data: JSON.stringify(x, null, 2) }); } finally { process.env.TOPIC_BUILDER_ENABLED = "true"; }
+  assert.notEqual(t.id, tid);
+  assert.equal(t.file.EVENT.id, t.id);
+  assert.equal(t.title, src.file.EVENT.title);
+  assert.equal(t.build.step, "review");
+  assert.equal(t.imported.signed, true);
+  assert.equal(store.get(`teacherTopics/${t.id}`).ownerUid, "T2");
+  assert.deepEqual(Object.fromEntries(Object.entries(t.file.SOURCES).map(([k, v]) => [k, v.verified])), Object.fromEntries(Object.entries(src.file.SOURCES).map(([k, v]) => [k, v.verified])));
+  assert.equal(t.usable, src.usable);
+  assert.equal(t.research.facts.length, src.research.facts.length);
+  assert.deepEqual(t.file.PERSONAS.map((p) => p.letter), src.file.PERSONAS.map((p) => p.letter));
+  const { code: c2 } = await api.createSession({ ...other, data: { topicId: t.id, groupCount: 2 } });
+  assert.equal(store.get(`sessions/${c2}`).topicId, t.id);
+  const pid = t.file.PERSONAS[1].id;
+  const r = await topics(other, { action: "regenPersona", topicId: t.id, personaId: pid, note: "더 분명하게" });
+  assert.equal(r.step, "review");
+  // 불러온 주제도 다시 내보낼 수 있다
+  const re = await topics(other, { action: "export", topicId: t.id });
+  assert.match(re.sig, /^[0-9a-f]{64}$/);
+  await topics(other, { action: "delete", topicId: t.id });
+});
+
+test("주제 파일: 내용을 고친 파일은 서명이 맞지 않아 출처가 모두 '확인 전'이 되고, 다시 확인해야 수업에 쓰며 AI 다시 만들기는 막힌다", async () => {
+  const src = await topics(teacher, { action: "get", topicId: tid });
+  const x = await topics(teacher, { action: "export", topicId: tid });
+  const bad = JSON.parse(JSON.stringify(x));
+  Object.values(bad.file.SOURCES).forEach((s) => { s.verified = true; });
+  bad.file.SOURCES.X1 = { title: "가짜", url: "https://evil.example/" };
+  bad.file.EVENT.id = "jeju2018";
+  bad.file.PERSONAS[0].letter[0] = `안녕하세요. 저는 ${bad.file.PERSONAS[0].name}이에요. 파일에서 몰래 고친 편지예요. 이 문장은 서명과 맞지 않아요. 그래도 내용은 들어와요.`;
+  const t = await topics(other, { action: "import", data: bad });
+  assert.equal(t.imported.signed, false);
+  assert.equal(t.file.EVENT.id, t.id);
+  assert.equal(t.research, null);
+  assert.equal(t.plan, null);
+  assert.equal(t.usable, 0);
+  assert.equal(t.check.errors.length, 0, JSON.stringify(t.check.errors));
+  assert.deepEqual(Object.keys(t.file.SOURCES).sort(), Object.keys(src.file.SOURCES).sort());
+  assert.ok(Object.values(t.file.SOURCES).every((s) => s.verified === false));
+  assert.ok(Object.values(t.file.SOURCES).every((s) => s.check.startsWith("[만든 사람이 확인함]")));
+  assert.doesNotMatch(JSON.stringify(t.file), /"facts"/);
+  await rejects(api.createSession({ ...other, data: { topicId: t.id, groupCount: 2 } }), /원문 확인을 마친 인물이 없습니다/);
+  await rejects(topics(other, { action: "regenPersona", topicId: t.id, personaId: t.file.PERSONAS[0].id }), /불러온 주제는 AI로 다시 만들 수 없어요/);
+  const v = await topics(other, { action: "verifySource", topicId: t.id, sourceIds: Object.keys(t.file.SOURCES) });
+  assert.equal(v.usable, src.file.PERSONAS.length);
+  await topics(other, { action: "delete", topicId: t.id });
+});
+
+test("주제 파일: 형식이 다르거나 읽을 수 없는 파일, 인물이 없는 파일은 받지 않고, 주제 수 한도를 지킨다", async () => {
+  await rejects(topics(other, { action: "import", data: "{이건 JSON이 아니다" }), /읽지 못했어요/);
+  await rejects(topics(other, { action: "import", data: { format: "something", version: 1, file: {} } }), /AI-EPS 주제 파일이 아니에요/);
+  await rejects(topics(other, { action: "import", data: { format: "ai-eps-topic", version: 99, file: {} } }), /버전/);
+  await rejects(topics(other, { action: "import", data: { format: "ai-eps-topic", version: 1, file: { EVENT: { title: "빈 주제" }, PERSONAS: [] } } }), /인물이 없어요/);
+  await rejects(topics(other, { action: "import", data: "x".repeat(4 * 1024 * 1024 + 1) }), /너무 커요/);
+  const x = await topics(teacher, { action: "export", topicId: tid });
+  const T3 = { auth: { uid: "T3", token: { email: "c@school.kr", firebase: { sign_in_provider: "password" } } } };
+  store.set("teacherAccounts/T3", { email: "c@school.kr" });
+  for (let i = 0; i < 30; i++) store.set(`teacherTopics/t3${String(i).padStart(9, "0")}`, { ownerUid: "T3", title: "x" });
+  await rejects(topics(T3, { action: "import", data: x }), /30개까지/);
+  await rejects(topics(teacher, { action: "export", topicId: "t0000000000" }), /주제를 찾을 수 없습니다/);
+});
+
 test("교사: 내 수업·내 주제의 인물 점검을 보고, 원본 주제를 지워도 수업과 복제 수업은 그대로다", async () => {
   const a = await api.getCase({ ...teacher, data: { code, admin: true } });
   assert.equal(a.custom, true);

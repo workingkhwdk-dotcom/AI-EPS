@@ -1073,6 +1073,13 @@ test("학생 모바일: 아래로 스크롤하면 머리글·아래 막대가 �
   await pg.waitForFunction(() => document.body.classList.contains("chrome-hidden"));
   await pg.evaluate(() => window.scrollTo(0, 0));
   await pg.waitForFunction(() => !document.body.classList.contains("chrome-hidden"));
+  // 창이 떠 있는 동안 화면이 맨 위로 옮겨 가도(인물을 고르면 대화 화면 맨 위로 간다) 숨긴 채로 남지 않는다.
+  // 맨 위에서는 더 올릴 수 없어서, 숨긴 채로 남으면 단계 막대를 다시 꺼낼 방법이 없다.
+  await pg.evaluate(() => window.scrollTo(0, 600));
+  await pg.waitForFunction(() => document.body.classList.contains("chrome-hidden"));
+  await pg.evaluate(() => { document.body.classList.add("modal-open"); window.scrollTo(0, 0); });
+  await pg.waitForFunction(() => !document.body.classList.contains("chrome-hidden"));
+  await pg.evaluate(() => document.body.classList.remove("modal-open"));
 });
 
 test("학생 모바일: 2·3·4단계에서 학습 내용이 화면 첫머리부터 보인다(캡처)", async () => {
@@ -1624,7 +1631,7 @@ async function demoPage(ctxOpts = {}, ai = null) {
 
 const dismissHelp = async (pg) => { await pg.waitForTimeout(500); while (await pg.locator('.modal .btn:has-text("이해했어요")').count()) { await pg.click('.modal .btn:has-text("이해했어요")'); await pg.waitForTimeout(400); } };
 
-test("체험: 메뉴에 주제 6개, 시작하면 입장 없이 학생 화면이 열리고 홈·초기화 단추가 있다(Firebase 호출 없음)", async () => {
+test("체험: 메뉴에 주제 11개(PC는 네 개씩 세 줄), 시작하면 입장 없이 학생 화면이 열리고 홈·초기화 단추가 있다(Firebase 호출 없음)", async () => {
   const { pg, ctx, errors, hits } = await demoPage();
   await pg.goto(`${base}/demo.html`);
   await pg.waitForSelector(".topic");
@@ -1634,12 +1641,14 @@ test("체험: 메뉴에 주제 6개, 시작하면 입장 없이 학생 화면이
   await pg.click(".modal.about-pop .btn-primary");
   await pg.reload(); await pg.waitForSelector(".topic"); await pg.waitForTimeout(300);
   assert.equal(await pg.locator(".modal").count(), 0);
-  // 독립된 주제 6개가 한 화면에(PC는 세 개씩 두 줄로) 보이고, 카드 어디를 눌러도 열린다
-  assert.match(await pg.locator(".topics-head").innerText(), /독립된 주제 6개/);
+  // 독립된 주제 11개가 PC에서는 네 개씩 세 줄로 보이고, 카드 어디를 눌러도 열린다
+  assert.match(await pg.locator(".topics-head").innerText(), /독립된 주제 11개/);
   const tops = await pg.locator(".topic").evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
-  assert.equal(new Set(tops).size, 2, "넓은 화면에서는 여섯 주제가 세 개씩 두 줄");
-  assert.equal(await pg.locator(".topic").count(), 6);
-  assert.equal(await pg.locator('.topic a.btn-primary[href^="demo-play.html?t="]').count(), 6);
+  const rows = [...new Set(tops)];
+  assert.equal(rows.length, 3, "넓은 화면에서는 세 줄");
+  assert.deepEqual(rows.map((y) => tops.filter((t) => t === y).length), [4, 4, 3], "한 줄에 네 주제");
+  assert.equal(await pg.locator(".topic").count(), 11);
+  assert.equal(await pg.locator('.topic a.btn-primary[href^="demo-play.html?t="]').count(), 11);
   await pg.locator(".topic a.btn-primary").first().click();
   await pg.waitForSelector("#app:not(.hidden)");
   assert.match(pg.url(), /demo-play\.html\?t=jeju2018$/);
@@ -1715,10 +1724,13 @@ test("체험: 주제마다 저장이 따로이고(메뉴에 '이어서 하기'),
   await pg.click("#demo-home");
   await pg.waitForURL(/demo\.html$/);
   await pg.waitForSelector(".topic");
-  // 휴대폰: 여섯 주제가 한 화면 안에 다 보인다
+  // 휴대폰: 주제는 한 줄짜리 목록이고, 다섯째 주제까지 첫 화면에 보인다(나머지는 아래로 내려 본다)
   if (await pg.locator(".modal.about-pop").count()) await pg.click(".modal.about-pop .btn-primary");
-  const last = await pg.locator(".topic").last().boundingBox();
-  assert.ok(last.y + last.height <= 844, `여섯째 주제까지 첫 화면에 보인다(${Math.round(last.y + last.height)}px)`);
+  const fifth = await pg.locator(".topic").nth(4).boundingBox();
+  assert.ok(fifth.y + fifth.height <= 844, `다섯째 주제까지 첫 화면에 보인다(${Math.round(fifth.y + fifth.height)}px)`);
+  const xs = await pg.locator(".topic").evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().left)));
+  assert.equal(new Set(xs).size, 1, "휴대폰에서는 한 줄에 하나씩");
+  assert.ok(await pg.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "가로로 넘치지 않는다");
   assert.equal(await pg.locator(".topic .saved").count(), 1, "하던 주제 하나만 표시");
   assert.match(await pg.locator(".topic:has(.saved) a.btn-primary").innerText(), /이어서 하기/);
   assert.deepEqual(errors, []);
@@ -1970,6 +1982,13 @@ function topicFixture() {
         return { verified: data.verified, sourceIds: data.sourceIds, usable: T.usable, requiredOk: T.requiredOk, check: T.check };
       }
       case "save": T.file = data.file; return copy();
+      case "export": return { format: "ai-eps-topic", version: 1, exportedAt: 1, title: T.title, file: T.file, plan: T.plan, review: T.review, research: T.research, sig: "a".repeat(64) };
+      case "import": {
+        const x = JSON.parse(data.data), signed = x.sig === "a".repeat(64);
+        st.imported = { ...copy(), id: "t9999999999", title: x.title, plan: signed ? x.plan : null, imported: { at: Date.now(), title: x.title, signed },
+          file: { ...x.file, SOURCES: Object.fromEntries(Object.entries(x.file.SOURCES).map(([k, v]) => [k, { ...v, verified: signed && v.verified }])) } };
+        return JSON.parse(JSON.stringify(st.imported));
+      }
       default: return {};
     }
   };
@@ -2033,24 +2052,80 @@ test("내 주제: 아이디어 → 사건 후보 → 구성안을 고치고 인�
   assert.deepEqual(errors, []);
 });
 
-test("내 주제(휴대폰): 구성안·검토 화면이 가로로 넘치지 않는다", async () => {
-  const st = topicFixture();
-  const { pg, errors } = await openTeacher(st, { page: "m-teacher.html", ctxOpts: phone });
-  await pg.click("#back-btn"); // 휴대폰에서는 수업을 연 동안 위쪽 탭이 숨는다
+// 다 만든 주제를 주제 파일로 내보내고, 그 파일을 불러온다(서명이 맞으면 만든 그대로, 고친 파일이면 다시 확인)
+async function makeTopicToReview(pg, st) {
   await pg.click('#tabs [data-tab="topics"]');
   await pg.click("#tp-new");
   await pg.fill("#tp-idea", "거제");
   await pg.click('[data-w="find"]');
   await pg.click('[data-w="pick"]');
   await pg.click('[data-w="start"]');
-  await pg.waitForSelector("#tp-make");
+  await pg.click("#tp-make");
+  await pg.waitForSelector("[data-verify]");
+}
+test("내 주제: 주제 파일로 내보내면 .json 이 내려받아지고, 그 파일을 불러오면 검토 화면이 열린다(고친 파일은 다시 확인 안내)", async () => {
+  const st = topicFixture();
+  const { pg, errors } = await openTeacher(st);
+  await makeTopicToReview(pg, st);
+  await pg.click('[data-verify="T1"]');
+  await pg.waitForFunction(() => document.querySelector(".tp-kpis b")?.textContent === "0/2");
+  // 내려받을 파일 이름은 화면이 정한 이름으로 확인한다(브라우저가 저장할 때의 이름은 컴퓨터의 글자 설정에 따라 다르게 보일 수 있다)
+  await pg.evaluate(() => { const c = HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click = function () { window.__dlName = this.download; return c.call(this); }; });
+  const [dl] = await Promise.all([pg.waitForEvent("download"), pg.click("#tp-export")]);
+  assert.equal(await pg.evaluate(() => window.__dlName), "거제 조선소 하청 노동.json");
+  const file = fs.readFileSync(await dl.path(), "utf8");
+  const x = JSON.parse(file);
+  assert.equal(x.format, "ai-eps-topic");
+  assert.equal(x.file.SOURCES.T1.verified, true);
+  // 고치지 않은 파일을 불러온다: 만든 그대로(다시 만들기 단추도 있다)
+  await pg.click("#tp-back");
+  await pg.waitForSelector("#tp-list-view:not(.hidden)");
+  await pg.setInputFiles("#tp-import-file", { name: "topic.json", mimeType: "application/json", buffer: Buffer.from(file) });
+  await pg.waitForSelector("#tp-detail:not(.hidden) .notice.muted");
+  assert.match(await pg.textContent("#tp-detail"), /파일에서 불러온 주제예요[\s\S]*만든 선생님이 원문을 확인한 상태 그대로/);
+  assert.equal(st.calls.filter(([n]) => n === "topics:import").length, 1);
+  assert.equal(await pg.locator("[data-regen]").count(), 2);
+  assert.equal(await pg.isChecked('[data-verify="T1"]'), true);
+  // 고친 파일: 서명이 맞지 않아 원문 확인이 풀리고, 다시 만들기 단추가 없다
+  await pg.click("#tp-back");
+  await pg.waitForSelector("#tp-list-view:not(.hidden)");
+  const bad = { ...x, sig: "b".repeat(64) };
+  await pg.setInputFiles("#tp-import-file", { name: "topic.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(bad)) });
+  await pg.waitForFunction(() => /원문 확인이 풀렸어요/.test(document.querySelector("#tp-detail")?.textContent || ""));
+  assert.equal(await pg.locator("[data-regen]").count(), 0);
+  assert.equal(await pg.isChecked('[data-verify="T1"]'), false);
+  // 같은 파일을 한 번 더 골라도 불러온다(파일 칸을 비워 둔다)
+  assert.equal(await pg.inputValue("#tp-import-file"), "");
+  // 너무 큰 파일은 서버에 보내지 않는다
+  await pg.click("#tp-back");
+  await pg.waitForSelector("#tp-list-view:not(.hidden)");
+  await pg.setInputFiles("#tp-import-file", { name: "big.json", mimeType: "application/json", buffer: Buffer.alloc(4 * 1024 * 1024 + 10, 32) });
+  await pg.waitForSelector(".toast:has-text('너무 커요')");
+  assert.equal(st.calls.filter(([n]) => n === "topics:import").length, 2);
+  assert.deepEqual(errors, []);
+});
+
+test("내 주제(휴대폰): 구성안·검토 화면이 가로로 넘치지 않는다", async () => {
+  const st = topicFixture();
+  const { pg, errors } = await openTeacher(st, { page: "m-teacher.html", ctxOpts: phone });
+  await pg.click("#back-btn"); // 휴대폰에서는 수업을 연 동안 위쪽 탭이 숨는다
+  await pg.click('#tabs [data-tab="topics"]');
   const wide = () => pg.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  assert.ok(await pg.isVisible("#tp-import") && await pg.isVisible("#tp-new"));
+  assert.ok((await wide()) <= 0, "내 주제 목록(불러오기·새 주제 단추)이 넘친다");
+  await pg.click("#tp-new");
+  await pg.fill("#tp-idea", "거제");
+  await pg.click('[data-w="find"]');
+  await pg.click('[data-w="pick"]');
+  await pg.click('[data-w="start"]');
+  await pg.waitForSelector("#tp-make");
   assert.ok((await wide()) <= 0, "구성안 화면이 넘친다");
   await shot(pg, "m-topic-plan");
   await pg.click("#tp-make");
   await pg.waitForSelector("[data-verify]");
   await pg.click('details[data-pid="p1"] > summary');
   assert.ok((await wide()) <= 0, "검토 화면이 넘친다");
+  assert.ok(await pg.isVisible("#tp-export"), "검토 화면에 내보내기 단추");
   await shot(pg, "m-topic-review");
   assert.deepEqual(errors, []);
 });

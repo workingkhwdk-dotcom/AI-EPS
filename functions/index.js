@@ -122,6 +122,10 @@ async function teacherOk(auth) {
   const acc = await db.doc(`teacherAccounts/${auth.uid}`).get();
   return acc.exists && acc.data().disabled !== true;
 }
+// 수업 코드: 영문 대문자·숫자만 받는다(Firestore 경로에 그대로 들어가므로 '/' 같은 글자를 막는다). 맞지 않으면 빈 문자열.
+const sessCode = (v) => { const c = String(v ?? "").trim().toUpperCase(); return /^[A-Z0-9]{1,20}$/.test(c) ? c : ""; };
+// 기본 주제 ID(constructor 같은 객체 기본 속성 이름은 주제가 아니다)
+const eventIdOk = (id) => typeof id === "string" && Object.hasOwn(EVENTS, id);
 async function requireTeacher(req) {
   const auth = requireAuth(req);
   if (!(await teacherOk(auth))) throw new HttpsError("permission-denied", "교사 계정이 아닙니다.");
@@ -131,7 +135,7 @@ async function requireTeacher(req) {
 // 교사 + 내가 만든 수업인지 확인하고 수업 문서를 돌려준다
 async function ownSession(req) {
   const auth = await requireTeacher(req);
-  const code = String(req.data?.code || "").trim().toUpperCase();
+  const code = sessCode(req.data?.code);
   const snap = code ? await db.doc(`sessions/${code}`).get() : null;
   if (!snap?.exists) throw new HttpsError("not-found", "수업을 찾을 수 없습니다.");
   if (snap.data().teacherUid !== auth.uid) throw new HttpsError("permission-denied", "내가 만든 수업이 아닙니다.");
@@ -182,7 +186,7 @@ const topicRef = (code) => db.doc(`sessions/${code}/private/topic`);
 const topicCache = new Map();
 const TOPIC_CACHE_MS = 30 * 1000;
 async function bundleOf(code, sess) {
-  if (!sess?.topicId) return BUNDLES[sess?.eventId] || BUNDLES[DEFAULT_EVENT];
+  if (!sess?.topicId) return BUNDLES[eventIdOk(sess?.eventId) ? sess.eventId : DEFAULT_EVENT];
   const hit = topicCache.get(code);
   if (hit && Date.now() - hit.t < TOPIC_CACHE_MS) return hit.b;
   const snap = await topicRef(code).get();
@@ -269,7 +273,7 @@ exports.createSession = onCall(opts, async (req) => {
   const groupCount = Math.min(Math.max(parseInt(req.data?.groupCount, 10) || 6, 1), MAX_GROUPS);
   // 교사가 만든 주제(topicId)면 그 주제의 지금 내용을 수업에 복사한다. 아니면 기본 주제(eventId).
   const topic = req.data?.topicId ? await topicApi.forClass(auth, req.data.topicId) : null;
-  const eventId = topic ? topic.bundle.EVENT.id : EVENTS[req.data?.eventId] ? req.data.eventId : DEFAULT_EVENT;
+  const eventId = topic ? topic.bundle.EVENT.id : eventIdOk(req.data?.eventId) ? req.data.eventId : DEFAULT_EVENT;
   const b = topic ? makeBundle(fromStored(topic.bundle), { custom: true }) : BUNDLES[eventId];
   if (!availablePersonas(b).length)
     throw new HttpsError("failed-precondition", topic ? "원문 확인을 마친 인물이 없습니다. 내 주제에서 출처를 확인하세요." : "원문 대조가 끝난 페르소나가 없습니다. case.js 의 출처 verified 를 확인하세요.");
@@ -343,13 +347,14 @@ async function moveMember(code, groupId, fromUid, toUid) {
 //    화면에 필요한 수업 내용(studentCase)을 함께 돌려줘 getCase 를 따로 부르지 않아도 되게 한다.
 exports.joinSession = onCall(fastOpts, async (req) => {
   const auth = requireAuth(req);
-  const code = String(req.data?.code || "").trim().toUpperCase();
+  const code = sessCode(req.data?.code);
   const groupNo = parseInt(req.data?.groupNo, 10);
   const nickname = String(req.data?.nickname || "").trim().slice(0, 12);
   const password = String(req.data?.password ?? "");
   if (!nickname) throw new HttpsError("invalid-argument", "별명을 입력하세요. (이름 대신 별명을 쓰세요)");
   const pwErr = validatePassword(password);
   if (pwErr) throw new HttpsError("invalid-argument", pwErr);
+  if (!code) throw new HttpsError("not-found", "수업 코드를 찾을 수 없습니다.");
   const memberRef = db.doc(`sessions/${code}/members/${auth.uid}`);
   const key = credKey(groupNo, nickname);
   const credRef = db.doc(`sessions/${code}/creds/${key}`);
@@ -469,8 +474,9 @@ async function studentCase(code, sess, uid, member, bundle) {
 //  - 사건마다 정한 축(제주는 난민 신청자)의 인물은 모둠에 꼭 한 명 있어야 한다. 그 인물을 맡은 학생이 다른 인물로 바꿔 모둠에서 없어지는 것은 막는다.
 exports.choosePersona = onCall(fastOpts, async (req) => {
   const auth = requireAuth(req);
-  const code = String(req.data?.code || "").toUpperCase();
+  const code = sessCode(req.data?.code);
   const pid = String(req.data?.personaId || "");
+  if (!code) throw new HttpsError("permission-denied", "이 수업의 참여자가 아닙니다.");
   const memberRef = db.doc(`sessions/${code}/members/${auth.uid}`);
   const [sessSnap, memSnap] = await Promise.all([db.doc(`sessions/${code}`).get(), memberRef.get()]);
   if (!sessSnap.exists || !memSnap.exists) throw new HttpsError("permission-denied", "이 수업의 참여자가 아닙니다.");
@@ -812,13 +818,14 @@ exports.getCase = onCall(fastOpts, async (req) => {
     }
     else {
       await requireTeacher(req);
-      b = BUNDLES[req.data.eventId];
+      b = eventIdOk(req.data.eventId) ? BUNDLES[req.data.eventId] : null;
       if (!b) throw new HttpsError("not-found", "사건을 찾을 수 없습니다.");
     }
     return adminCase(b);
   }
 
-  const code = String(req.data?.code || "").toUpperCase();
+  const code = sessCode(req.data?.code);
+  if (!code) throw new HttpsError("permission-denied", "이 수업의 참여자가 아닙니다.");
   const [sess, mem] = await Promise.all([db.doc(`sessions/${code}`).get(), db.doc(`sessions/${code}/members/${auth.uid}`).get()]);
   if (!sess.exists || !mem.exists) throw new HttpsError("permission-denied", "이 수업의 참여자가 아닙니다.");
   if (await closeIfDue(code, sess.data())) throw new HttpsError("failed-precondition", CLOSED_MSG);
@@ -870,7 +877,8 @@ const REVIEW_LABELS = { feasibility: "실행 가능성", stakeholders: "이해�
 //  - 1단계 인물 대화는 학생별 횟수(chatLimit)로, 3~5단계는 모둠 횟수(aiLimit)로 센다.
 exports.aiRequest = onCall(aiOpts, async (req) => {
   const auth = requireAuth(req);
-  const { code, stage, type, payload = {} } = req.data || {};
+  const { stage, type, payload = {} } = req.data || {};
+  const code = sessCode(req.data?.code);
   if (!code) throw new HttpsError("invalid-argument", "수업 코드가 없습니다.");
 
   const memberRef = db.doc(`sessions/${code}/members/${auth.uid}`);
@@ -1145,7 +1153,7 @@ exports.demoRequest = onCall({ ...aiOpts, maxInstances: 2 }, async (req) => {
   let d;
   try { d = demo.parse(req.data); } catch (e) { throw new HttpsError(demoCodes[e.code] || "invalid-argument", e.message); }
   const field = `${d.topic}_${d.kind}`, limit = demo.LIMITS[d.kind];
-  const day = new Date().toISOString().slice(0, 10);
+  const day = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10); // 한국 날짜(UTC 로 세면 오전 9시에 바뀐다)
   const mineRef = db.doc(`demoUsage/${d.deviceId}`), dayRef = db.doc(`demoUsage/day-${day}`);
   await db.runTransaction(async (tx) => {
     const [mine, today] = await Promise.all([tx.get(mineRef), tx.get(dayRef)]);
