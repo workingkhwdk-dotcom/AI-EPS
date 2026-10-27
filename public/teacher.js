@@ -2,6 +2,7 @@ import { auth, db, call, esc, toast, toastAction, errMsg } from "./fb.js";
 import { waitHtml, startWaitTicker, STEPS } from "./wait.js";
 import { showModal, confirmModal } from "./modal.js";
 import { initTopics, loadTopics, topicClassTitle, topicReady } from "./topics.js";
+import { runTour } from "./tour.js";
 startWaitTicker();
 import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { collection, query, where, orderBy, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -122,6 +123,7 @@ function enterMain(u) {
   if (entered) return;
   entered = true;
   listSessions(u.uid); eventIds().forEach((id) => refreshCase(id).catch(() => {}));
+  setTimeout(() => runTour("teacher-main", TOUR_MAIN), 700); // 처음 들어온 교사에게 화면 사용법(한 번만)
   loadTopics(); // 수업 만들기·점검의 사건 목록에 '내 주제'를 넣는다
 }
 onAuthStateChanged(auth, async (u) => {
@@ -138,6 +140,26 @@ onAuthStateChanged(auth, async (u) => {
   if (!teacher) return showAuth("signup", u);
   enterMain(u);
 });
+
+// ---------- 처음 쓰는 교사를 위한 사용법 안내(tour.js) ----------
+// 교사 화면에 처음 들어올 때 한 번, 수업을 처음 열 때 한 번. 위쪽 '사용법 다시 보기'로 지금 화면의 안내를 다시 본다.
+const GUIDE_LINK = `<a href="guide.html" target="_blank" rel="noopener">수업 흐름 · 중고 차이 안내</a>`;
+const TOUR_MAIN = [
+  { title: "AI-EPS 교사 화면에 오신 걸 환영해요", text: `<p>학생들이 실제 사회 갈등 사건 속 사람들을 AI 인물로 만나 7단계로 문제를 푸는 수업을 여기서 만들고 진행해요.</p><p>수업 전체 흐름과 중학교·고등학교 수업의 차이는 ${GUIDE_LINK}에 정리해 두었어요.</p>` },
+  { el: "#tabs", title: "세 가지 작업", text: "<p><b>내 수업</b>: 수업을 만들고 진행해요.<br><b>내 주제</b>: 다루고 싶은 지역·사건으로 새 주제를 만들어요.<br><b>인물·자료 점검</b>: 인물의 근거와 출처를 수업 전에 확인해요.</p>" },
+  { el: "#new-toggle", title: "수업 만들기", text: "<p>사건(주제)과 <b>학교급(중학교·고등학교)</b>, 모둠 수, 학생별 인물 질문 횟수를 정해 수업을 만들어요. 학교급에 따라 AI의 말 수준과 활동 구조가 달라져요.</p>" },
+  { el: "#sessions", title: "내 수업 목록", text: "<p>만든 수업이 여기에 쌓여요. <b>열기</b>를 누르면 수업 코드와 진행 현황이 보여요. 중학교 수업에는 '중학교' 표시가 붙어요.</p>" },
+  { el: "#t-help", title: "도움이 필요할 때", text: "<p>수업 흐름 안내는 언제든 새 창으로 열 수 있고, <b>사용법 다시 보기</b>로 지금 화면의 안내를 다시 볼 수 있어요.</p>" },
+];
+const TOUR_CLASS = [
+  { el: ".code-row", title: "수업 코드", text: "<p>학생은 이 코드와 모둠 번호, 별명, 비밀번호로 입장해요. 옆의 QR이나 <b>크게 띄우기</b>로 화면에 띄워 알려 주세요.</p>" },
+  { el: "#lobby", title: "수업 시작", text: "<p>학생들은 들어와서 대기실에서 기다려요. 모둠이 다 모이면 <b>수업 시작하기</b>를 눌러요.</p>" },
+  { el: "#notice-card", title: "학생에게 한마디", text: "<p>\"5분 남았어요\" 같은 짧은 공지를 모든 모둠이나 한 모둠에게 보내요. 학생 화면 위쪽에 떠요.</p>" },
+  { el: "#students", title: "학생과 모둠 진행", text: "<p>학생마다 지금 몇 단계인지, 질문을 몇 번 썼는지 보여요. 아래 <b>모둠 진행</b>에서 대화 기록과 AI 기록을 열어 볼 수 있어요. 문제가 생기면 위쪽 <b>확인이 필요해요</b>에 바로 나타나요.</p>" },
+  { el: "#ctabs", title: "수업 메뉴", text: "<p><b>자료 관리</b>·<b>인물 편집</b>으로 이 수업만의 자료를 고치고, <b>수업 설정</b>에서 학교급과 <b>심화 활동</b>을 하나씩 켜고 꺼요.</p>" },
+  { el: "#csv-btn", title: "기록 남기기와 닫기", text: "<p>수업이 끝나면 <b>기록 CSV</b>를 받아 두고, 위쪽 단추로 수업을 닫아요. 닫으면 학생이 더 쓸 수 없어요.</p>" },
+];
+$("#tour-btn").onclick = () => { const inClass = !$("#class-view").classList.contains("hidden"); runTour(inClass ? "teacher-class" : "teacher-main", inClass ? TOUR_CLASS : TOUR_MAIN, { force: true }); };
 
 // ---------- 탭 ----------
 function showTab(name) {
@@ -265,6 +287,7 @@ function openSession(code, title, topicId) {
   for (const k of Object.keys(changedAt)) delete changedAt[k];
   renderQr();
   renderOpen();
+  setTimeout(() => runTour("teacher-class", TOUR_CLASS), 900); // 처음 연 수업에서 수업 화면 사용법(한 번만)
   piiBy = {};
   unsubs.push(onSnapshot(query(collection(db, `sessions/${code}/alerts`), orderBy("createdAt", "desc")), (s) => {
     const before = conduct.length;

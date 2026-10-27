@@ -26,7 +26,7 @@
     <div class="demo-level"><span class="dl-k">어느 학교 수업으로 해 볼까요?</span>
       <div class="seg" id="level" role="radiogroup" aria-label="학교급"><button type="button" role="radio" data-lv="high">고등학교</button><button type="button" role="radio" data-lv="middle">중학교</button></div>
       <p class="dl-note" id="level-note"></p></div>
-    <button class="link demo-about" type="button" id="about">체험과 실제 수업은 무엇이 다른가요?</button>
+    <div class="demo-links" id="demo-links"><a href="guide.html" target="_blank" rel="noopener" id="guide-link">📘 수업 흐름 · 중고 차이 안내</a><button class="link" type="button" id="about">체험과 실제 수업은 무엇이 다른가요?</button><button class="link" type="button" id="tour-btn">사용법 다시 보기</button></div>
   </section>
   <div class="topics-head"><b id="topics-count">서로 독립된 주제</b><span>하나만 골라도 처음부터 끝까지 체험할 수 있어요</span></div>
   <div class="topics" id="topics" aria-live="polite"><div class="meta-line" style="text-align:center">불러오는 중…</div></div>
@@ -35,6 +35,7 @@
 <script type="module">
 import { hasProgress, resetTopic } from "./demo/store.js";
 import { showModal } from "./modal.js";
+import { runTour } from "./tour.js";
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const box = document.getElementById("topics");
 // 고른 학교급은 이 기기에 기억한다(다음에 열어도 그대로)
@@ -92,8 +93,17 @@ const about = () => showModal({ title: "체험하기는 이런 거예요", dismi
     <p class="meta-line" style="margin-top:10px">단계마다 실제 수업과 다른 점은 그 단계에 들어갈 때 안내 창에서 알려 드려요.</p>`,
   actions: [{ label: "주제 고르러 가기", value: true, kind: "btn-primary" }] });
 document.getElementById("about").onclick = about;
+// 처음 들어오면 체험이 무엇인지 알려 준 뒤, 이 화면의 사용법을 차례로 짚어 준다(tour.js, 한 번만)
+const TOUR = [
+  { el: "#level", title: "먼저 학교급을 골라요", text: "<p><b>고등학교</b>와 <b>중학교</b> 수업은 AI의 말 수준과 활동 구조가 달라요. 학교급마다 저장이 따로라서 같은 주제를 둘 다 해 볼 수 있어요.</p>" },
+  { el: ".topic", title: "주제를 하나 골라요", text: "<p>카드를 누르면 학생 화면이 열리고 1단계부터 시작해요. 하던 주제는 '이어서 하기'로 이어 가고, '처음부터'로 다시 할 수 있어요.</p>" },
+  { el: "#demo-links", title: "더 알고 싶을 때", text: "<p><b>수업 흐름 · 중고 차이 안내</b>에서 7단계 전체와 학교급별 차이를 한눈에 볼 수 있어요. 이 안내는 <b>사용법 다시 보기</b>로 다시 볼 수 있어요.</p>" },
+];
+document.getElementById("tour-btn").onclick = () => runTour("demo-menu", TOUR, { force: true });
 let seen = false; try { seen = localStorage.getItem(ABOUT) === "1"; } catch {}
 if (!seen) { try { localStorage.setItem(ABOUT, "1"); } catch {} about(); }
+// 주제 카드가 그려진 뒤에 시작한다(첫 안내 창이 떠 있으면 닫힌 뒤)
+(async () => { for (let i = 0; i < 40 && !document.querySelector(".topic"); i++) await new Promise((r) => setTimeout(r, 100)); runTour("demo-menu", TOUR); })();
 </script>
 </body>
 </html>

@@ -77,6 +77,8 @@ async function newPage(init, handler, arg, ctxOpts = {}) {
   if (process.env.UI_DEBUG) { pg.on("pageerror", (e) => console.log("PAGEERROR", e.message)); pg.on("console", (m) => m.type() === "error" && console.log("CONSOLE", m.text())); }
   await pg.route(/gstatic\.com\/firebasejs/, (r) => r.fulfill({ contentType: "text/javascript", body: stubs[r.request().url().split("/").pop()] || "" }));
   await pg.route(/fonts\.(googleapis|gstatic)|cdn\.jsdelivr/, (r) => r.abort());
+  // 사용법 안내(tour.js)는 이미 본 것으로 둔다. 안내를 시험하는 테스트만 arg.tours 로 켠다.
+  await pg.addInitScript((on) => { if (!on) try { for (const k of ["teacher-main", "teacher-class", "demo-menu", "demo-play"]) localStorage.setItem("eps_tour_" + k, "1"); } catch {} }, !!arg?.tours);
   await pg.addInitScript(init, arg);
   await pg.addInitScript(() => { window.__fn = (n, d) => window.__node(n, d); window.__log = []; window.__writes = []; });
   await pg.exposeFunction("__node", handler);
@@ -108,8 +110,9 @@ function teacherFixture() {
   };
   return st;
 }
-async function openTeacher(st, { page = "teacher.html", ctxOpts, session = {}, online = false, clock = false } = {}) {
-  const t = await newPage(({ session, online }) => {
+async function openTeacher(st, { page = "teacher.html", ctxOpts, session = {}, online = false, clock = false, tours = false } = {}) {
+  const t = await newPage(({ session, online, tours }) => {
+    if (!tours) { try { localStorage.setItem("eps_tour_teacher-main", "1"); localStorage.setItem("eps_tour_teacher-class", "1"); } catch {} }
     window.__user = { uid: "T1", email: "t@x.kr", isAnonymous: false };
     window.__docs = {};
     // online: 학생이 방금 접속 신호를 보낸 것처럼(lastSeen 은 늘 '지금')
@@ -120,7 +123,7 @@ async function openTeacher(st, { page = "teacher.html", ctxOpts, session = {}, o
       "sessions/ABC234/alerts": [{ id: "a1", uid: "u1", nickname: "가람", groupId: "g1", category: "mockery", by: "rule", input: "놀리는 말", strikes: 3, locked: true }],
       "sessions/ABC234/groups": [{ id: "g1", name: "1모둠", work: {}, lastAiError: { stage: 3, message: "시간 초과" }, aiCount: 130, guardCount: 4 }, { id: "g2", name: "2모둠", work: {} }, { id: "g3", name: "3모둠", work: {} }],
     };
-  }, st.handler, { session, online }, ctxOpts);
+  }, st.handler, { session, online, tours }, ctxOpts);
   if (clock) await t.pg.clock.install();
   await t.pg.goto(`${base}/${page}`);
   await t.pg.waitForSelector("#sessions button[data-code]");
@@ -1609,9 +1612,11 @@ test("교사: 수업 복제는 화면 안의 확인 창, 수업 삭제는 수업
 });
 
 // ---------- 체험(demo): 서버 없이 이 기기에 저장하며 학생 화면을 혼자 해 본다 ----------
-async function demoPage(ctxOpts = {}, ai = null) {
+// tours: 처음 들어온 사람의 사용법 안내(tour.js)를 띄울지. 대부분의 테스트는 이미 본 상태에서 시작한다.
+async function demoPage(ctxOpts = {}, ai = null, { tours = false } = {}) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, ...ctxOpts });
   const pg = await ctx.newPage();
+  if (!tours) await pg.addInitScript(() => { try { localStorage.setItem("eps_tour_demo-menu", "1"); localStorage.setItem("eps_tour_demo-play", "1"); } catch {} });
   const errors = [];
   pg.on("pageerror", (e) => errors.push(e.message));
   // 체험은 Firebase SDK 를 아예 부르지 않는다. 서버의 AI(demoRequest)만 부르고, 시험에서는 ai 로 대신 답한다(없으면 연결 실패).
@@ -2280,4 +2285,83 @@ test("체험: 중학교·고등학교를 골라 체험하고, 학교급마다 �
   assert.equal(await pg.locator('.topic a.btn-primary[href$="&lv=middle"]').count(), 0);
   assert.deepEqual(errors, []);
   await ctx.close();
+});
+
+// ---------- 처음 들어온 사람을 위한 사용법 안내(tour.js)와 수업 안내 페이지 ----------
+const tourStep = async (pg) => (await pg.locator(".tour-tip h3").innerText());
+async function walkTour(pg, shotName) {
+  await pg.waitForSelector(".tour-tip");
+  const titles = [];
+  for (let i = 0; i < 12 && await pg.locator(".tour").count(); i++) {
+    titles.push(await tourStep(pg));
+    if (shotName) await shot(pg, `${shotName}-${i + 1}`);
+    await pg.click('.tour [data-t="next"]');
+    await pg.waitForTimeout(150);
+  }
+  return titles;
+}
+
+test("사용법 안내(교사): 처음 들어오면 화면 안내가 차례로 뜨고, 수업을 처음 열면 수업 화면 안내가, '사용법 다시 보기'로 다시 볼 수 있다", async () => {
+  const st = teacherFixture(), { pg, errors } = await openTeacher(st, { tours: true });
+  // openTeacher 가 목록에서 수업을 열기 전에 첫 안내가 떠 있을 수 있다 → 수업 목록으로 돌아가 다시 본다
+  const t1 = await walkTour(pg, "tour-teacher");
+  assert.ok(t1.length >= 3, "안내가 여러 단계: " + t1.join(" / "));
+  assert.ok(await pg.evaluate(() => localStorage.getItem("eps_tour_teacher-main") === "1"));
+  if (!(await pg.locator(".tour").count())) await pg.waitForTimeout(1200);
+  if (await pg.locator(".tour").count()) { const t2 = await walkTour(pg, "tour-class"); assert.ok(t2.some((x) => /수업 코드|수업 메뉴/.test(x)), t2.join(" / ")); }
+  assert.ok(await pg.evaluate(() => localStorage.getItem("eps_tour_teacher-class") === "1"));
+  // 다시 보기: 수업 화면에서는 수업 안내, Esc 로 닫는다
+  await pg.click("#tour-btn");
+  await pg.waitForSelector(".tour-tip");
+  assert.match(await tourStep(pg), /수업 코드|학생|수업 메뉴/);
+  await pg.keyboard.press("Escape");
+  assert.equal(await pg.locator(".tour").count(), 0);
+  // 수업 안내 링크(새 창)
+  assert.equal(await pg.getAttribute("#guide-link", "href"), "guide.html");
+  assert.equal(await pg.getAttribute("#guide-link", "target"), "_blank");
+  // 다시 들어오면 안내가 뜨지 않는다
+  await pg.reload(); await pg.waitForSelector("#sessions button[data-code]"); await pg.waitForTimeout(1200);
+  assert.equal(await pg.locator(".tour").count(), 0);
+  assert.deepEqual(errors, []);
+});
+
+test("사용법 안내(체험): 처음 화면은 '체험하기는 이런 거예요' 다음에 학교급·주제·안내 링크를 짚고, 주제를 열면 학생 화면 안내가 단계 안내 뒤에 뜬다", async () => {
+  const { pg, ctx, errors } = await demoPage({}, null, { tours: true });
+  await pg.goto(`${base}/demo.html`);
+  await pg.waitForSelector(".modal.about-pop");
+  await pg.click(".modal.about-pop .btn-primary");
+  const t = await walkTour(pg, "tour-demo-menu");
+  assert.deepEqual(t, ["먼저 학교급을 골라요", "주제를 하나 골라요", "더 알고 싶을 때"]);
+  assert.equal(await pg.getAttribute("#guide-link", "href"), "guide.html");
+  await pg.click("#tour-btn"); await pg.waitForSelector(".tour-tip"); await pg.click(".tour-x");
+  await pg.locator(".topic a.btn-primary").first().click();
+  await pg.waitForSelector("#app:not(.hidden)");
+  // 단계 안내 창이 먼저, 닫으면 학생 화면 사용법
+  await pg.waitForSelector(".modal");
+  assert.equal(await pg.locator(".tour").count(), 0, "단계 안내 창이 떠 있는 동안은 기다린다");
+  await dismissHelp(pg);
+  const t2 = await walkTour(pg, "tour-demo-play");
+  assert.match(t2[0], /고등학교 수업을 학생이 되어/);
+  assert.ok(t2.includes("1~7단계") && t2.includes("홈 · 초기화"), t2.join(" / "));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("수업 안내 페이지: 1~7단계·중고 차이·심화 활동·교사 진행이 있고, 학교급 보기를 고르면 그 학교급 줄만 보인다(휴대폰에서도 가로로 넘치지 않음)", async () => {
+  for (const vp of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
+    const ctx = await browser.newContext({ viewport: vp }); const pg = await ctx.newPage();
+    const errors = []; pg.on("pageerror", (e) => errors.push(e.message));
+    await pg.route(/cdn\.jsdelivr/, (r) => r.abort());
+    await pg.goto(`${base}/guide.html`);
+    for (const id of ["flow", "stages", "levels", "deep", "teacher", "demo"]) assert.equal(await pg.locator(`#${id}`).count(), 1, id);
+    assert.equal(await pg.locator(".stage").count(), 7);
+    assert.equal(await pg.locator(".row.mid:visible").count(), 7);
+    await pg.click('[data-view="high"]');
+    assert.equal(await pg.locator(".row.mid:visible").count(), 0);
+    assert.equal(await pg.locator(".row.high:visible").count(), 7);
+    assert.ok(await pg.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "가로로 넘치지 않는다");
+    await shot(pg, `guide-${vp.width}`);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
 });
