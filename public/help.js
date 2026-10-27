@@ -166,15 +166,66 @@ const FILL_FALLBACK = { goodQuestion: "그 일이 있었던 해에 몇 명이 �
   pickLead: "이 사건에는 입장이 서로 다른 여러 사람이 있었어요.", requiredWho: "꼭 들어야 할 당사자", requiredTag: "당사자" };
 export const fill = (s, n, ex = {}) => String(s).replace(/\{(\w+)\}/g, (m, k) => (k === "n" ? n : ex[k] || FILL_FALLBACK[k] || m));
 
+// 학교급(중학교)과 심화 활동(deep)에 맞춰 안내를 고친다. opts = { level, deep }. 바뀌는 것이 없으면 HELP 그대로.
+//  - mid: 중학교에서 바뀌는 how·steps(번호는 원래 순서의 자리)
+//  - deep: 심화 활동을 켰을 때 덧붙이는 how 한 줄(있으면)과 step
+const VARIANTS = {
+  "1-note": { deep: { premise: { step: ["당연하게 여기는 것도 찾아요", "이 사람의 말 속에 깔린 생각(예: '일하면 그만큼 대가를 받아야 한다')을 한 줄로 써요. 같은 일을 두고 사람마다 말이 다른 까닭이 여기 있을 때가 많아요. 이 칸도 꼭 써야 제출할 수 있어요."] } } },
+  "1-group": { deep: { premise: { step: ["부딪히는 가치에 이름을 붙여요", "두 바람 밑에서 각자 지키려는 가치(안전, 생계, 자유, 평등 등)를 하나씩 고르고, 둘을 함께 지키기 어려운 까닭을 써요."] } } },
+  2: {
+    mid: { steps: { 2: ["원인을 추측해요", "사람들의 생각·선택에서 생긴 일인지, 사회의 규칙·분위기에서 생긴 일인지 나눠 보면 놓친 원인이 보여요."],
+      4: ["사실인지 의견인지 가리고, 무엇을 보면 될지 써요", "들은 말이 일어난 일(사실)인지 누군가의 생각(의견)인지 먼저 골라요. 그리고 그 말이 맞는지 알려면 무엇(숫자, 발표, 기사)을 보면 될지 써 두면 3단계에서 바로 찾을 수 있어요."] } },
+    deep: { causeMap: { how: "원인끼리 이어 봐요: 한 원인이 다른 원인을 부르거나 키우나요?", step: ["원인끼리 이어 봐요", "원인을 두 개 이상 쓴 뒤, 한 원인이 다른 원인을 불러오거나 더 키우는지 골라 이어요. 원인들이 따로 있지 않고 서로 얽혀 있다는 걸 볼 수 있어요."] } },
+  },
+  3: {
+    mid: { steps: { 0: ["자료를 보고 먼저 판단해요", "2단계 자료를 보고 '사실이다 / 사실이 아니다 / 확인할 수 없다' 중 하나를 고르고, 어떤 자료에서 무엇을 보고 알았는지 꼭 써요."] } },
+    deep: {
+      sources: { step: ["다른 자료로 한 번 더, 누가 만든 자료인지도", "자료 하나만 보고 정하지 말고 다른 자료에서도 같은지 찾아봐요. 그 자료를 누가 만들었는지(정부, 언론, 단체), 왜 그렇게 말했을지도 써요."] },
+      causeMap: { step: ["뿌리를 따져 봐요", "가장 큰 원인을 정한 뒤, 그 원인이 사라지면 문제와 다른 원인도 함께 줄어들지 따져 봐요. 2단계에서 이은 원인 관계가 도움이 돼요."] },
+    },
+  },
+  4: {
+    mid: { how: { 1: "해결책을 쓰고 (30자 이상), 필요하면 AI 조언자 2명의 의견을 들어요" },
+      steps: { 2: ["AI 의견을 들어요 (선택)", "서로 다른 눈으로 보는 AI 조언자 2명이 좋은 점, 걱정되는 점, 생각해 볼 질문을 알려 줘요. 듣지 않아도 괜찮아요. 들었다면 받아들일지 · 고쳐서 반영할지 · 버릴지 이유와 함께 정해요."] },
+      extra: ["해결책을 점검해요", "최종 해결책이 가장 큰 원인을 줄일 수 있는지, 이 해결책 때문에 힘들어지는 사람은 없는지 살펴봐요."] },
+    deep: { tradeoff: { how: "해결책 두 개를 얻는 것과 포기하는 것으로 견줘요", step: ["해결책을 견줘요", "해결책을 두 개 이상 쓰고, 해결책마다 얻는 것과 그 대신 포기하는 것(누가 부담을 지는지)을 써요. 그리고 우리가 무엇을 더 중요하게 보는지 정해요. 다른 나라 사례를 참고했다면 그곳과 우리 사건이 무엇이 다른지도 써요."] } },
+  },
+  5: {
+    mid: { how: { 1: "원하면 AI가 그린 1년 뒤의 가능한 미래 2가지를 내 예측과 견줘 봐요 (선택)" },
+      steps: { 1: ["미래 이야기를 만들어요 (선택)", "1년 뒤의 서로 다른 미래 2가지가 나와요. 시간이 조금 걸릴 수 있어요. 만들지 않고 우리 예측만으로 이어 가도 돼요."],
+        2: ["내 예측과 견줘 봐요", "더 그럴듯한 쪽을 고른 뒤, 내가 먼저 쓴 예측과 어디가 같고 다른지, 고른 이유를 꼭 써요. '왜 그렇게 되나'가 현실에서도 맞을지 따져 보는 칸은 써도 되고 안 써도 돼요."] } },
+    deep: { chain: { step: ["반응이 이어지는 모습을 써요", "한 사람의 반응이 다른 사람의 반응을 어떻게 바꿀지 '○○가 ~하면, △△는 ~할 것이다'처럼 이어서 써요."] } },
+  },
+  6: { deep: { power: { step: ["권한이 있는 곳을 찾아요", "이 일을 정할 권한이 누구에게 있는지(시청, 학교, 국회 등), 우리 생각을 어떤 길(제안, 건의, 편지)로 전할지 써요."] } } },
+  7: { deep: { why: { step: ["달랐던 까닭을 따져요", "실제와 우리 생각이 달랐다면, 우리가 놓친 원인이나 사람들의 반응이 무엇이었는지 써요."] } } },
+};
+function variant(key, opts = {}) {
+  const h = HELP[key], v = VARIANTS[key];
+  if (!v) return h;
+  const how = [...h.how], steps = [...h.detail.steps];
+  if (opts.level === "middle" && v.mid) {
+    Object.entries(v.mid.how || {}).forEach(([i, x]) => { how[i] = x; });
+    Object.entries(v.mid.steps || {}).forEach(([i, x]) => { steps[i] = x; });
+    if (v.mid.extra && !opts.deep?.tradeoff) steps.push(v.mid.extra);
+  }
+  for (const [k, d] of Object.entries(v.deep || {})) {
+    if (opts.deep?.[k] !== true) continue;
+    if (d.how) how.push(d.how);
+    steps.push(d.step);
+  }
+  if (key === "1-note" && opts.deep?.premise) steps[0] = ["1~4번은 꼭 써요", steps[0][1].replace("이 세 칸을", "그리고 4번 '당연하게 여기는 것'까지 네 칸을")];
+  return { ...h, how, detail: { ...h.detail, steps } };
+}
+
 // 처음 보여 주는 간단한 안내(무엇을 · 어떻게)
-export function helpSimple(key, esc, n, ex) {
-  const h = HELP[key];
+export function helpSimple(key, esc, n, ex, opts) {
+  const h = variant(key, opts);
   return `<div class="help-what"><span>무엇을 해요?</span>${esc(fill(h.what, n, ex))}</div>
     <div class="help-how"><span>어떻게 해요?</span><ol>${h.how.map((x) => `<li>${esc(fill(x, n, ex))}</li>`).join("")}</ol></div>`;
 }
 // '이해 못했어요'를 눌렀을 때의 자세한 설명
-export function helpDetail(key, esc, n, ex) {
-  const d = HELP[key].detail;
+export function helpDetail(key, esc, n, ex, opts) {
+  const d = variant(key, opts).detail;
   return `<p class="help-lead">${esc(fill(d.lead, n, ex))}</p>
     <ol class="help-steps">${d.steps.map(([t, x]) => `<li><div><b>${esc(fill(t, n, ex))}</b><span>${esc(fill(x, n, ex))}</span></div></li>`).join("")}</ol>
     <div class="help-tip">💡 ${esc(fill(d.tip, n, ex))}</div>`;

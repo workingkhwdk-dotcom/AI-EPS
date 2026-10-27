@@ -24,13 +24,14 @@ const FALLBACKS = {
   error: "잠깐 말이 잘 안 나오네요… 다시 한 번 말씀해 주시겠어요?",
 };
 
-function guardMessages({ event, persona, claims, background, history = [], studentMessage, reply, lookups = [] }) {
+// level: 수업의 학교급(level.js). 감독자가 읽는 대상 학생만 바뀐다.
+function guardMessages({ event, persona, claims, background, history = [], studentMessage, reply, lookups = [], level = "high" }) {
   // 사건을 따로 주지 않으면 인물이 속한 사건을 쓴다
   const ev = event || require("./case").EVENTS[persona?.events?.[0]];
   background = background || ev.background || [];
   const scope = scopeOf(ev);
   const sys = [
-    "너는 고등학생 수업용 AI 인물의 응답을 학생에게 보여 주기 전에 검사하는 상위 감독자다. 아래 규범과 근거에 비추어 응답을 평가하고 JSON으로만 답한다.",
+    `너는 ${level === "middle" ? "중학생" : "고등학생"} 수업용 AI 인물의 응답을 학생에게 보여 주기 전에 검사하는 상위 감독자다. 아래 규범과 근거에 비추어 응답을 평가하고 JSON으로만 답한다.`,
     "이 대화의 목적은 학생이 서로 다른 처지의 인물에게서 그 사람의 경험과 생각을 듣는 것이다. 진짜 사람과 이야기하는 듯한 느낌이 가장 중요하다. 인물이 자연스럽게, 자기 생각을 분명히 말하는 것은 좋은 응답이다. 질문 횟수가 이미 제한되어 있으므로 엄격하게 막지 말고, 확실하고 명백한 위반만 지적한다. 조금이라도 애매하면 ok 다.",
     "인물 자신에 대한 질문(성별, 나이, 고향, 가족, 하는 일, 하루 일과, 성격, 취향 등)은 사건과 직접 관련이 없어 보여도 학생이 사람을 알아 가려는 정상 질문이다. 개인으로 등장하는 인물이 그에 자연스럽게 답한 것은 위반이 아니다(단체·기관 소속 인물은 아래 기준을 따른다).",
     `[사건 범위] ${scope.event} / ${scope.time} / ${scope.place}`,

@@ -23,6 +23,7 @@ const { makeTopicApi } = require("./topicApi");
 const { fromStored } = require("./topicData");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { AUTO_CLOSE_CHOICES, autoCloseDue, staleAnonymousUids } = require("./maintenance");
+const { LEVELS, LENSES_BY, levelOf, defaultDeep, deepOf, sanitizeDeep } = require("./level");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -163,6 +164,16 @@ function sessionSettings(d) {
     if (!AUTO_CLOSE_CHOICES.includes(h)) throw new HttpsError("invalid-argument", "자동 닫힘 시간이 올바르지 않습니다.");
     out.autoCloseHours = h;
   }
+  // 학교급과 심화 활동(level.js). 학교급만 바꾸면 심화 활동은 그대로 둔다(교사 화면이 둘을 함께 보낸다).
+  if (d?.level !== undefined) {
+    if (!LEVELS.includes(d.level)) throw new HttpsError("invalid-argument", "학교급은 중학교 또는 고등학교로 정하세요.");
+    out.level = d.level;
+  }
+  if (d?.deep !== undefined) {
+    const deep = sanitizeDeep(d.deep);
+    if (!deep) throw new HttpsError("invalid-argument", "심화 활동 설정이 올바르지 않습니다.");
+    out.deep = deep;
+  }
   return out;
 }
 
@@ -278,6 +289,8 @@ exports.createSession = onCall(opts, async (req) => {
   if (!availablePersonas(b).length)
     throw new HttpsError("failed-precondition", topic ? "원문 확인을 마친 인물이 없습니다. 내 주제에서 출처를 확인하세요." : "원문 대조가 끝난 페르소나가 없습니다. case.js 의 출처 verified 를 확인하세요.");
   const title = String(req.data?.title || b.event.title).slice(0, 80);
+  const settings = sessionSettings(req.data);
+  const level = settings.level || "high";
   const code = await newCode();
   const batch = db.batch();
   if (topic) batch.set(topicRef(code), { topicId: topic.id, title: topic.title, bundle: topic.bundle, copiedAt: FieldValue().serverTimestamp() });
@@ -290,7 +303,8 @@ exports.createSession = onCall(opts, async (req) => {
     closed: false,
     started: false, // 교사가 '수업 시작'을 누르기 전까지는 대기실. 이 값이 없는 예전 수업은 시작된 것으로 본다.
     aiLimit: MAX_AI_CALLS_PER_GROUP, chatLimit: CHAT_LIMIT, webSearch: true, coach: true, autoCloseHours: 0,
-    ...sessionSettings(req.data),
+    level, deep: defaultDeep(level), // 심화 활동을 따로 보내지 않으면 학교급의 기본값
+    ...settings,
     createdAt: FieldValue().serverTimestamp(),
   });
   for (let i = 1; i <= groupCount; i++) {
@@ -434,7 +448,7 @@ exports.joinSession = onCall(fastOpts, async (req) => {
     credRef.set({ ...saved, uid: auth.uid, groupId, fails: 0, lockUntil: 0 }),
     studentCase(code, sess, auth.uid, undefined, b),
   ]);
-  return { groupId, nickname, started: sess.started !== false, chatLimit: sess.chatLimit || CHAT_LIMIT, case: caseData };
+  return { groupId, nickname, started: sess.started !== false, chatLimit: sess.chatLimit || CHAT_LIMIT, level: levelOf(sess), deep: deepOf(sess), case: caseData };
 });
 
 // 학생의 인물 ID: 서버 전용 배정 문서에서 읽는다(옛 방식으로 학생 문서에 있던 값도 받아 준다)
@@ -745,6 +759,7 @@ exports.cloneSession = onCall(opts, async (req) => {
   batch.set(db.doc(`sessions/${newCodeStr}`), {
     teacherUid: auth.uid, title, eventId: sess.eventId, ...(sess.topicId ? { topicId: sess.topicId } : {}), groupCount: sess.groupCount, closed: false, started: false,
     aiLimit: sess.aiLimit || MAX_AI_CALLS_PER_GROUP, chatLimit: sess.chatLimit || CHAT_LIMIT, webSearch: sess.webSearch !== false, coach: sess.coach !== false, autoCloseHours: sess.autoCloseHours || 0,
+    ...(sess.level ? { level: sess.level } : {}), ...(sess.deep ? { deep: deepOf(sess) } : {}),
     createdAt: FieldValue().serverTimestamp(),
   });
   for (let i = 1; i <= sess.groupCount; i++) batch.set(db.doc(`sessions/${newCodeStr}/groups/g${i}`), { name: `${i}모둠`, aiCount: 0, memberCount: 0, guardCount: 0, work: {} });
@@ -872,6 +887,7 @@ async function callModel({ apiKey, model, messages, json = false, maxTokens, eff
 }
 
 const REVIEW_LABELS = { feasibility: "실행 가능성", stakeholders: "이해관계자 영향", sideEffects: "부작용·장기 영향" };
+const REVIEW_LABELS_MID = { feasibility: "정말 할 수 있을까", stakeholders: "사람들의 반응", sideEffects: "나중에 생길 일" };
 
 // AI 호출의 단일 관문: 인증 → 모둠 확인 → GYR 게이트 → 횟수 한도 → OpenAI → (1단계) 상위 AI 감독 → 로그
 //  - 1단계 인물 대화는 학생별 횟수(chatLimit)로, 3~5단계는 모둠 횟수(aiLimit)로 센다.
@@ -892,7 +908,9 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
   if (sessData.started === false) throw new HttpsError("failed-precondition", WAITING_MSG);
   const bundle = await bundleOf(code, sessData);
   const ev = bundle.event;
-  const evCtx = { summary: ev.summary, premise: ev.summary };
+  // 학교급과 심화 활동(level.js): 2~5단계 AI의 말 수준과 짚을 점이 달라진다
+  const level = levelOf(sessData), deep = deepOf(sessData);
+  const evCtx = { summary: ev.summary, premise: ev.summary, level, deep };
   const personas = await personasFor(code, bundle);
   const groupRef = db.doc(`sessions/${code}/groups/${groupId}`);
   const group = (await groupRef.get()).data() || {};
@@ -905,7 +923,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
   evCtx.cause = clip(work.s3?.chain?.cause, 400);
   evCtx.evidence = clip(work.s3?.chain?.evidence, 400);
 
-  const gate = checkGate({ stage: s, type, work, payload });
+  const gate = checkGate({ stage: s, type, work, payload, level });
   if (!gate.ok) throw new HttpsError("failed-precondition", gate.reason);
   // 한도 확인과 횟수 증가를 한 번에 처리한다(동시에 요청이 몰려도 한도를 넘지 않게). 실패하면 아래에서 되돌린다.
   const chatLimit = sessData.chatLimit || CHAT_LIMIT;
@@ -944,7 +962,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
       // 인사·맞장구에는 검색 도구를 주지 않고 짧게 생각해 바로 답한다(첫 인사에 오래 기다리지 않게)
       const smallTalk = isSmallTalk(input);
       const useLookup = searchOn && !smallTalk;
-      const messages = [{ role: "system", content: prompts.personaPrompt(ev, persona, { lookup: useLookup }) }];
+      const messages = [{ role: "system", content: prompts.personaPrompt(ev, persona, { lookup: useLookup, level, subtle: deep.beliefs }) }];
       past.forEach((l) => {
         messages.push({ role: "user", content: l.input });
         messages.push({ role: "assistant", content: l.output });
@@ -973,7 +991,7 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
         try {
           const verdictText = await callModel({
             apiKey, model: GUARD_MODEL.value() || baseModel, json: true, maxTokens: 900, efforts: smallTalk ? ["minimal", "low"] : ["low"],
-            messages: guardMessages({ event: ev, persona, claims: persona.claims, history: past.slice(-3), studentMessage: input, reply, lookups }),
+            messages: guardMessages({ event: ev, persona, claims: persona.claims, history: past.slice(-3), studentMessage: input, reply, lookups, level }),
           });
           verdict = parseVerdict(verdictText);
         } catch (e) {
@@ -1044,13 +1062,20 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
           `그 생각은 어디서 왔을까: ${clip(l.source, 400) || "(없음)"}`, `내 생활의 장면${l.angle ? `(${clip(l.angle, 40)})` : ""}: ${clip(l.scene, 400) || "(없음)"}`,
           `그래서 생긴 질문: ${clip(l.question, 300) || "(없음)"}`].join("\n");
       } else {
-        input = "모둠이 쓴 원인 추측:\n" + toList(work.s2.causes).slice(0, 12).map((q) => `- ${q.level ? `[${clip(q.level, 20)}] ` : ""}${clip(q.text, 200)}`).join("\n");
+        const causes = toList(work.s2.causes).slice(0, 12);
+        input = "모둠이 쓴 원인 추측:\n" + causes.map((q) => `- ${q.level ? `[${clip(q.level, 20)}] ` : ""}${clip(q.text, 200)}`).join("\n");
+        // 원인 잇기(심화): 모둠이 이은 원인끼리의 관계도 보여 준다
+        if (deep.causeMap) {
+          const textOf = (id) => clip(causes.find((q) => q.id === id)?.text, 80);
+          const links = toList(work.s2?.causeLinks).filter((l) => textOf(l.from) && textOf(l.to)).slice(0, 12);
+          input += "\n모둠이 이은 원인 관계:\n" + (links.map((l) => `- ${textOf(l.from)} → ${clip(l.rel, 20) || "이어짐"} → ${textOf(l.to)}`).join("\n") || "- (아직 잇지 않음)");
+        }
       }
       messages = [{ role: "system", content: prompts.coachPrompt(evCtx, focus) }, { role: "user", content: input }];
       output = await callModel({ apiKey, model, messages, json: true, maxTokens: 400, efforts: ["low"] });
       let v;
       try { v = extractJson(output); } catch { throw new HttpsError("internal", "생각 도우미의 답을 읽지 못했어요. 다시 시도하세요."); }
-      const kinds = Object.keys(prompts.COACH_KINDS[focus]);
+      const kinds = Object.keys(prompts.coachKinds(focus, { level, causeMap: deep.causeMap }));
       result = { kind: kinds.includes(v.kind) ? v.kind : "", question: clip(v.question, 300) };
       if (!result.question) throw new HttpsError("internal", "생각 도우미의 답이 비어 있어요. 다시 시도하세요.");
       output = JSON.stringify(result);
@@ -1073,17 +1098,17 @@ exports.aiRequest = onCall(aiOpts, async (req) => {
     } else if (s === 4) {
       const p = toList(work.s4.proposals).find((x) => x.id === payload.proposalId);
       input = clip(p.text, 1500);
-      const extra = [p.cause && `이 대안이 겨냥하는 원인: ${clip(p.cause, 300)}`, p.ref && `참고한 사례: ${clip(p.ref, 300)}`].filter(Boolean).join("\n");
+      const extra = [p.cause && `이 대안이 겨냥하는 원인: ${clip(p.cause, 300)}`, p.ref && `참고한 사례: ${clip(p.ref, 300)}`, p.transfer && `그 사례와 우리 사건의 다른 점(모둠이 쓴 것): ${clip(p.transfer, 300)}`].filter(Boolean).join("\n");
       const models = FEEDBACK_MODELS.value().split(",").map((m) => m.trim()).filter(Boolean);
-      const lenses = Object.keys(REVIEW_LABELS);
-      // 서로 다른 관점의 독립 검토 3개. AI의 판단이 하나의 권위가 되지 않도록 학생이 비교하게 한다.
+      const lenses = LENSES_BY[level];
+      // 서로 다른 관점의 독립 검토(고등학교 3개, 중학교 2개). AI의 판단이 하나의 권위가 되지 않도록 학생이 비교하게 한다.
       const settled = await Promise.allSettled(
         lenses.map((lens, i) => {
           const m = models.length ? models[i % models.length] : baseModel;
           return callModel({
             apiKey, model: m, maxTokens: 500, efforts: [effort],
             messages: [{ role: "system", content: prompts.feedbackPrompt(evCtx, lens) }, { role: "user", content: `우리 모둠의 대안:\n${input}${extra ? `\n${extra}` : ""}` }],
-          }).then((text) => ({ lens, label: REVIEW_LABELS[lens], text, model: m }));
+          }).then((text) => ({ lens, label: (level === "middle" ? REVIEW_LABELS_MID : REVIEW_LABELS)[lens], text, model: m }));
         }),
       );
       const reviews = settled.filter((r) => r.status === "fulfilled").map((r) => r.value);
