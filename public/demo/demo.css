@@ -22,6 +22,8 @@
 .demo-links a{ font-weight:700; color:var(--accent); text-decoration:none; }
 .demo-links a:hover{ text-decoration:underline; }
 .demo-links .link{ font-size:13.5px; }
+.demo-links .sm{ display:none; }
+@media (max-width:699px){ .demo-links .sm{ display:inline; } }
 /* 학교급 고르기(중학교·고등학교 체험) */
 .demo-level{ display:flex; flex-direction:column; align-items:center; gap:6px; margin-top:16px; }
 .demo-level .dl-k{ font-size:14px; font-weight:800; }
@@ -58,6 +60,9 @@ body .demo-level .seg{ margin:0; }
   .demo-level .dl-k{ font-size:13px; }
   body .demo-level .seg button{ padding:7px 14px; }
   .demo-level .dl-note{ display:none; }
+  /* 휴대폰: 세 단계 줄은 감추고(처음 사용법 안내가 대신 알려 준다) 링크 글은 짧게. 글꼴이 달라도 다섯째 주제까지 첫 화면에 들어오게 */
+  .demo-steps{ display:none; }
+  .demo-links .lg{ display:none; }
   .demo-links{ margin-top:6px; gap:0 12px; font-size:12.5px; line-height:1.9; }
   .demo-links .link{ font-size:12.5px; }
   .demo-level{ margin-top:6px; }
