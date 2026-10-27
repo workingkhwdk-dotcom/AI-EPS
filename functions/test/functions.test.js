@@ -1200,14 +1200,14 @@ test("선생님 한마디: 교사만 보낼 수 있고, 모둠을 고를 수 있
   assert.equal(store.get(`sessions/${c}`).notice, undefined); assert.equal(r.notice, null);
 });
 
-// ---------- 열 개 사건 전체 수업 ----------
+// ---------- 열한 개 사건 전체 수업 ----------
 // 사건마다 교사가 수업을 만들고, 학생 9명(두 모둠)이 입장해 인물을 고르고 대화한 뒤, 모둠이 2~5단계 AI 를 모두 쓰고 6·7단계는 막히는지 본다.
 // AI 에게 보내는 글과 학생에게 가는 내용에 undefined·NaN·[object Object] 가 섞이지 않는지, 프롬프트가 그 사건의 것인지도 본다.
 const CASE_IDS = Object.keys(require("../case").EVENTS);
 const simBad = [];
 const scan = (label, s) => { const t = typeof s === "string" ? s : JSON.stringify(s); for (const re of [/undefined/, /\[object Object\]/, /NaN/]) if (re.test(t)) simBad.push(`${label}: ${re} … ${t.slice(Math.max(0, t.search(re) - 80), t.search(re) + 40)}`); };
-test("열 개 사건 모두: 수업 만들기 → 9명 입장·인물 고르기·대화 → 2~5단계 AI → 6·7단계는 AI 없음, 복제·삭제까지 오류 없이 된다", async () => {
-  assert.equal(CASE_IDS.length, 10);
+test("열한 개 사건 모두: 수업 만들기 → 9명 입장·인물 고르기·대화 → 2~5단계 AI → 6·7단계는 AI 없음, 복제·삭제까지 오류 없이 된다", async () => {
+  assert.equal(CASE_IDS.length, 11);
   let n = 0;
   for (const ev of CASE_IDS) {
     calls.length = 0;
@@ -1286,6 +1286,6 @@ test("열 개 사건 모두: 수업 만들기 → 9명 입장·인물 고르기�
     await api.deleteSession({ ...teacher, data: { code: cl.code } });
     n++;
   }
-  assert.equal(n, 10);
+  assert.equal(n, 11);
   assert.deepEqual([...new Set(simBad)], []);
 });

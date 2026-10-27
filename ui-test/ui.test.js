@@ -1631,7 +1631,7 @@ async function demoPage(ctxOpts = {}, ai = null) {
 
 const dismissHelp = async (pg) => { await pg.waitForTimeout(500); while (await pg.locator('.modal .btn:has-text("이해했어요")').count()) { await pg.click('.modal .btn:has-text("이해했어요")'); await pg.waitForTimeout(400); } };
 
-test("체험: 메뉴에 주제 10개(PC는 다섯 개씩 두 줄), 시작하면 입장 없이 학생 화면이 열리고 홈·초기화 단추가 있다(Firebase 호출 없음)", async () => {
+test("체험: 메뉴에 주제 11개(PC는 네 개씩 세 줄), 시작하면 입장 없이 학생 화면이 열리고 홈·초기화 단추가 있다(Firebase 호출 없음)", async () => {
   const { pg, ctx, errors, hits } = await demoPage();
   await pg.goto(`${base}/demo.html`);
   await pg.waitForSelector(".topic");
@@ -1641,14 +1641,14 @@ test("체험: 메뉴에 주제 10개(PC는 다섯 개씩 두 줄), 시작하면 
   await pg.click(".modal.about-pop .btn-primary");
   await pg.reload(); await pg.waitForSelector(".topic"); await pg.waitForTimeout(300);
   assert.equal(await pg.locator(".modal").count(), 0);
-  // 독립된 주제 10개가 PC에서는 다섯 개씩 두 줄로 보이고, 카드 어디를 눌러도 열린다
-  assert.match(await pg.locator(".topics-head").innerText(), /독립된 주제 10개/);
+  // 독립된 주제 11개가 PC에서는 네 개씩 세 줄로 보이고, 카드 어디를 눌러도 열린다
+  assert.match(await pg.locator(".topics-head").innerText(), /독립된 주제 11개/);
   const tops = await pg.locator(".topic").evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
   const rows = [...new Set(tops)];
-  assert.equal(rows.length, 2, "넓은 화면에서는 두 줄");
-  assert.deepEqual(rows.map((y) => tops.filter((t) => t === y).length), [5, 5], "한 줄에 다섯 주제");
-  assert.equal(await pg.locator(".topic").count(), 10);
-  assert.equal(await pg.locator('.topic a.btn-primary[href^="demo-play.html?t="]').count(), 10);
+  assert.equal(rows.length, 3, "넓은 화면에서는 세 줄");
+  assert.deepEqual(rows.map((y) => tops.filter((t) => t === y).length), [4, 4, 3], "한 줄에 네 주제");
+  assert.equal(await pg.locator(".topic").count(), 11);
+  assert.equal(await pg.locator('.topic a.btn-primary[href^="demo-play.html?t="]').count(), 11);
   await pg.locator(".topic a.btn-primary").first().click();
   await pg.waitForSelector("#app:not(.hidden)");
   assert.match(pg.url(), /demo-play\.html\?t=jeju2018$/);
