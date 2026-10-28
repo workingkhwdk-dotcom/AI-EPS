@@ -91,3 +91,12 @@ test("3단계: 실제 자료에서 먼저 찾아본 결과를 적지 않으면 A
   const work = { s1, s2: { checks: { c1: { heard: "x", question: "난민 신청자의 취업은 어떻게 제한되나?" } } } };
   assert.match(checkGate({ stage: 3, type: "verify_query", work, payload: { checkId: "c1" } }).reason, /실제 사건 자료/);
 });
+
+test("5단계: 중학교 수업은 1년 후만 그려 볼 수 있다", () => {
+  const work = { s4: { final: "가".repeat(40) }, s5: { predictions: { a: { text: "가".repeat(12) }, b: { text: "나".repeat(12) } } } };
+  const g = (round, level) => checkGate({ stage: 5, type: "scenario", work, payload: { proposalId: "final", round }, level });
+  assert.equal(g(1, "middle").ok, true);
+  assert.match(g(3, "middle").reason, /1년 후/);
+  assert.equal(g(5, "high").ok, true);
+  assert.equal(g(5).ok, true, "학교급이 없으면 고등학교");
+});

@@ -4,7 +4,10 @@
   var t = new URLSearchParams(location.search).get("t") || "";
   if (!/^[a-z0-9]+$/.test(t)) { location.replace("demo.html"); return; }
   document.documentElement.classList.add("demo");
-  try { sessionStorage.setItem("eps_code", t.toUpperCase()); } catch (e) {}
+  // 수업 코드 자리 값은 store.js 의 codeOf 와 같게: 중학교 체험(?lv=middle)은 뒤에 M 을 붙여 고등학교 체험과 저장을 나눈다
+  var mid = /[?&]lv=middle(?:&|$)/.test(location.search);
+  if (mid) document.documentElement.classList.add("demo-mid");
+  try { sessionStorage.setItem("eps_code", t.toUpperCase() + (mid ? "M" : "")); } catch (e) {}
   // 단계에 처음 들어갈 때 뜨는 안내 팝업 끝에 '체험에서는 이렇게 달라요'를 덧붙인다(app.js 의 maybeHelp 가 부른다)
   var AI = "체험용 가벼운 AI라 실제 수업(더 고성능 AI)보다 답의 질이 떨어질 수 있어요.";
   var DIFF = {

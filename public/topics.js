@@ -93,6 +93,7 @@ function openWizard() {
     <div class="row" style="justify-content:space-between"><h2 style="margin:0">새 주제 만들기</h2><button class="btn btn-plain btn-sm" data-w="back" type="button">← 내 주제</button></div>
     <p class="desc">다루고 싶은 지역이나 주제를 적으면, AI가 <b>실제로 보도된 사건</b> 후보를 찾아 드려요. 고른 사건으로 기사 조사 → 인물 9명 → 자료까지 기본 주제와 같은 방식으로 만들고, 마지막에 선생님이 출처 원문을 확인해요.</p>
     <label class="lbl" for="tp-idea">다루고 싶은 지역·주제</label><textarea id="tp-idea" rows="2" maxlength="300" placeholder="예) 거제도 지역의 문제 / 우리 동네 재개발 갈등 / 섬 지역 의료 공백">${esc(ideaInput?.idea || "")}</textarea>
+    <label class="lbl" for="tp-level">어느 학교 수업용인가요?</label><select id="tp-level"><option value="high" ${ideaInput?.level === "middle" ? "" : "selected"}>고등학교</option><option value="middle" ${ideaInput?.level === "middle" ? "selected" : ""}>중학교 (편지·자료를 더 짧고 쉬운 말로)</option></select>
     <label class="lbl" for="tp-grade">학년·과목·단원 (선택)</label><input type="text" id="tp-grade" maxlength="100" placeholder="예) 고2 통합사회, 인권 보장과 헌법" value="${esc(ideaInput?.grade || "")}" />
     <label class="lbl" for="tp-focus">수업에서 특히 다루고 싶은 것 (선택)</label><textarea id="tp-focus" rows="2" maxlength="300" placeholder="예) 일자리와 환경이 부딪히는 문제, 청소년이 직접 겪는 일">${esc(ideaInput?.focus || "")}</textarea>
     <label class="lbl" for="tp-avoid">피하고 싶은 것 (선택)</label><input type="text" id="tp-avoid" maxlength="200" placeholder="예) 정치인 개인을 둘러싼 논란" value="${esc(ideaInput?.avoid || "")}" />
@@ -101,7 +102,7 @@ function openWizard() {
   </div><div id="tp-cands"></div>`;
   $("#tp-wizard").onclick = onWizardClick;
 }
-const ideaFields = () => ({ idea: $("#tp-idea").value.trim(), grade: $("#tp-grade").value.trim(), focus: $("#tp-focus").value.trim(), avoid: $("#tp-avoid").value.trim() });
+const ideaFields = () => ({ idea: $("#tp-idea").value.trim(), level: $("#tp-level").value, grade: $("#tp-grade").value.trim(), focus: $("#tp-focus").value.trim(), avoid: $("#tp-avoid").value.trim() });
 async function onWizardClick(e) {
   const b = e.target.closest("[data-w]"); if (!b) return;
   const w = b.dataset.w;

@@ -10,10 +10,12 @@ const { guardMessages, parseVerdict, resolveOutput } = require("./guard");
 const { extractJson } = require("./openai");
 const { isSmallTalk } = require("./lookup");
 const { materialsText } = require("./materials");
+const { LENSES_BY, ROUNDS_BY, defaultDeep } = require("./level");
 
 // 체험 한도(기기마다·주제마다). 체험이라서 5번까지임을 화면에도 적는다.
 const LIMITS = { chat: 5, ai: 5 };
 const REVIEW_LABELS = { feasibility: "실행 가능성", stakeholders: "이해관계자 영향", sideEffects: "부작용·장기 영향" };
+const REVIEW_LABELS_MID = { feasibility: "정말 할 수 있을까", stakeholders: "사람들의 반응", sideEffects: "나중에 생길 일" };
 
 class DemoError extends Error { constructor(code, message) { super(message); this.code = code; } }
 const bad = (m) => new DemoError("invalid-argument", m);
@@ -31,7 +33,9 @@ function parse(data) {
   if (!kind) throw bad("요청 종류가 올바르지 않아요.");
   const stage = Number(d.stage);
   if (kind === "ai" && ![2, 3, 4, 5].includes(stage)) throw bad("단계가 올바르지 않아요.");
-  return { ...d, deviceId, topic, kind, stage };
+  // 학교급: 중학교 체험이면 middle. 심화 활동은 학교급의 기본값(새 수업과 같다: 고등학교 모두 켬, 중학교 모두 끔)
+  const level = d.level === "middle" ? "middle" : "high";
+  return { ...d, deviceId, topic, kind, stage, level, deep: defaultDeep(level) };
 }
 
 const personaOf = (topic, id) => {
@@ -49,7 +53,7 @@ async function chatTurn(d, { call, effort }) {
   const pre = conduct.screenMessage(input);
   if (pre.category !== "ok") return { text: conduct.boundaryReply(pre.category), replaced: true };
   const smallTalk = isSmallTalk(input);
-  const messages = [{ role: "system", content: prompts.personaPrompt(ev, persona, { lookup: false }) }];
+  const messages = [{ role: "system", content: prompts.personaPrompt(ev, persona, { lookup: false, level: d.level, subtle: d.deep.beliefs }) }];
   for (const h of past) messages.push({ role: "user", content: h.input }, { role: "assistant", content: h.output });
   messages.push({ role: "user", content: input });
   const reply = await call({ messages, maxTokens: smallTalk ? 300 : 600, efforts: smallTalk ? ["minimal", effort] : [effort] });
@@ -57,7 +61,7 @@ async function chatTurn(d, { call, effort }) {
   try {
     verdict = parseVerdict(await call({
       json: true, maxTokens: 900, efforts: smallTalk ? ["minimal", "low"] : ["low"],
-      messages: guardMessages({ event: ev, persona, claims: persona.claims, history: past.slice(-3), studentMessage: input, reply, lookups: [] }),
+      messages: guardMessages({ event: ev, persona, claims: persona.claims, history: past.slice(-3), studentMessage: input, reply, lookups: [], level: d.level }),
     }));
   } catch { verdict = { ok: false, category: "error", reason: "감독자 호출 실패", fixed: "", conduct: "ok" }; }
   if (verdict.conduct !== "ok") return { text: conduct.boundaryReply(verdict.conduct), replaced: true };
@@ -70,7 +74,7 @@ async function chatTurn(d, { call, effort }) {
 async function aiTurn(d, { call, effort }) {
   const ev = EVENTS[d.topic];
   const c = d.ctx || {}, p = d.payload || {};
-  const evCtx = { summary: ev.summary, premise: ev.summary, problem: clip(c.problem, 400), cause: clip(c.cause, 400), evidence: clip(c.evidence, 400) };
+  const evCtx = { summary: ev.summary, premise: ev.summary, level: d.level, deep: d.deep, problem: clip(c.problem, 400), cause: clip(c.cause, 400), evidence: clip(c.evidence, 400) };
   if (d.stage === 2) {
     const focus = p.focus === "cause" ? "cause" : "link";
     let input;
@@ -82,10 +86,11 @@ async function aiTurn(d, { call, effort }) {
         `그래서 생긴 질문: ${clip(l.question, 300) || "(없음)"}`].join("\n");
     } else {
       input = "모둠이 쓴 원인 추측:\n" + (Array.isArray(p.causes) ? p.causes : []).slice(0, 12).map((q) => `- ${q?.level ? `[${clip(q.level, 20)}] ` : ""}${clip(q?.text, 200)}`).join("\n");
+      if (d.deep.causeMap) input += "\n모둠이 이은 원인 관계:\n" + ((Array.isArray(p.links) ? p.links : []).slice(0, 12).map((l) => `- ${clip(l?.from, 80)} → ${clip(l?.rel, 20) || "이어짐"} → ${clip(l?.to, 80)}`).join("\n") || "- (아직 잇지 않음)");
     }
     const out = await call({ messages: [{ role: "system", content: prompts.coachPrompt(evCtx, focus) }, { role: "user", content: input }], json: true, maxTokens: 400, efforts: ["low"] });
     let v; try { v = extractJson(out); } catch { throw new DemoError("internal", "생각 도우미의 답을 읽지 못했어요."); }
-    const kinds = Object.keys(prompts.COACH_KINDS[focus]);
+    const kinds = Object.keys(prompts.coachKinds(focus, { level: d.level, causeMap: d.deep.causeMap }));
     const result = { kind: kinds.includes(v.kind) ? v.kind : "", question: clip(v.question, 300) };
     if (!result.question) throw new DemoError("internal", "생각 도우미의 답이 비어 있어요.");
     return { result, output: JSON.stringify(result) };
@@ -102,17 +107,18 @@ async function aiTurn(d, { call, effort }) {
     const pr = p.proposal || {};
     const input = clip(pr.text, 1500);
     if (!input) throw bad("해결책이 비어 있어요.");
-    const extra = [pr.cause && `이 대안이 겨냥하는 원인: ${clip(pr.cause, 300)}`, pr.ref && `참고한 사례: ${clip(pr.ref, 300)}`].filter(Boolean).join("\n");
-    const settled = await Promise.allSettled(Object.keys(REVIEW_LABELS).map((lens) => call({
+    const extra = [pr.cause && `이 대안이 겨냥하는 원인: ${clip(pr.cause, 300)}`, pr.ref && `참고한 사례: ${clip(pr.ref, 300)}`, pr.transfer && `그 사례와 우리 사건의 다른 점(모둠이 쓴 것): ${clip(pr.transfer, 300)}`].filter(Boolean).join("\n");
+    const labels = d.level === "middle" ? REVIEW_LABELS_MID : REVIEW_LABELS;
+    const settled = await Promise.allSettled(LENSES_BY[d.level].map((lens) => call({
       maxTokens: 500, efforts: [effort],
       messages: [{ role: "system", content: prompts.feedbackPrompt(evCtx, lens) }, { role: "user", content: `우리 모둠의 대안:\n${input}${extra ? `\n${extra}` : ""}` }],
-    }).then((text) => ({ lens, label: REVIEW_LABELS[lens], text }))));
+    }).then((text) => ({ lens, label: labels[lens], text }))));
     const reviews = settled.filter((r) => r.status === "fulfilled").map((r) => r.value);
     if (!reviews.length) throw settled[0].reason;
     return { result: { reviews }, output: JSON.stringify({ reviews }) };
   }
   // 5단계
-  const round = [1, 3, 5].includes(Number(p.round)) ? Number(p.round) : 3;
+  const rounds = ROUNDS_BY[d.level], round = rounds.includes(Number(p.round)) ? Number(p.round) : rounds[Math.floor(rounds.length / 2)];
   const text = clip(p.proposalText, 1500);
   if (!text) throw bad("해결책이 비어 있어요.");
   const preds = (Array.isArray(p.predictions) ? p.predictions : []).slice(0, 12).map((x) => `- ${clip(x?.stakeholder, 40) || "이해관계자"}: ${clip(x?.text, 300)}`).join("\n");

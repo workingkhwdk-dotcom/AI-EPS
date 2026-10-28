@@ -80,3 +80,17 @@ test("4단계: 서로 다른 관점의 의견 3개, 하나만 실패해도 나�
   assert.match(sc.calls[0].messages[0].content, /3년/, "정해진 시점이 아니면 3년");
   await assert.rejects(demo.run(demo.parse({ deviceId: dev, topic: "jeju2018", kind: "ai", stage: 5, payload: { proposalText: "" } }), sc.deps), /비어/);
 });
+
+test("학교급: 중학교 체험은 중학생 수준 프롬프트·검토자 2명·1년 후, 학교급이 없거나 모르면 고등학교", async () => {
+  assert.equal(demo.parse({ deviceId: dev, topic: "jeju2018", kind: "chat" }).level, "high");
+  assert.equal(demo.parse({ deviceId: dev, topic: "jeju2018", kind: "chat", level: "x" }).level, "high");
+  const d = demo.parse({ deviceId: dev, topic: "jeju2018", kind: "ai", stage: 4, level: "middle", payload: { proposal: { text: "가".repeat(40) } } });
+  assert.equal(d.deep.tradeoff, false, "심화는 학교급 기본값(서버가 정한다)");
+  const a = rec(["의견1", "의견2"]);
+  const r = await demo.run(d, a.deps);
+  assert.deepEqual(r.result.reviews.map((x) => x.label), ["정말 할 수 있을까", "사람들의 반응"]);
+  assert.ok(a.calls.every((c) => /중학생/.test(c.messages[0].content)));
+  const sc = rec(['{"scenarios":[]}']);
+  await demo.run(demo.parse({ deviceId: dev, topic: "jeju2018", kind: "ai", stage: 5, level: "middle", payload: { proposalText: "가".repeat(40), round: 5 } }), sc.deps);
+  assert.match(sc.calls[0].messages[1].content, /시점: 1년 후/);
+});

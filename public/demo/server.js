@@ -2,7 +2,7 @@
 // AI 답은 서버의 demoRequest(실제와 같은 프롬프트, 체험용 가벼운 모델)에게 먼저 묻는다. 횟수(인물 5번·도우미 5번)를 다 썼거나 연결이 안 되면
 // 준비된 예시 답으로 바꿔 보여 준다: 인물의 말은 인물 자료에서 고르고, 3~5단계 답은 모둠이 쓴 글과 수업 자료를 짜 맞춘 예시.
 import * as st from "./store.js";
-import { TOPIC, CODE, UID, NICK } from "./store.js";
+import { TOPIC, CODE, UID, NICK, LEVEL } from "./store.js";
 import { demoReply, snippet } from "./chat.js";
 import { firebaseConfig } from "../firebase-config.js";
 import { toast } from "../fb.js";
@@ -25,7 +25,7 @@ const DEVICE = (() => { // 이 기기 표시(서버가 기기마다 횟수를 �
 async function askAI(body) {
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 120000);
   try {
-    const res = await fetch(AI_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data: { deviceId: DEVICE, topic: TOPIC, ...body } }), signal: ctl.signal });
+    const res = await fetch(AI_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data: { deviceId: DEVICE, topic: TOPIC, level: LEVEL, ...body } }), signal: ctl.signal });
     const j = await res.json().catch(() => ({}));
     if (res.ok && j.result) return j.result;
     toast(j.error?.status === "RESOURCE_EXHAUSTED" && j.error.message ? j.error.message : "AI와 연결되지 않아 준비된 예시 답으로 보여 드려요.");
@@ -46,7 +46,10 @@ async function realAI(s, payload, work, d, pid) {
       input = [l.surprise, l.scene, l.question].filter(Boolean).join(" / "); lp = { focus: "link", linkId: payload.linkId };
     } else {
       const cs = list(work.s2?.causes);
-      body = { focus: "cause", causes: cs.map((c) => ({ level: c.level, text: c.text })) };
+      // 원인 잇기(심화)를 했으면 이은 관계도 함께 보낸다(원인 글로 바꿔서)
+      const textOf = (id) => cs.find((c) => c.id === id)?.text;
+      const links = list(work.s2?.causeLinks).filter((l) => textOf(l.from) && textOf(l.to)).map((l) => ({ from: textOf(l.from), rel: l.rel, to: textOf(l.to) }));
+      body = { focus: "cause", causes: cs.map((c) => ({ level: c.level, text: c.text })), ...(links.length ? { links } : {}) };
       input = cs.map((c) => `- ${c.level || ""} ${c.text || ""}`).join("\n"); lp = { focus: "cause" };
     }
   } else if (s === 3) {
@@ -56,7 +59,7 @@ async function realAI(s, payload, work, d, pid) {
     input = [c.heard && `확인할 말: ${c.heard}`, c.question && `검증 질문: ${c.question}`].filter(Boolean).join("\n"); lp = { checkId: payload.checkId, searched: false };
   } else if (s === 4) {
     const p = list(work.s4?.proposals).find((x) => x.id === payload.proposalId) || {};
-    body = { proposal: { text: p.text, cause: p.cause, ref: p.ref } };
+    body = { proposal: { text: p.text, cause: p.cause, ref: p.ref, transfer: p.transfer } };
     input = String(p.text || ""); lp = { proposalId: payload.proposalId };
   } else {
     const text = payload.proposalId === "final" ? work.s4?.final : list(work.s4?.proposals).find((x) => x.id === payload.proposalId)?.text;
@@ -181,7 +184,9 @@ const handlers = {
         { lens: "stakeholders", label: "이해관계자 영향", text: `강점: ${a}에게 도움이 될 길을 열어 줄 수 있어요.\n약점: ${b}의 걱정은 이 해결책 안에서 어떻게 다뤄지는지 드러나지 않아요.\n생각할 질문: ${a}과(와) ${b}가 각자 이 해결책을 들으면 무엇을 가장 먼저 물어볼까요?`, model: "demo" },
         { lens: "sideEffects", label: "부작용·장기 영향", text: `강점: 문제의 한 부분을 줄이려는 방향이 분명해요.\n약점: 시간이 지나면 이 방법을 피하는 요령이나 의도하지 않은 결과가 생길 수 있어요.\n생각할 질문: 3년 뒤에 이 해결책 때문에 새로 생길 수 있는 문제 하나를 떠올려 본다면 무엇일까요?`, model: "demo" },
       ];
-      result = { reviews }; output = JSON.stringify(result); lp = { proposalId: payload.proposalId };
+      // 중학교 체험은 실제 중학교 수업처럼 조언자 2명(쉬운 이름)
+      const mid = { feasibility: "정말 할 수 있을까", stakeholders: "사람들의 반응" };
+      result = { reviews: LEVEL === "middle" ? reviews.filter((r) => mid[r.lens]).map((r) => ({ ...r, label: mid[r.lens] })) : reviews }; output = JSON.stringify(result); lp = { proposalId: payload.proposalId };
     } else if (s === 5) {
       await sleep(2200);
       const pid = payload.proposalId, yrs = payload.round;

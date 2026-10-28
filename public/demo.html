@@ -22,7 +22,11 @@
   <section class="demo-hero">
     <h1>주제 하나를 골라, 학생이 되어 가상 수업을 해 보세요</h1>
     <ol class="demo-steps" aria-label="체험 순서"><li><b>1</b>주제 고르기</li><li><b>2</b>학생 화면으로 1~7단계</li><li><b>3</b>홈에서 다른 주제도</li></ol>
-    <button class="link demo-about" type="button" id="about">체험과 실제 수업은 무엇이 다른가요?</button>
+    <!-- 학교급: 같은 주제라도 중학교·고등학교 수업의 말 수준과 활동 구조가 다르다. 학교급마다 저장이 따로다. -->
+    <div class="demo-level"><span class="dl-k">어느 학교 수업으로 해 볼까요?</span>
+      <div class="seg" id="level" role="radiogroup" aria-label="학교급"><button type="button" role="radio" data-lv="high">고등학교</button><button type="button" role="radio" data-lv="middle">중학교</button></div>
+      <p class="dl-note" id="level-note"></p></div>
+    <div class="demo-links" id="demo-links"><a href="guide.html" target="_blank" rel="noopener" id="guide-link">📘 수업 흐름 · 중고 차이 안내</a><button class="link" type="button" id="about"><span class="lg">체험과 실제 수업은 무엇이 다른가요?</span><span class="sm">체험과 실제 수업의 차이</span></button><button class="link" type="button" id="tour-btn">사용법 다시 보기</button></div>
   </section>
   <div class="topics-head"><b id="topics-count">서로 독립된 주제</b><span>하나만 골라도 처음부터 끝까지 체험할 수 있어요</span></div>
   <div class="topics" id="topics" aria-live="polite"><div class="meta-line" style="text-align:center">불러오는 중…</div></div>
@@ -31,19 +35,38 @@
 <script type="module">
 import { hasProgress, resetTopic } from "./demo/store.js";
 import { showModal } from "./modal.js";
+import { runTour } from "./tour.js";
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const box = document.getElementById("topics");
+// 고른 학교급은 이 기기에 기억한다(다음에 열어도 그대로)
+const LV = "eps_demo_level";
+const LEVEL_NOTE = {
+  high: "고등학교: 인물의 틀린 믿음이 그럴듯하게 섞여 있고, 원인끼리 잇기·자료 두 번 확인·해결책 견주기 같은 심화 활동까지 해요.",
+  middle: "중학교: AI가 더 짧고 쉬운 말로 답하고, 사실·의견 가르기, 판정 3가지, 해결책 점검, 1년 뒤 미래처럼 한 걸음씩 단순하게 해요.",
+};
+let level = "high"; try { level = localStorage.getItem(LV) === "middle" ? "middle" : "high"; } catch {}
+const lvq = () => (level === "middle" ? "&lv=middle" : "");
+function drawLevel() {
+  document.querySelectorAll("#level [data-lv]").forEach((b) => { const on = b.dataset.lv === level; b.classList.toggle("on", on); b.setAttribute("aria-checked", String(on)); });
+  document.getElementById("level-note").textContent = LEVEL_NOTE[level];
+}
+document.getElementById("level").onclick = (e) => {
+  const b = e.target.closest("[data-lv]"); if (!b) return;
+  level = b.dataset.lv; try { localStorage.setItem(LV, level); } catch {}
+  drawLevel(); draw(topics);
+};
+drawLevel();
 // 제목 끝의 (연도)는 따로 떼어 작은 줄로 보여 준다
 const split = (t) => { const m = /\s*\(([^)]+)\)\s*$/.exec(t); return m ? [t.slice(0, m.index), m[1]] : [t, ""]; };
 function draw(topics) {
   box.innerHTML = topics.map((t, i) => {
-    const saved = hasProgress(t.id), [title, when] = split(t.title);
+    const saved = hasProgress(t.id, level), [title, when] = split(t.title);
     return `<article class="topic ${saved ? "has-saved" : ""}"><div class="t-no" aria-hidden="true">${i + 1}</div>
       <div class="t-main"><div class="t-k">주제 ${i + 1}${when ? ` · ${esc(when)}` : ""}</div><h2>${esc(title)}</h2>
       <p class="sum">${esc(t.summary)}</p>
       <div class="who">만날 인물 ${t.personas}명: ${esc((t.stakeholders || []).join(" · "))}</div>
       ${saved ? `<div class="saved">✓ 하던 것이 저장돼 있어요</div>` : ""}</div>
-      <div class="acts"><a class="btn btn-primary" href="demo-play.html?t=${esc(t.id)}" aria-label="${esc(title)} 체험${saved ? " 이어서 하기" : " 시작"}">${saved ? "이어서 하기" : "이 주제로 체험"} →</a>
+      <div class="acts"><a class="btn btn-primary" href="demo-play.html?t=${esc(t.id)}${lvq()}" aria-label="${esc(title)} ${level === "middle" ? "중학교" : "고등학교"} 체험${saved ? " 이어서 하기" : " 시작"}">${saved ? "이어서 하기" : "이 주제로 체험"} →</a>
       ${saved ? `<button class="btn btn-plain" type="button" data-reset="${esc(t.id)}" data-title="${esc(t.title)}">처음부터</button>` : ""}</div></article>`;
   }).join("");
 }
@@ -56,7 +79,7 @@ box.addEventListener("click", (e) => {
   if (card && !e.target.closest("a, button")) { location.href = card.querySelector("a.btn-primary").href; return; }
   const b = e.target.closest("[data-reset]"); if (!b) return;
   if (!confirm(`'${b.dataset.title}' 체험을 처음부터 다시 할까요?\n\n지금까지 쓴 글과 대화가 모두 지워져요.`)) return;
-  resetTopic(b.dataset.reset); draw(topics);
+  resetTopic(b.dataset.reset, level); draw(topics);
 });
 // 체험이 무엇인지: 처음 들어오면 한 번 띄우고, 위쪽 링크로 언제든 다시 본다
 const ABOUT = "eps_demo_about";
@@ -70,8 +93,17 @@ const about = () => showModal({ title: "체험하기는 이런 거예요", dismi
     <p class="meta-line" style="margin-top:10px">단계마다 실제 수업과 다른 점은 그 단계에 들어갈 때 안내 창에서 알려 드려요.</p>`,
   actions: [{ label: "주제 고르러 가기", value: true, kind: "btn-primary" }] });
 document.getElementById("about").onclick = about;
+// 처음 들어오면 체험이 무엇인지 알려 준 뒤, 이 화면의 사용법을 차례로 짚어 준다(tour.js, 한 번만)
+const TOUR = [
+  { el: "#level", title: "먼저 학교급을 골라요", text: "<p><b>고등학교</b>와 <b>중학교</b> 수업은 AI의 말 수준과 활동 구조가 달라요. 학교급마다 저장이 따로라서 같은 주제를 둘 다 해 볼 수 있어요.</p>" },
+  { el: ".topic", title: "주제를 하나 골라요", text: "<p>카드를 누르면 학생 화면이 열리고 1단계부터 시작해요. 하던 주제는 '이어서 하기'로 이어 가고, '처음부터'로 다시 할 수 있어요.</p>" },
+  { el: "#demo-links", title: "더 알고 싶을 때", text: "<p><b>수업 흐름 · 중고 차이 안내</b>에서 7단계 전체와 학교급별 차이를 한눈에 볼 수 있어요. 이 안내는 <b>사용법 다시 보기</b>로 다시 볼 수 있어요.</p>" },
+];
+document.getElementById("tour-btn").onclick = () => runTour("demo-menu", TOUR, { force: true });
 let seen = false; try { seen = localStorage.getItem(ABOUT) === "1"; } catch {}
 if (!seen) { try { localStorage.setItem(ABOUT, "1"); } catch {} about(); }
+// 주제 카드가 그려진 뒤에 시작한다(첫 안내 창이 떠 있으면 닫힌 뒤)
+(async () => { for (let i = 0; i < 40 && !document.querySelector(".topic"); i++) await new Promise((r) => setTimeout(r, 100)); runTour("demo-menu", TOUR); })();
 </script>
 </body>
 </html>

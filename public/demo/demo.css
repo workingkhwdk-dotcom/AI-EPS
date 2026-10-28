@@ -17,6 +17,18 @@
 .demo-steps b{ width:22px; height:22px; border-radius:50%; background:var(--accent-tint); color:var(--accent); display:inline-flex; align-items:center; justify-content:center; font-size:12px; }
 .demo-steps li + li::before{ content:"→"; color:var(--ink-3); margin-right:12px; font-weight:400; }
 .demo-about{ margin-top:10px; font-size:13.5px; }
+/* 안내 링크 줄: 수업 안내(새 창) · 체험과 실제 수업의 차이 · 사용법 다시 보기 */
+.demo-links{ display:flex; flex-wrap:wrap; justify-content:center; gap:4px 16px; margin-top:12px; font-size:13.5px; }
+.demo-links a{ font-weight:700; color:var(--accent); text-decoration:none; }
+.demo-links a:hover{ text-decoration:underline; }
+.demo-links .link{ font-size:13.5px; }
+.demo-links .sm{ display:none; }
+@media (max-width:699px){ .demo-links .sm{ display:inline; } }
+/* 학교급 고르기(중학교·고등학교 체험) */
+.demo-level{ display:flex; flex-direction:column; align-items:center; gap:6px; margin-top:16px; }
+.demo-level .dl-k{ font-size:14px; font-weight:800; }
+body .demo-level .seg{ margin:0; }
+.demo-level .dl-note{ margin:0; max-width:560px; font-size:13px; line-height:1.55; color:var(--ink-2); text-align:center; }
 .topics-head{ display:flex; flex-wrap:wrap; align-items:baseline; justify-content:center; gap:4px 10px; margin:22px 0 12px; font-size:15px; }
 .topics-head span{ font-size:13px; color:var(--ink-3); }
 .topics{ display:grid; gap:12px; grid-template-columns:repeat(4,minmax(0,1fr)); }
@@ -43,6 +55,17 @@
   .demo-hero h1{ font-size:20px; margin-bottom:10px; }
   .demo-steps{ font-size:12.5px; gap:4px 8px; } .demo-steps li + li::before{ margin-right:6px; }
   .topics-head{ margin:16px 0 10px; }
+  /* 휴대폰: 학교급 고르기는 한 줄로, 설명은 줄인다(주제 목록이 첫 화면에 더 많이 보이게) */
+  .demo-level{ flex-direction:row; flex-wrap:wrap; justify-content:center; gap:4px 10px; margin-top:10px; }
+  .demo-level .dl-k{ font-size:13px; }
+  body .demo-level .seg button{ padding:7px 14px; }
+  .demo-level .dl-note{ display:none; }
+  /* 휴대폰: 세 단계 줄은 감추고(처음 사용법 안내가 대신 알려 준다) 링크 글은 짧게. 글꼴이 달라도 다섯째 주제까지 첫 화면에 들어오게 */
+  .demo-steps{ display:none; }
+  .demo-links .lg{ display:none; }
+  .demo-links{ margin-top:6px; gap:0 12px; font-size:12.5px; line-height:1.9; }
+  .demo-links .link{ font-size:12.5px; }
+  .demo-level{ margin-top:6px; }
   .topics{ grid-template-columns:1fr; gap:8px; }
   .topic{ flex-direction:row; align-items:center; gap:12px; padding:12px 12px 12px 14px; border-radius:16px; }
   .topic .t-no{ display:flex; flex:none; width:32px; height:32px; border-radius:50%; background:var(--grad); color:#fff; font-weight:800; align-items:center; justify-content:center; }

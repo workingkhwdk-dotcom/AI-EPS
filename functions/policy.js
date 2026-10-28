@@ -21,7 +21,8 @@ const MIN_PREDICTIONS = 2;
 const MIN_PREDICTION_LEN = 10;
 const MIN_PROBLEM_LEN = 10;
 const MIN_CAUSE_LEN = 10;
-const ROUNDS = [1, 3, 5];
+const { ROUNDS_BY } = require("./level");
+const ROUNDS = ROUNDS_BY.high;
 const FINAL_ID = "final";
 const COACH_FOCUS = ["link", "cause"];
 const MIN_LINK_LEN = 8; // 5단계에서 4단계 최종 해결책을 가리키는 ID
@@ -49,7 +50,8 @@ const groupProblem = (work) => str(work.s1?.problem?.hmw);
 const coreCause = (work) => str(work.s3?.chain?.cause);
 const finalProposal = (work) => str(work.s4?.final);
 
-function checkGate({ stage, type, work = {}, payload = {} }) {
+// level: 수업의 학교급(level.js). 5단계에서 고를 수 있는 미래 시점이 다르다(중학교는 1년 후만).
+function checkGate({ stage, type, work = {}, payload = {}, level = "high" }) {
   const rule = STAGE_RULES[stage];
   if (!rule) return blocked("존재하지 않는 단계입니다.");
   if (!rule.ai) return blocked(`${stage}단계는 우리가 직접 생각하는 단계라 AI를 쓸 수 없어요.`);
@@ -97,7 +99,8 @@ function checkGate({ stage, type, work = {}, payload = {} }) {
       if (preds.length < MIN_PREDICTIONS)
         return blocked(`사람들이 어떻게 반응할지 ${MIN_PREDICTIONS}개 이상 먼저 써 주세요.`);
       if (!proposalText(work, payload.proposalId)) return blocked("미래를 그려 볼 해결책을 선택하세요. (최종 해결책은 30자 이상)");
-      if (!ROUNDS.includes(payload.round)) return blocked("몇 년 뒤의 미래를 볼지(1년, 3년, 5년 후) 골라 주세요.");
+      const rounds = ROUNDS_BY[level] || ROUNDS;
+      if (!rounds.includes(payload.round)) return blocked(rounds.length > 1 ? `몇 년 뒤의 미래를 볼지(${rounds.map((r) => `${r}년`).join(", ")} 후) 골라 주세요.` : `이 수업에서는 ${rounds[0]}년 후의 미래를 그려 봐요.`);
       return allowed();
     }
     default:

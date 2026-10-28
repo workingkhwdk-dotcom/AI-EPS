@@ -77,6 +77,8 @@ async function newPage(init, handler, arg, ctxOpts = {}) {
   if (process.env.UI_DEBUG) { pg.on("pageerror", (e) => console.log("PAGEERROR", e.message)); pg.on("console", (m) => m.type() === "error" && console.log("CONSOLE", m.text())); }
   await pg.route(/gstatic\.com\/firebasejs/, (r) => r.fulfill({ contentType: "text/javascript", body: stubs[r.request().url().split("/").pop()] || "" }));
   await pg.route(/fonts\.(googleapis|gstatic)|cdn\.jsdelivr/, (r) => r.abort());
+  // 사용법 안내(tour.js)는 이미 본 것으로 둔다. 안내를 시험하는 테스트만 arg.tours 로 켠다.
+  await pg.addInitScript((on) => { if (!on) try { for (const k of ["teacher-main", "teacher-class", "demo-menu", "demo-play"]) localStorage.setItem("eps_tour_" + k, "1"); } catch {} }, !!arg?.tours);
   await pg.addInitScript(init, arg);
   await pg.addInitScript(() => { window.__fn = (n, d) => window.__node(n, d); window.__log = []; window.__writes = []; });
   await pg.exposeFunction("__node", handler);
@@ -108,8 +110,10 @@ function teacherFixture() {
   };
   return st;
 }
-async function openTeacher(st, { page = "teacher.html", ctxOpts, session = {}, online = false, clock = false } = {}) {
-  const t = await newPage(({ session, online }) => {
+// open: 목록에서 수업을 바로 열지(사용법 안내를 시험하는 테스트는 안내를 먼저 넘긴 뒤 직접 연다)
+async function openTeacher(st, { page = "teacher.html", ctxOpts, session = {}, online = false, clock = false, tours = false, open = true } = {}) {
+  const t = await newPage(({ session, online, tours }) => {
+    if (!tours) { try { localStorage.setItem("eps_tour_teacher-main", "1"); localStorage.setItem("eps_tour_teacher-class", "1"); } catch {} }
     window.__user = { uid: "T1", email: "t@x.kr", isAnonymous: false };
     window.__docs = {};
     // online: 학생이 방금 접속 신호를 보낸 것처럼(lastSeen 은 늘 '지금')
@@ -120,10 +124,11 @@ async function openTeacher(st, { page = "teacher.html", ctxOpts, session = {}, o
       "sessions/ABC234/alerts": [{ id: "a1", uid: "u1", nickname: "가람", groupId: "g1", category: "mockery", by: "rule", input: "놀리는 말", strikes: 3, locked: true }],
       "sessions/ABC234/groups": [{ id: "g1", name: "1모둠", work: {}, lastAiError: { stage: 3, message: "시간 초과" }, aiCount: 130, guardCount: 4 }, { id: "g2", name: "2모둠", work: {} }, { id: "g3", name: "3모둠", work: {} }],
     };
-  }, st.handler, { session, online }, ctxOpts);
+  }, st.handler, { session, online, tours }, ctxOpts);
   if (clock) await t.pg.clock.install();
   await t.pg.goto(`${base}/${page}`);
   await t.pg.waitForSelector("#sessions button[data-code]");
+  if (!open) return t;
   await t.pg.click("#sessions button[data-code]");
   await t.pg.waitForSelector("#students tr");
   return t;
@@ -1609,9 +1614,11 @@ test("교사: 수업 복제는 화면 안의 확인 창, 수업 삭제는 수업
 });
 
 // ---------- 체험(demo): 서버 없이 이 기기에 저장하며 학생 화면을 혼자 해 본다 ----------
-async function demoPage(ctxOpts = {}, ai = null) {
+// tours: 처음 들어온 사람의 사용법 안내(tour.js)를 띄울지. 대부분의 테스트는 이미 본 상태에서 시작한다.
+async function demoPage(ctxOpts = {}, ai = null, { tours = false } = {}) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, ...ctxOpts });
   const pg = await ctx.newPage();
+  if (!tours) await pg.addInitScript(() => { try { localStorage.setItem("eps_tour_demo-menu", "1"); localStorage.setItem("eps_tour_demo-play", "1"); } catch {} });
   const errors = [];
   pg.on("pageerror", (e) => errors.push(e.message));
   // 체험은 Firebase SDK 를 아예 부르지 않는다. 서버의 AI(demoRequest)만 부르고, 시험에서는 ai 로 대신 답한다(없으면 연결 실패).
@@ -2128,4 +2135,238 @@ test("내 주제(휴대폰): 구성안·검토 화면이 가로로 넘치지 않
   assert.ok(await pg.isVisible("#tp-export"), "검토 화면에 내보내기 단추");
   await shot(pg, "m-topic-review");
   assert.deepEqual(errors, []);
+});
+
+// ---------- 학교급(중·고)과 심화 활동 ----------
+const ALL_DEEP = { beliefs: true, premise: true, causeMap: true, sources: true, tradeoff: true, chain: true, power: true, why: true };
+const lvWork = () => ({
+  s1: { problem: { hmw: "어떻게 하면 주민이 안심하면서도 신청자가 일할 수 있을까?" }, findings: { anonX: { prior: "잘 모름" } } },
+  s2: { links: { l1: { source: "뉴스", scene: "전학 온 첫날", by: "anonX", t: 1 } }, causes: { q1: { level: "사람들의 생각·선택", text: "말이 안 통해서 일을 못 구함", t: 1 }, q2: { level: "사회의 규칙·분위기", text: "출도 제한으로 일자리가 적음", t: 2 } },
+    checks: { c1: { heard: "김씨: 일을 못 구했다", question: "그해 취업한 신청자는 몇 명인가?", t: 1 } } },
+  s3: { chain: { cause: "출도 제한으로 일자리가 적어 생계가 막혔다" } },
+  s4: { before: "일자리 연결", proposals: { a1: { text: "가".repeat(35), cause: "일자리", t: 1 } }, final: "나".repeat(35), finalReason: "이유입니다", finalFit: "둘 다 다룬다" },
+});
+const toastText = async (pg) => { await pg.waitForSelector(".toast"); return pg.locator(".toast").last().innerText(); };
+
+test("학교급(중학교): 원인 갈래 2개, 사실·의견 가르기와 '무엇을 보면 될까', 판정 3가지, 해결책 점검, 1년 후 미래", async () => {
+  const st = studentFixture();
+  const { pg, errors } = await openStudent(st, { session: { chatLimit: 5, level: "middle", deep: {} }, work: lvWork() });
+  await login(pg);
+  await pg.click('.stage-tab[data-stage="2"]');
+  await pg.waitForSelector("#cz-lv");
+  assert.deepEqual(await pg.locator("#cz-lv option").allInnerTexts(), ["사람들의 생각·선택", "사회의 규칙·분위기"]);
+  assert.equal(await pg.locator("#ch-refute").count(), 0);
+  assert.ok(await pg.locator("details.example[data-keep=ex-check]").evaluate((d) => d.open), "중학교는 예시를 펼쳐 둔다");
+  await pg.fill("#ch-heard", "이씨: 다들 불안해한다"); await pg.fill("#ch-q", "불안하다고 답한 도민은 몇 %인가?"); await pg.fill("#ch-look", "도민 설문 조사");
+  await pg.click('[data-act="add-check"]');
+  assert.match(await toastText(pg), /사실을 말한 건지/);
+  await pg.selectOption("#ch-fo", { index: 2 });
+  await pg.click('[data-act="add-check"]');
+  await pg.waitForFunction(() => window.__writes.some((w) => Object.entries(w).some(([k, v]) => k.startsWith("work.s2.checks.") && v?.look === "도민 설문 조사" && /의견/.test(v?.fo || ""))));
+  await pg.click('.stage-tab[data-stage="3"]');
+  await pg.waitForSelector('[data-save="s3.direct.c1.verdict"]');
+  assert.deepEqual(await pg.locator('[data-save="s3.direct.c1.verdict"] option').allInnerTexts(), ["선택하세요", "사실이다", "사실이 아니다", "확인할 수 없다"]);
+  await pg.click('.stage-tab[data-stage="4"]');
+  await pg.waitForSelector('h3:has-text("③ 해결책 점검하기")');
+  assert.match(await pg.locator("#panel .next, .hero-next").first().innerText(), /원인을 줄일 수 있나요/);
+  await pg.click('.stage-tab[data-stage="5"]');
+  await pg.waitForSelector('[data-act="round"]');
+  assert.deepEqual(await pg.locator('[data-act="round"]').allInnerTexts(), ["1년 후"]);
+  assert.deepEqual(errors, []);
+});
+
+test("심화 활동(고등학교): 전제·원인 잇기·다른 자료와 만든 쪽·해결책 견주기와 사례 조건·권한·달랐던 까닭 칸이 생긴다", async () => {
+  const st = studentFixture();
+  const work = lvWork(); delete work.s2.causes.q2;
+  const { pg, errors } = await openStudent(st, { session: { chatLimit: 5, level: "high", deep: ALL_DEEP }, work, member: { chatCount: 2 } });
+  await login(pg);
+  await pg.click('.subnav button[data-sub="note"]');
+  await pg.waitForSelector('[data-save="s1.findings.anonX.premise"]');
+  assert.match(await pg.locator("#panel").innerText(), /4\. 이 사람이 당연하게 여기는 것은/);
+  assert.match(await pg.locator("#panel .next").innerText(), /1~4번/);
+  // 2단계: 원인이 하나면 하나 더, 둘이면 잇기
+  await pg.click('.stage-tab[data-stage="2"]');
+  await pg.waitForSelector("#cz");
+  assert.match(await pg.locator(".hero-next, #panel .next").first().innerText(), /원인을 하나 더/);
+  await pg.evaluate((w) => { w.s2.causes.q2 = { level: "법·제도·규칙", text: "출도 제한으로 일자리가 적음", t: 2 }; window.__push("sessions/ABC234/groups/g1", { work: w, picks: { p1: { uid: "anonX", nick: "가람" } } }); }, work);
+  await pg.waitForSelector("#cl-row");
+  await pg.click('[data-act="add-clink"]');
+  await pg.waitForFunction(() => window.__writes.some((w) => Object.entries(w).some(([k, v]) => k.startsWith("work.s2.causeLinks.") && v?.from === "q1" && v?.to === "q2")));
+  // 3단계: 다른 자료·만든 쪽, 뿌리 따져 보기
+  await pg.click('.stage-tab[data-stage="3"]');
+  await pg.waitForSelector('[data-save="s3.direct.c1.source2"]');
+  assert.equal(await pg.locator('[data-save="s3.direct.c1.maker"]').count(), 1);
+  assert.equal(await pg.locator('[data-save="s3.chain.root"]').count(), 1);
+  // 4단계: 해결책 견주기, 사례를 고르면 다른 점을 써야 추가된다
+  await pg.click('.stage-tab[data-stage="4"]');
+  await pg.waitForSelector('h3:has-text("② 해결책 견주기")');
+  assert.equal(await pg.locator('h3:has-text("③ 최종 해결책")').count(), 1);
+  await pg.fill("#pt", "다".repeat(35)); await pg.fill("#pt-cause", "일자리 부족"); await pg.selectOption("#pt-ref", { index: 1 });
+  await pg.click('[data-act="add-proposal"]');
+  assert.match(await toastText(pg), /무엇이 다른지/);
+  // 5~7단계
+  await pg.click('.stage-tab[data-stage="5"]'); await pg.waitForSelector('[data-save="s5.chain"]');
+  assert.equal(await pg.locator('[data-act="round"]').count(), 3);
+  await pg.click('.stage-tab[data-stage="6"]'); await pg.waitForSelector('[data-save="s6.plan.authority"]');
+  await pg.click('.stage-tab[data-stage="7"]'); await pg.waitForSelector('[data-save="s7.why"]');
+  assert.deepEqual(errors, []);
+});
+
+test("학교급: 예전 수업(학교급 없음)은 지금과 같다 — 심화 칸이 없고 원인 갈래 3개, 판정 4가지", async () => {
+  const st = studentFixture();
+  const { pg, errors } = await openStudent(st, { work: lvWork() });
+  await login(pg);
+  await pg.click('.stage-tab[data-stage="2"]');
+  await pg.waitForSelector("#cz-lv");
+  assert.equal(await pg.locator("#cz-lv option").count(), 3);
+  assert.equal(await pg.locator("#cl-row").count(), 0);
+  assert.equal(await pg.locator("#ch-refute").count(), 1);
+  await pg.click('.stage-tab[data-stage="3"]');
+  await pg.waitForSelector('[data-save="s3.direct.c1.verdict"]');
+  assert.equal(await pg.locator('[data-save="s3.direct.c1.verdict"] option').count(), 5);
+  assert.equal(await pg.locator('[data-save="s3.direct.c1.source2"]').count(), 0);
+  await pg.click('.stage-tab[data-stage="4"]');
+  await pg.waitForSelector('h3:has-text("② 최종 해결책")');
+  assert.equal(await pg.locator('h3:has-text("해결책 견주기"), h3:has-text("해결책 점검하기")').count(), 0);
+  assert.deepEqual(errors, []);
+});
+
+test("교사: 수업을 만들 때 학교급을 보내고, 수업 설정에서 학교급을 바꾸면 심화 활동이 그 기본값으로 맞춰진 뒤 하나씩 바꿔 저장한다", async () => {
+  const st = teacherFixture(), { pg, errors } = await openTeacher(st, { session: { level: "middle", deep: { causeMap: true }, started: true } });
+  assert.match(await pg.locator("#sessions").innerText(), /중학교/);
+  await pg.click('#ctabs [data-ctab="settings"]');
+  await pg.waitForSelector("#s-deep [data-deep]");
+  assert.equal(await pg.inputValue("#s-level"), "middle");
+  assert.deepEqual(await pg.locator("#s-deep [data-deep]").evaluateAll((els) => els.filter((e) => e.checked).map((e) => e.dataset.deep)), ["causeMap"]);
+  await pg.selectOption("#s-level", "high");
+  assert.equal(await pg.locator("#s-deep [data-deep]:checked").count(), 8);
+  await pg.uncheck('#s-deep [data-deep="beliefs"]');
+  await pg.click("#s-save");
+  await pg.waitForSelector(".modal");
+  assert.match(await pg.locator(".modal").innerText(), /학교급·심화 활동을 바꿀까요/);
+  await pg.click(".modal .btn-primary");
+  await pg.waitForFunction(() => window.__log.includes("updateSession"));
+  const up = st.calls.find((c) => c[0] === "updateSession")[1];
+  assert.equal(up.level, "high");
+  assert.equal(up.deep.beliefs, false); assert.equal(up.deep.why, true);
+  // 새 수업 만들기
+  await pg.click("#back-btn"); await pg.click("#new-toggle");
+  await pg.selectOption("#t-level", "middle");
+  assert.match(await pg.locator("#t-level-note").innerText(), /더 짧고 쉬운 말/);
+  await pg.click("#create-btn");
+  await pg.waitForFunction(() => window.__log.includes("createSession"));
+  assert.equal(st.calls.find((c) => c[0] === "createSession")[1].level, "middle");
+  assert.deepEqual(errors, []);
+});
+
+test("체험: 중학교·고등학교를 골라 체험하고, 학교급마다 저장이 따로다", async () => {
+  const { pg, ctx, errors } = await demoPage();
+  await pg.goto(`${base}/demo.html`);
+  await pg.waitForSelector(".topic");
+  if (await pg.locator(".modal.about-pop").count()) await pg.click(".modal.about-pop .btn-primary");
+  assert.match(await pg.locator("#level .on").innerText(), /고등학교/);
+  await pg.click('#level [data-lv="middle"]');
+  assert.match(await pg.locator("#level-note").innerText(), /중학교/);
+  assert.equal(await pg.locator('.topic a.btn-primary[href$="&lv=middle"]').count(), 11);
+  await pg.locator(".topic a.btn-primary").first().click();
+  await pg.waitForSelector("#app:not(.hidden)");
+  assert.match(pg.url(), /t=jeju2018&lv=middle$/);
+  assert.match(await pg.locator(".logo").innerText(), /중학교 체험/);
+  await dismissHelp(pg);
+  await pg.locator('.pcard [data-act="read-letter"]').first().click();
+  await pg.click(".modal.letter-pop .btn-primary");
+  await pg.waitForTimeout(300);
+  const keys = await pg.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith("eps_demo_v1_")));
+  assert.deepEqual(keys, ["eps_demo_v1_jeju2018_m"]);
+  assert.equal(await pg.evaluate(() => JSON.parse(localStorage.getItem("eps_demo_v1_jeju2018_m"))["sessions/JEJU2018M"].level), "middle");
+  // 메뉴로 돌아오면 중학교 쪽에만 '이어서 하기', 고등학교로 바꾸면 없다(그 선택도 기억한다)
+  await pg.goto(`${base}/demo.html`); await pg.waitForSelector(".topic");
+  assert.equal(await pg.locator(".topic .saved").count(), 1);
+  await pg.click('#level [data-lv="high"]');
+  assert.equal(await pg.locator(".topic .saved").count(), 0);
+  assert.equal(await pg.locator('.topic a.btn-primary[href$="&lv=middle"]').count(), 0);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+// ---------- 처음 들어온 사람을 위한 사용법 안내(tour.js)와 수업 안내 페이지 ----------
+const tourStep = async (pg) => (await pg.locator(".tour-tip h3").innerText());
+async function walkTour(pg, shotName) {
+  await pg.waitForSelector(".tour-tip");
+  const titles = [];
+  for (let i = 0; i < 12 && await pg.locator(".tour").count(); i++) {
+    titles.push(await tourStep(pg));
+    if (shotName) await shot(pg, `${shotName}-${i + 1}`);
+    await pg.click('.tour [data-t="next"]');
+    await pg.waitForTimeout(150);
+  }
+  return titles;
+}
+
+test("사용법 안내(교사): 처음 들어오면 화면 안내가 차례로 뜨고, 수업을 처음 열면 수업 화면 안내가, '사용법 다시 보기'로 다시 볼 수 있다", async () => {
+  // 안내가 떠 있는 동안은 화면을 누를 수 없으므로, 목록 화면 안내를 먼저 끝까지 본 뒤 수업을 연다
+  const st = teacherFixture(), { pg, errors } = await openTeacher(st, { tours: true, open: false });
+  const t1 = await walkTour(pg, "tour-teacher");
+  assert.ok(t1.length >= 4, "목록 화면 안내가 여러 단계: " + t1.join(" / "));
+  assert.ok(t1.includes("수업 만들기") && t1.includes("내 수업 목록"), t1.join(" / "));
+  assert.ok(await pg.evaluate(() => localStorage.getItem("eps_tour_teacher-main") === "1"));
+  await pg.click("#sessions button[data-code]");
+  await pg.waitForSelector("#students tr");
+  const t2 = await walkTour(pg, "tour-class");
+  assert.ok(t2.includes("수업 코드") && t2.includes("수업 메뉴"), t2.join(" / "));
+  assert.ok(await pg.evaluate(() => localStorage.getItem("eps_tour_teacher-class") === "1"));
+  // 다시 보기: 수업 화면에서는 수업 안내, Esc 로 닫는다
+  await pg.click("#tour-btn");
+  await pg.waitForSelector(".tour-tip");
+  assert.match(await tourStep(pg), /수업 코드|학생|수업 메뉴/);
+  await pg.keyboard.press("Escape");
+  assert.equal(await pg.locator(".tour").count(), 0);
+  // 수업 안내 링크(새 창)
+  assert.equal(await pg.getAttribute("#guide-link", "href"), "guide.html");
+  assert.equal(await pg.getAttribute("#guide-link", "target"), "_blank");
+  // 다시 들어오면 안내가 뜨지 않는다
+  await pg.reload(); await pg.waitForSelector("#sessions button[data-code]"); await pg.waitForTimeout(1200);
+  assert.equal(await pg.locator(".tour").count(), 0);
+  assert.deepEqual(errors, []);
+});
+
+test("사용법 안내(체험): 처음 화면은 '체험하기는 이런 거예요' 다음에 학교급·주제·안내 링크를 짚고, 주제를 열면 학생 화면 안내가 단계 안내 뒤에 뜬다", async () => {
+  const { pg, ctx, errors } = await demoPage({}, null, { tours: true });
+  await pg.goto(`${base}/demo.html`);
+  await pg.waitForSelector(".modal.about-pop");
+  await pg.click(".modal.about-pop .btn-primary");
+  const t = await walkTour(pg, "tour-demo-menu");
+  assert.deepEqual(t, ["먼저 학교급을 골라요", "주제를 하나 골라요", "더 알고 싶을 때"]);
+  assert.equal(await pg.getAttribute("#guide-link", "href"), "guide.html");
+  await pg.click("#tour-btn"); await pg.waitForSelector(".tour-tip"); await pg.click(".tour-x");
+  await pg.locator(".topic a.btn-primary").first().click();
+  await pg.waitForSelector("#app:not(.hidden)");
+  // 단계 안내 창이 먼저, 닫으면 학생 화면 사용법
+  await pg.waitForSelector(".modal");
+  assert.equal(await pg.locator(".tour").count(), 0, "단계 안내 창이 떠 있는 동안은 기다린다");
+  await dismissHelp(pg);
+  const t2 = await walkTour(pg, "tour-demo-play");
+  assert.match(t2[0], /고등학교 수업을 학생이 되어/);
+  assert.ok(t2.includes("1~7단계") && t2.includes("홈 · 초기화"), t2.join(" / "));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("수업 안내 페이지: 1~7단계·중고 차이·심화 활동·교사 진행이 있고, 학교급 보기를 고르면 그 학교급 줄만 보인다(휴대폰에서도 가로로 넘치지 않음)", async () => {
+  for (const vp of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
+    const ctx = await browser.newContext({ viewport: vp }); const pg = await ctx.newPage();
+    const errors = []; pg.on("pageerror", (e) => errors.push(e.message));
+    await pg.route(/cdn\.jsdelivr/, (r) => r.abort());
+    await pg.goto(`${base}/guide.html`);
+    for (const id of ["flow", "stages", "levels", "deep", "teacher", "demo"]) assert.equal(await pg.locator(`#${id}`).count(), 1, id);
+    assert.equal(await pg.locator(".stage").count(), 7);
+    assert.equal(await pg.locator(".row.mid:visible").count(), 7);
+    await pg.click('[data-view="high"]');
+    assert.equal(await pg.locator(".row.mid:visible").count(), 0);
+    assert.equal(await pg.locator(".row.high:visible").count(), 7);
+    assert.ok(await pg.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "가로로 넘치지 않는다");
+    await shot(pg, `guide-${vp.width}`);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
 });
