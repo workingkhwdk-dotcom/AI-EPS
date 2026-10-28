@@ -110,7 +110,8 @@ function teacherFixture() {
   };
   return st;
 }
-async function openTeacher(st, { page = "teacher.html", ctxOpts, session = {}, online = false, clock = false, tours = false } = {}) {
+// open: 목록에서 수업을 바로 열지(사용법 안내를 시험하는 테스트는 안내를 먼저 넘긴 뒤 직접 연다)
+async function openTeacher(st, { page = "teacher.html", ctxOpts, session = {}, online = false, clock = false, tours = false, open = true } = {}) {
   const t = await newPage(({ session, online, tours }) => {
     if (!tours) { try { localStorage.setItem("eps_tour_teacher-main", "1"); localStorage.setItem("eps_tour_teacher-class", "1"); } catch {} }
     window.__user = { uid: "T1", email: "t@x.kr", isAnonymous: false };
@@ -127,6 +128,7 @@ async function openTeacher(st, { page = "teacher.html", ctxOpts, session = {}, o
   if (clock) await t.pg.clock.install();
   await t.pg.goto(`${base}/${page}`);
   await t.pg.waitForSelector("#sessions button[data-code]");
+  if (!open) return t;
   await t.pg.click("#sessions button[data-code]");
   await t.pg.waitForSelector("#students tr");
   return t;
@@ -2302,13 +2304,16 @@ async function walkTour(pg, shotName) {
 }
 
 test("사용법 안내(교사): 처음 들어오면 화면 안내가 차례로 뜨고, 수업을 처음 열면 수업 화면 안내가, '사용법 다시 보기'로 다시 볼 수 있다", async () => {
-  const st = teacherFixture(), { pg, errors } = await openTeacher(st, { tours: true });
-  // openTeacher 가 목록에서 수업을 열기 전에 첫 안내가 떠 있을 수 있다 → 수업 목록으로 돌아가 다시 본다
+  // 안내가 떠 있는 동안은 화면을 누를 수 없으므로, 목록 화면 안내를 먼저 끝까지 본 뒤 수업을 연다
+  const st = teacherFixture(), { pg, errors } = await openTeacher(st, { tours: true, open: false });
   const t1 = await walkTour(pg, "tour-teacher");
-  assert.ok(t1.length >= 3, "안내가 여러 단계: " + t1.join(" / "));
+  assert.ok(t1.length >= 4, "목록 화면 안내가 여러 단계: " + t1.join(" / "));
+  assert.ok(t1.includes("수업 만들기") && t1.includes("내 수업 목록"), t1.join(" / "));
   assert.ok(await pg.evaluate(() => localStorage.getItem("eps_tour_teacher-main") === "1"));
-  if (!(await pg.locator(".tour").count())) await pg.waitForTimeout(1200);
-  if (await pg.locator(".tour").count()) { const t2 = await walkTour(pg, "tour-class"); assert.ok(t2.some((x) => /수업 코드|수업 메뉴/.test(x)), t2.join(" / ")); }
+  await pg.click("#sessions button[data-code]");
+  await pg.waitForSelector("#students tr");
+  const t2 = await walkTour(pg, "tour-class");
+  assert.ok(t2.includes("수업 코드") && t2.includes("수업 메뉴"), t2.join(" / "));
   assert.ok(await pg.evaluate(() => localStorage.getItem("eps_tour_teacher-class") === "1"));
   // 다시 보기: 수업 화면에서는 수업 안내, Esc 로 닫는다
   await pg.click("#tour-btn");
