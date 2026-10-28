@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<!-- 태블릿 화면: teacher.html 에서 tools/build-tablet.js 가 만든다. 직접 고치지 말고 teacher.html 를 고친 뒤 다시 실행하세요. -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+<meta name="theme-color" content="#06226B" />
+<meta name="color-scheme" content="light" />
+<title>AI-EPS 교사용 · 확장된 경험 기반 문제해결학습 모형</title>
+<link rel="icon" type="image/png" sizes="32x32" href="icons/teacher-32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="icons/teacher-16.png" />
+<link rel="shortcut icon" href="icons/teacher.ico" />
+<link rel="apple-touch-icon" sizes="180x180" href="icons/teacher-180.png" />
+<link rel="manifest" href="manifest-teacher.webmanifest" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="AI-EPS 교사" />
+<!-- 휴대폰이면 모바일 전용 화면(m-teacher.html)으로 옮긴다 -->
+<script src="device.js" data-mobile="m-teacher.html"></script>
+<!-- 글꼴은 화면을 막지 않게 받는다(학교망에서 막혀도 기본 글꼴로 바로 보인다) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" media="print" onload="this.media='all'" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="tablet.css" />
+</head>
+<body class="t t-teacher">
+<header class="hdr"><div class="hdr-in">
+  <div class="brand"><img class="mark" src="knue-mark.webp" srcset="knue-mark.webp 1x, knue-mark@2x.webp 2x" width="40" height="40" alt="한국교원대학교 마크" fetchpriority="high" decoding="async" /><div class="brand-t"><span class="logo">AI-EPS <em>교사용</em></span><span class="model">확장된 경험 기반 문제해결학습 모형</span><small>한국교원대학교<span class="tot"> · Teacher of Teachers</span></small></div></div>
+  <div class="hdr-right"><span class="who" id="who"></span><button class="btn-out hidden" id="t-logout" type="button">로그아웃</button></div>
+</div></header>
+
+<main class="wrap">
+  <section id="login" class="card">
+    <h2>교사 로그인</h2>
+    <p class="desc">허용된 교사 계정으로 로그인하세요.</p>
+    <button class="btn btn-primary" id="login-btn">구글로 로그인</button>
+    <div class="login-or"><span>또는 학교에서 받은 교사 계정</span></div>
+    <form id="pw-form" autocomplete="on">
+      <label class="lbl" for="pw-email">이메일</label><input type="email" id="pw-email" autocomplete="username" />
+      <label class="lbl" for="pw-pass">비밀번호</label><input type="password" id="pw-pass" autocomplete="current-password" />
+      <div style="margin-top:12px"><button class="btn btn-tinted" id="pw-btn" type="submit">이메일로 로그인</button></div>
+    </form>
+    <p class="auth-alt">처음 오셨나요? <button class="link" id="to-signup" type="button">교사용 계정 만들기</button></p>
+  </section>
+
+  <!-- 교사용 계정 만들기: 교사 인증 문구(연수·안내에서 받음)가 있으면 구글 계정이나 이메일·비밀번호로 직접 가입한다 -->
+  <section id="signup" class="card hidden">
+    <h2>교사용 계정 만들기</h2>
+    <div id="su-new">
+      <p class="desc">연수나 안내에서 받은 <b>교사 인증 문구</b>가 있으면 교사 계정을 직접 만들 수 있어요.</p>
+      <h3 class="su-h">구글 계정으로 만들기</h3>
+      <button class="btn btn-primary" id="su-google" type="button">구글 계정으로 가입</button>
+      <div class="login-or"><span>또는 이메일과 비밀번호로</span></div>
+      <form id="su-form" autocomplete="on">
+        <label class="lbl" for="su-email">이메일 (로그인 아이디)</label><input type="email" id="su-email" autocomplete="username" />
+        <label class="lbl" for="su-pass">비밀번호 (8자 이상)</label><input type="password" id="su-pass" autocomplete="new-password" />
+        <label class="lbl" for="su-pass2">비밀번호 확인</label><input type="password" id="su-pass2" autocomplete="new-password" />
+        <label class="lbl" for="su-code">교사 인증 문구</label><input type="text" id="su-code" autocomplete="off" autocapitalize="off" spellcheck="false" />
+        <div style="margin-top:12px"><button class="btn btn-tinted" id="su-btn" type="submit">계정 만들기</button></div>
+      </form>
+    </div>
+    <!-- 로그인은 했지만 아직 교사로 승인되지 않은 계정 -->
+    <div id="su-approve" class="hidden">
+      <p class="desc"><b id="su-who"></b> 계정은 아직 교사로 승인되지 않았어요. 교사 인증 문구를 넣으면 바로 승인돼요.</p>
+      <label class="lbl" for="su-code2">교사 인증 문구</label><input type="text" id="su-code2" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <div class="row" style="margin-top:12px"><button class="btn btn-primary" id="su-approve-btn" type="button">교사 승인 받기</button><button class="btn btn-plain" id="su-switch" type="button">다른 계정으로 로그인</button></div>
+    </div>
+    <p class="auth-alt"><button class="link" id="to-login" type="button">이미 교사 계정이 있어요 · 로그인</button></p>
+  </section>
+
+  <section id="main" class="hidden">
+    <!-- 도움말: 수업 흐름·중고 차이 안내(새 창)와 화면 사용법 다시 보기(tour.js) -->
+    <div class="t-help" id="t-help"><a href="guide.html" target="_blank" rel="noopener" id="guide-link">📘 수업 흐름 · 중고 차이 안내</a><button class="link" type="button" id="tour-btn">사용법 다시 보기</button></div>
+    <div class="seg" id="tabs">
+      <button data-tab="classes" class="on">내 수업</button>
+      <button data-tab="topics">내 주제</button>
+      <button data-tab="check">인물·자료 점검</button>
+    </div>
+
+    <div id="tab-classes">
+      <!-- 1) 수업 목록 + 새 수업 만들기 -->
+      <div id="class-list-view">
+        <div class="card">
+          <div class="row" style="justify-content:space-between">
+            <h2 style="margin:0">내 수업</h2>
+            <button class="btn btn-primary btn-sm" id="new-toggle" type="button">＋ 새 수업 만들기</button>
+          </div>
+          <div id="new-form" class="hidden newbox">
+            <h3>새 수업 만들기</h3>
+            <label class="lbl" for="t-event">사건</label>
+            <select id="t-event">
+              <option value="jeju2018" data-title="제주 예멘 난민 사건, 갈등 해결 방안 제안하기">제주 예멘 난민 신청 논란 (2018)</option>
+              <option value="waste2019" data-title="필리핀으로 간 한국 쓰레기, 갈등 해결 방안 제안하기">한국 쓰레기 필리핀 불법 수출·반송 논란 (2018~2019)</option>
+              <option value="school2018" data-title="강서 특수학교 설립 갈등, 함께 사는 동네를 위한 해결 방안 제안하기">서울 강서 특수학교 설립 갈등 (2017~2018)</option>
+              <option value="junam2025" data-title="창원 주남저수지 보전과 개발 갈등, 철새와 주민이 함께 사는 해결 방안 제안하기">창원 주남저수지 보전과 개발 갈등 (2021~2025)</option>
+              <option value="changwon2025" data-title="창원 인구 감소와 청년 유출, 청년이 머물고 싶은 도시를 위한 해결 방안 제안하기">창원 인구 100만 붕괴와 청년 유출 (2024~2025)</option>
+              <option value="phone2026" data-title="교내 스마트폰 사용 제한, 학생·교사·학부모가 함께 받아들일 수 있는 학교 규칙 제안하기">교내 스마트폰 사용 제한법 시행 (2025~2026)</option>
+              <option value="climate2024" data-title="청소년 기후소송과 법 개정 시한, 미래세대와 일터를 함께 지키는 감축 방안 제안하기">청소년 기후소송과 헌법불합치 결정 (2020~2026)</option>
+              <option value="wildfire2025" data-title="2025 영남 산불, 이재민이 일상으로 돌아오는 복구 방안 제안하기">2025 영남 초대형 산불과 이재민의 일상 복구 (2025~2026)</option>
+              <option value="smallschool2026" data-title="작은 학교, 합칠 것인가 지킬 것인가를 정하는 방법 제안하기">작은 학교 통폐합 지원 확대와 마을 (2026)</option>
+              <option value="dogmeat2024" data-title="개식용 종식, 농장·식당 사람과 남은 개를 함께 살피는 이행 방안 제안하기">개식용 종식과 개농장·남은 개의 행방 (2024~2027)</option>
+              <option value="pension2025" data-title="국민연금 개혁과 세대 갈등, 미래 세대와 노후를 함께 지키는 해결 방안 제안하기">국민연금 개혁, '더 내고 더 받는' 13%·43% 합의 (2023~2025)</option>
+            </select>
+            <label class="lbl" for="t-level">학교급</label>
+            <select id="t-level"><option value="high">고등학교</option><option value="middle">중학교</option></select>
+            <p class="meta-line"><span id="t-level-note"></span> <a href="guide.html#levels" target="_blank" rel="noopener">중·고 차이 자세히</a></p>
+            <label class="lbl" for="t-title">수업 이름</label><input type="text" id="t-title" value="제주 예멘 난민 사건, 갈등 해결 방안 제안하기" />
+            <label class="lbl" for="t-groups">모둠 수 (1~12)</label><input type="number" id="t-groups" value="6" min="1" max="12" />
+            <label class="lbl" for="t-chatlimit">학생별 인물 질문 횟수 (1~50)</label><input type="number" id="t-chatlimit" value="5" min="1" max="50" />
+            <div class="row" style="margin-top:12px"><button class="btn btn-primary" id="create-btn" type="button">수업 만들기</button><button class="btn btn-plain" id="new-cancel" type="button">취소</button></div>
+          </div>
+          <div id="sessions" class="group" style="margin-top:14px"></div>
+        </div>
+      </div>
+
+      <!-- 2) 수업 하나를 열었을 때: 위에 수업 정보, 아래에 세 가지 작업 -->
+      <div id="class-view" class="hidden">
+        <!-- 수업 머리: 위 줄은 목록으로·작업 버튼, 아래 줄은 수업 이름·코드(왼쪽)와 상태(오른쪽) -->
+        <div class="card cls-head">
+          <div class="row ch-top" style="justify-content:space-between">
+            <button class="btn btn-plain btn-sm" id="back-btn" type="button">← 수업 목록</button>
+            <div class="row"><button class="btn btn-sm" id="open-btn" type="button"></button><button class="btn btn-tinted btn-sm" id="present-btn" type="button">크게 띄우기</button><button class="btn btn-tinted btn-sm" id="copy-btn" type="button">코드 복사</button><button class="btn btn-plain btn-sm" id="csv-btn" type="button">기록 CSV</button></div>
+          </div>
+          <div class="ch-main">
+            <div><div class="meta-line" id="d-title" style="margin-top:10px"></div><div class="code-row"><div class="code-big" id="d-code"></div><button class="qr-mini" id="d-qr" type="button" aria-label="입장 안내 크게 띄우기"></button></div></div>
+            <div class="ch-note"><div id="open-note"></div></div>
+          </div>
+        </div>
+        <div class="seg" id="ctabs">
+          <button data-ctab="live" class="on">진행 현황</button>
+          <button data-ctab="materials">자료 관리</button>
+          <button data-ctab="personas">인물 편집</button>
+          <button data-ctab="settings">수업 설정</button>
+        </div>
+
+        <!-- 진행 현황 -->
+        <div id="cpane-live">
+          <div class="card hidden" id="lobby"><h3>수업 시작 전 · 대기실</h3>
+            <div id="lobby-body"></div>
+            <button class="btn btn-primary m-block" id="start-btn" type="button" style="margin-top:12px">수업 시작하기</button></div>
+          <div class="card hidden" id="alerts"><h3>확인이 필요해요</h3><div id="alerts-body"></div></div>
+          <div class="card alert-card hidden" id="conduct-card"><h3>⚠ 대화 규칙 위반 신호</h3>
+            <p class="desc">학생이 인물을 의도적으로 조롱하거나 성적인 말을 하면 여기에 바로 나타납니다. 인물은 선을 긋는 답을 했고, 같은 학생이 3번 어기면 대화가 멈춥니다. 학생과 이야기를 나눈 뒤 <b>대화 다시 열기</b>로 풀어 주세요.</p>
+            <div id="conduct-list"></div></div>
+          <!-- 선생님 한마디: 학생 화면 위쪽에 띄우는 짧은 공지 -->
+          <div class="card" id="notice-card"><h3>학생에게 한마디</h3>
+            <div class="chipbar" id="n-quick" style="margin-bottom:8px"></div>
+            <div class="row n-row"><input type="text" id="n-text" maxlength="100" placeholder="예) 5분 남았어요" enterkeyhint="send" aria-label="학생에게 보낼 말" /><select id="n-target" aria-label="받는 모둠"></select><button class="btn btn-primary btn-sm" id="n-send" type="button">보내기</button></div>
+            <div id="n-cur"></div></div>
+          <div class="card"><div class="kpis" id="kpis"></div></div>
+          <div class="card"><h3>학생 현황</h3>
+            <div class="chipbar" id="g-filter" style="margin-bottom:10px"></div>
+            <div class="row" id="bulk" style="margin-bottom:8px"><button class="btn btn-plain btn-sm" id="bulk-reset" type="button" disabled>선택한 학생 비번 초기화</button><span class="meta-line" id="bulk-n"></span></div>
+            <div class="tbl-wrap"><table class="tbl"><thead><tr><th><input type="checkbox" id="stu-all" aria-label="학생 전체 선택" style="width:18px;height:18px"></th><th>별명</th><th>모둠</th><th>인물(교사용)</th><th>현재 단계</th><th>상태</th><th>인물 질문</th><th></th></tr></thead><tbody id="students"></tbody></table></div>
+            <div class="meta-line" id="no-students"></div>
+          </div>
+          <div class="card"><h3>모둠 진행</h3>
+            <div class="tbl-wrap"><table class="tbl"><thead><tr><th>모둠</th><th>인원</th><th>산출물 진행 (1~7단계)</th><th>AI 호출(3~5단계)</th><th>감독 개입</th><th>보기</th></tr></thead><tbody id="groups"></tbody></table></div>
+          </div>
+          <details class="fold" data-fold="cmp"><summary>단계별 모아 보기 <span class="meta-line">모든 모둠을 나란히</span></summary><div class="inner">
+            <div class="chipbar" id="cmp-stages" style="margin-bottom:10px"></div>
+            <div id="cmp-body"></div>
+          </div></details>
+          <div class="card hidden" id="detail"><div class="row" style="justify-content:space-between"><h3 id="detail-title" style="margin:0"></h3><button class="btn btn-plain btn-sm" id="detail-close">닫기</button></div><div id="detail-body" style="margin-top:10px"></div></div>
+        </div>
+
+        <!-- 자료 관리: 2단계에서 학생이 보는 '실제 사건 자료'를 이 수업에 맞게 고친다 -->
+        <div id="cpane-materials" class="hidden">
+          <div class="card">
+            <h3>2단계 실제 사건 자료</h3>
+            <p class="desc">학생이 2단계에서 보는 자료예요. 고치면 <b>이 수업에만</b> 바로 적용돼요.</p>
+            <div id="mat-status"></div>
+            <div class="notice yellow">⚠ 직접 넣은 자료는 원문 대조를 거치지 않아요. <b>출처</b>(매체·날짜)를 꼭 적어 주세요.</div>
+          </div>
+          <div id="mat-body"></div>
+        </div>
+
+        <!-- 인물 편집: 이 수업의 인물 말투·삶의 이야기·의견·편지 -->
+        <div id="cpane-personas" class="hidden">
+          <div class="card">
+            <h3>인물 편집</h3>
+            <p class="desc">편지·말투·삶의 이야기 등을 고치면 <b>이 수업에만</b> 적용돼요. 한 줄에 한 항목씩.</p>
+            <div class="notice yellow">⚠ 지어낸 이야기에 수치·날짜·제도 같은 사실은 넣지 마세요.</div>
+          </div>
+          <div id="persona-edit"></div>
+        </div>
+
+        <!-- 수업 설정 -->
+        <div id="cpane-settings" class="hidden">
+          <div class="card">
+            <h3>수업 정보</h3>
+            <label class="lbl" for="s-title">수업 이름</label><input type="text" id="s-title" maxlength="80" />
+            <label class="lbl" for="s-groups">모둠 수 (1~12)</label><input type="number" id="s-groups" min="1" max="12" />
+            <label class="lbl" for="s-chatlimit">학생별 인물 질문 횟수 (1~50)</label><input type="number" id="s-chatlimit" min="1" max="50" />
+            <label class="lbl" for="s-ailimit">모둠당 AI 한도 · 3~5단계 (10~500)</label><input type="number" id="s-ailimit" min="10" max="500" />
+            <label class="lbl" for="s-level">학교급</label>
+            <select id="s-level"><option value="high">고등학교</option><option value="middle">중학교</option></select>
+            <label class="lbl">심화 활동 <span class="meta-line">· 학교급과 따로 켜고 끌 수 있어요 · <a href="guide.html#deep" target="_blank" rel="noopener">무엇이 달라지나요?</a></span></label>
+            <div class="group" id="s-deep"></div>
+            <label class="lbl" for="s-web">웹 검색 (1단계 인물 · 3단계 검색 도우미)</label>
+            <select id="s-web"><option value="1">사용</option><option value="0">사용 안 함 (수업 자료 안에서만 답함)</option></select>
+            <label class="lbl" for="s-coach">생각 도우미 (2단계, 학생당 8번까지)</label>
+            <select id="s-coach"><option value="1">사용 (질문만 함)</option><option value="0">사용 안 함</option></select>
+            <label class="lbl" for="s-auto">아무도 접속하지 않으면 자동 닫기</label>
+            <select id="s-auto"><option value="0">사용 안 함</option><option value="1">1시간 후</option><option value="2">2시간 후</option><option value="4">4시간 후</option><option value="8">8시간 후</option><option value="24">24시간 후</option></select>
+            <div style="margin-top:12px"><button class="btn btn-primary" id="s-save" type="button">저장</button></div>
+          </div>
+          <div class="card">
+            <h3>학생 입장 안내</h3>
+            <div class="notice muted" id="s-guide"></div>
+            <div class="row"><button class="btn btn-tinted btn-sm" id="s-copy-guide" type="button">안내문 복사</button></div>
+          </div>
+          <div class="card hidden" id="s-topic-card">
+            <h3>내 주제</h3>
+            <p class="desc">이 수업은 내가 만든 주제로 만들었어요. 수업을 만든 뒤 <b>내 주제</b>에서 출처를 더 확인했거나 내용을 고쳤다면 이 수업에도 반영할 수 있어요.</p>
+            <button class="btn btn-tinted btn-sm" id="s-sync" type="button">주제의 최신 내용으로 바꾸기</button>
+          </div>
+          <div class="card">
+            <h3>수업 복제</h3>
+            <p class="desc">다른 반에서 같은 수업을 할 때 (학생·기록 제외)</p>
+            <button class="btn btn-tinted btn-sm" id="s-clone" type="button">이 수업 복제</button>
+          </div>
+          <div class="card">
+            <h3>수업 삭제</h3>
+            <p class="desc">모든 기록이 지워지고 되돌릴 수 없어요. 보관 기간이 끝난 수업은 삭제해 파기하세요.</p>
+            <button class="btn btn-danger btn-sm" id="s-delete" type="button">이 수업 삭제</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 내 주제: 웹앱 안에서 새 수업 주제(사건)를 만든다(public/topics.js). 아래 칸은 화면이 채운다. -->
+    <div id="tab-topics" class="hidden">
+      <div id="tp-list-view">
+        <div class="card">
+          <div class="row" style="justify-content:space-between">
+            <h2 style="margin:0">내 주제</h2>
+            <div class="row" style="gap:6px;flex-wrap:wrap;justify-content:flex-end">
+              <button class="btn btn-plain btn-sm" id="tp-import" type="button">주제 파일 불러오기</button>
+              <input type="file" id="tp-import-file" accept=".json,application/json" class="hidden" />
+              <button class="btn btn-primary btn-sm" id="tp-new" type="button">＋ 새 주제 만들기</button>
+            </div>
+          </div>
+          <p class="desc">우리 지역의 실제 사건으로 수업 주제를 만들어요. AI가 기사를 조사해 기본 주제와 같은 방식으로 인물 9명·자료·사례를 만들고, 선생님이 출처 원문을 확인한 뒤 수업에 써요. 만든 주제는 이 계정에서만 보여요. 다른 선생님이 내보낸 주제 파일(.json)을 불러올 수도 있어요(출처 원문은 다시 확인해야 해요).</p>
+          <div class="meta-line" id="tp-usage"></div>
+          <div id="tp-list" class="group" style="margin-top:14px"></div>
+        </div>
+      </div>
+      <div id="tp-wizard" class="hidden"></div>
+      <div id="tp-detail" class="hidden"></div>
+    </div>
+
+    <!-- 점검: 인물·자료의 근거. 수업 중에는 볼 필요가 없어 별도 탭에 접어 둔다 -->
+    <div id="tab-check" class="hidden">
+      <div class="card">
+        <h2>수업 전 연결 점검</h2>
+        <p class="desc">수업 전에 서버·AI·웹 검색이 되는지 짧게 시험해요.</p>
+        <button class="btn btn-primary btn-sm" id="health-btn" type="button">연결·AI 점검 실행</button>
+        <div id="health-out" style="margin-top:12px"></div>
+      </div>
+      <div class="card">
+        <h2>인물·자료 점검</h2>
+        <p class="desc">수업 전에 <b>원문 링크를 열어 확인</b>하세요. 확인 전 인물·자료는 학생에게 보이지 않아요.</p>
+        <label class="lbl" for="check-event">점검할 사건</label><select id="check-event"></select>
+        <div id="check-note"></div>
+      </div>
+      <h3 style="margin:6px 4px 8px">인물 <span id="persona-count">9</span>명 (학생에게는 이름과 편지만 보입니다)</h3>
+      <div id="persona-check"></div>
+      <h3 style="margin:14px 4px 8px">3단계 실제 자료</h3>
+      <div id="material-check"></div>
+      <h3 style="margin:14px 4px 8px">4단계 다른 나라 사례 카드 (학생에게 출처 링크가 보입니다)</h3>
+      <div id="case-check"></div>
+      <h3 style="margin:14px 4px 8px">7단계 실제 이후 전개</h3>
+      <div id="after-check"></div>
+    </div>
+  </section>
+  <p class="m-switch hidden" id="to-mobile"><a href="m-teacher.html?view=m">모바일 화면으로 보기</a></p>
+  <p class="m-switch" id="to-pc"><a href="teacher.html?view=pc">PC 화면으로 보기</a></p>
+  <!-- 크게 띄우기: 교실 화면에 입장 안내(주소·코드·QR·입장 인원)만 크게 보여 준다 -->
+  <div id="present" class="present hidden" role="dialog" aria-modal="true" aria-label="입장 안내 크게 보기">
+    <button class="btn btn-plain btn-sm present-close" id="present-close" type="button">닫기 (Esc)</button>
+    <div class="p-title" id="p-title"></div>
+    <div class="p-body"><div class="p-qr" id="p-qr"></div>
+      <div class="p-info"><div class="p-k">주소</div><div class="p-url" id="p-url"></div><div class="p-k">수업 코드</div><div class="p-code" id="p-code"></div><div class="p-count" id="p-count"></div></div></div>
+  </div>
+</main>
+<script src="vendor/qrcode.js" defer></script>
+<script type="module" src="teacher.js"></script>
+</body>
+</html>

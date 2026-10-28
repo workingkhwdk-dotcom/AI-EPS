@@ -1,0 +1,176 @@
+/* 태블릿 화면(t.html · t-teacher.html · demo-play-t.html). style.css 다음에 읽는다.
+   PC 넓은 화면 규칙(style.css 의 body:not(.m):not(.t) …)은 태블릿에 쓰이지 않으므로, 태블릿 배치는 이 파일이 모두 정한다.
+   - 손가락으로 쓰기: 누르는 곳은 48px 안팎, 입력 칸 글자는 17px(아이패드가 칸을 누를 때 화면을 키우지 않는 크기).
+   - 세로(초상): 머리글 아래에 단계 막대가 붙어 있고, 활동은 한 줄로, '다음' 단추 줄은 화면 아래에 붙는다(글을 쓰는 동안은 붙지 않는다).
+   - 가로(풍경, 900px 이상): 왼쪽에 단계 옆 막대, 오른쪽에 활동. 편지·자료와 활동을 나란히 두고, 넓으면(1180px 이상) 활동 카드도 두 줄로.
+   app.js 는 가로 900px 이상에서 편지를 펼친 채로 둔다(WIDE). 이 폭을 바꾸면 app.js 도 함께 바꿀 것. */
+
+body.t{ --gap:20px; --tap:48px; --rail:196px; --pad:max(24px, env(safe-area-inset-left)); --pad-r:max(24px, env(safe-area-inset-right));
+  font-size:16px; padding-bottom:0; -webkit-text-size-adjust:100%; }
+body.t .wrap{ max-width:none; padding:20px var(--pad-r) 28px var(--pad); }
+body.t .hdr{ padding-left:var(--pad); padding-right:var(--pad-r); }
+body.t .hdr-in{ max-width:none; }
+body.t .who{ max-width:28vw; font-size:13.5px; }
+
+/* ---------- 손가락으로 누르기 좋은 크기 ---------- */
+body.t h2{ font-size:22px; }
+body.t h3{ font-size:18px; }
+body.t .btn{ min-height:var(--tap); font-size:16px; padding:12px 20px; border-radius:14px; }
+body.t .btn-sm{ min-height:42px; font-size:14.5px; padding:9px 16px; border-radius:11px; }
+body.t .btn-out{ font-size:14px; padding:8px 16px; min-height:38px; }
+body.t .chip{ font-size:14.5px; padding:11px 18px; min-height:42px; border-radius:22px; }
+body.t .chip.sm{ font-size:13.5px; padding:8px 14px; min-height:36px; }
+body.t .link{ padding:4px 2px; }
+body.t :is(input[type=text], input[type=number], input[type=password], input[type=email], textarea, select){ font-size:17px; padding:13px 16px; border-radius:14px; min-height:var(--tap); }
+body.t textarea{ min-height:112px; line-height:1.6; }
+body.t textarea.short{ min-height:76px; }
+body.t input[type=checkbox]{ width:24px !important; height:24px !important; }
+body.t label.lbl{ font-size:14.5px; margin:16px 0 8px; }
+body.t .meta-line{ font-size:13.5px; }
+body.t .desc{ font-size:15px; }
+body.t .card{ padding:22px 24px; border-radius:22px; margin-bottom:var(--gap); }
+body.t .card.flat{ padding:14px 16px; border-radius:16px; }
+body.t .card > h3:first-child{ margin-bottom:14px; }
+body.t .notice{ font-size:15px; padding:13px 16px; border-radius:14px; }
+body.t .tag{ font-size:12.5px; padding:2px 10px; }
+body.t .cell{ padding:14px 18px; }
+body.t .group{ border-radius:16px; }
+body.t .seg button{ font-size:15.5px; padding:11px 20px; border-radius:10px; }
+body.t .m-switch{ font-size:14px; margin:24px 0 8px; }
+/* 알림 창: 가운데에 넉넉하게 */
+body.t .modal{ width:min(calc(100vw - 48px), 560px); padding:26px 26px 22px; border-radius:24px; }
+body.t .modal.wide{ width:min(calc(100vw - 48px), 680px); }
+body.t .modal h3{ font-size:20px; }
+body.t .modal-body p{ font-size:15.5px; }
+body.t .modal-acts .btn{ min-height:50px; }
+/* 사용법 안내(tour.js) 말풍선도 조금 크게 */
+body.t .tour-tip{ width:min(400px, calc(100vw - 32px)); padding:16px 18px 14px; }
+body.t .tour-b{ font-size:15.5px; }
+
+/* ---------- 학생: 공통 ---------- */
+/* 단계 머리말(.hero)은 쓰지 않고 '지금 할 일' 띠를 크게 쓴다 */
+body.t .hero{ display:none !important; }
+body.t .next{ font-size:15.5px; padding:13px 16px; border-radius:16px; margin-bottom:var(--gap); align-items:center; }
+body.t .next-k{ font-size:12.5px; }
+body.t .next .link{ font-size:14.5px; }
+body.t .stage-now{ display:none; }
+body.t .problem-bar{ padding:16px 20px; border-radius:18px; margin-bottom:var(--gap); }
+body.t .subnav{ gap:10px; margin-bottom:var(--gap); }
+body.t .subnav button{ font-size:15px; padding:12px 8px; min-height:56px; border-radius:14px; }
+body.t .subnav button small{ font-size:12px; }
+body.t .pcards{ grid-template-columns:repeat(2, minmax(0,1fr)); gap:12px; }
+body.t .pc-open{ min-height:64px; padding:14px 16px; }
+body.t .board{ grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:12px; }
+body.t .letter{ padding:22px 26px; font-size:16.5px; }
+body.t .msgs{ padding:20px 18px 10px; gap:14px; }
+body.t .msg .bubble{ font-size:16px; }
+body.t .composer{ padding:12px 16px calc(12px + env(safe-area-inset-bottom)); }
+body.t .composer input{ min-height:50px; border-radius:25px; }
+body.t .send{ width:50px; height:50px; }
+body.t .starters .chip{ min-height:38px; }
+body.t .goal-chips{ font-size:13.5px; }
+body.t .mat-item, body.t .finding, body.t .b-col{ padding:14px 16px; }
+body.t .nav-foot .btn{ min-height:52px; padding:13px 22px; font-size:16px; }
+body.t #join, body.t #login, body.t #signup{ max-width:560px; margin:28px auto; }
+body.t #wait:not(.hidden){ max-width:760px; margin:0 auto; }
+
+/* ---------- 학생: 세로(초상) — 위에 단계 막대, 아래에 '다음' 줄 ---------- */
+@media (orientation:portrait), (max-width:899px){
+  /* 단계 막대: 머리글 바로 아래에 붙어 있고, 7단계가 한 줄에 다 보인다 */
+  /* 활동 화면에서는 단계 막대가 머리글 바로 아래에서 시작한다(체험 안내 띠가 있으면 그 아래) */
+  body.t .wrap:has(> #app:not(.hidden)){ padding-top:0; }
+  body.t .wrap > .demo-note{ margin-top:12px; }
+  body.t .stages{ position:sticky; top:var(--hdr-h, 64px); z-index:8; margin:0 calc(-1 * var(--pad-r)) var(--gap) calc(-1 * var(--pad)); border-radius:0;
+    padding:10px var(--pad-r) 10px var(--pad); gap:6px; background:var(--bg); background:color-mix(in srgb, var(--bg) 90%, transparent);
+    -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px); box-shadow:0 1px 0 var(--sep); }
+  body.t .stages::before{ display:none; }
+  body.t .stage-tab{ padding:8px 2px 7px; gap:5px; border-radius:14px; min-height:64px; justify-content:center; }
+  body.t .stage-tab b{ width:30px; height:30px; font-size:14px; box-shadow:none; }
+  body.t .stage-tab span{ font-size:13px; }
+  body.t .stage-tab.on{ background:var(--grad); box-shadow:0 8px 18px -10px rgba(6,34,107,0.8); }
+  body.t .stage-tab.on b{ background:rgba(255,255,255,0.22); color:#fff; box-shadow:none; }
+  body.t .stage-tab.on span{ color:#fff; }
+  body.t .stage-tab.done b::after{ box-shadow:0 0 0 2px var(--bg); }
+  /* '다음' 단추 줄: 화면 아래에 붙여 손이 닿기 쉽게(글을 쓰는 동안과 대화 화면에서는 붙이지 않는다) */
+  body.t .nav-foot{ position:sticky; bottom:0; z-index:7; margin:var(--gap) calc(-1 * var(--pad-r)) -28px calc(-1 * var(--pad));
+    padding:12px var(--pad-r) calc(12px + env(safe-area-inset-bottom)) var(--pad); background:var(--surface); background:color-mix(in srgb, var(--surface) 92%, transparent);
+    -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px); box-shadow:0 -1px 0 var(--sep), 0 -10px 24px -18px rgba(6,34,107,0.4); }
+  body.t.typing .nav-foot, body.t #panel:has(.chat-card) .nav-foot{ position:static; margin-bottom:0; background:none; box-shadow:none; -webkit-backdrop-filter:none; backdrop-filter:none; }
+  /* 2단계 자료처럼 긴 참고 자료는 위에 두되 높이를 줄여 안에서 넘겨 본다(활동이 너무 아래로 밀리지 않게) */
+  body.t .split:not(.chat-split) .split-side details.fold[open] .inner{ max-height:42vh; overflow-y:auto; overscroll-behavior:contain; }
+  body.t .chat-split .msgs{ min-height:calc(var(--vvh, 100vh) - var(--hdr-h, 64px) - 420px); }
+}
+
+/* ---------- 학생: 가로(풍경) — 왼쪽 단계 옆 막대, 편지·자료와 활동을 나란히 ---------- */
+@media (orientation:landscape) and (min-width:900px){
+  body.t #app:not(.hidden){ display:grid; grid-template-columns:var(--rail) minmax(0,1fr); column-gap:var(--gap); align-items:start; }
+  body.t #app > #panel{ min-width:0; }
+  /* 단계 옆 막대: 번호 원을 세로 선으로 잇고, 지금 단계는 학교 색 */
+  body.t .stages{ position:sticky; top:calc(var(--hdr-h, 64px) + 16px); display:flex; flex-direction:column; gap:2px; margin:0; padding:10px;
+    max-height:calc(100vh - var(--hdr-h, 64px) - 32px); overflow-y:auto; border-radius:22px; }
+  body.t .stages::before{ top:34px; bottom:34px; left:36px; right:auto; width:2px; height:auto; }
+  body.t .stage-tab{ flex-direction:row; justify-content:flex-start; gap:12px; padding:9px 10px; min-height:52px; border-radius:14px; text-align:left; }
+  body.t .stage-tab b{ width:32px; height:32px; font-size:14.5px; }
+  body.t .stage-tab span{ font-size:15px; text-align:left; }
+  body.t .stage-tab:hover:not(.on){ background:var(--fill); }
+  body.t .stage-tab.on{ background:var(--grad); box-shadow:0 8px 18px -10px rgba(6,34,107,0.8); }
+  body.t .stage-tab.on b{ background:rgba(255,255,255,0.22); color:#fff; box-shadow:0 0 0 4px transparent; }
+  body.t .stage-tab.on span{ color:#fff; }
+  /* 활동(왼쪽 넓게) + 참고(오른쪽, 화면에 붙어 있음). 1단계 대화는 편지(왼쪽) → 대화창(오른쪽) */
+  body.t .split{ display:grid; grid-template-columns:minmax(0,3fr) minmax(0,2fr); gap:var(--gap); align-items:start; }
+  body.t .split-main{ grid-column:1; grid-row:1; }
+  body.t .split-side{ grid-column:2; grid-row:1; position:sticky; top:calc(var(--hdr-h, 64px) + 16px); max-height:calc(100vh - var(--hdr-h, 64px) - 32px);
+    overflow-y:auto; overscroll-behavior:contain; border-radius:18px; }
+  body.t .split-side > :last-child{ margin-bottom:0; }
+  body.t .chat-split{ grid-template-columns:minmax(0,2fr) minmax(0,3fr); }
+  body.t .chat-split .split-side{ grid-column:1; }
+  body.t .chat-split .split-main{ grid-column:2; }
+  body.t .chat-split .msgs{ min-height:calc(var(--vvh, 100vh) - var(--hdr-h, 64px) - 360px); }
+  body.t .chat-tools .m-only{ display:none; }
+  body.t .nav-foot{ padding-top:var(--gap); border-top:1px solid var(--sep); }
+  body.t #wait:not(.hidden){ grid-column:1 / -1; }
+}
+/* 넓은 가로 화면: 활동 카드도 두 줄로(안내·이동 줄과 넓은 표·보드가 든 카드는 한 줄을 다 쓴다) */
+@media (orientation:landscape) and (min-width:1180px){
+  body.t #panel{ display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); column-gap:var(--gap); align-items:start; }
+  body.t #panel > *{ grid-column:1 / -1; }
+  body.t #panel > .card{ grid-column:auto; }
+  body.t #panel > .card:has(.board, .flow, .timeline, table, .pcards){ grid-column:1 / -1; }
+  body.t .pcards{ grid-template-columns:repeat(3, minmax(0,1fr)); }
+}
+
+/* ---------- 교사(t-teacher.html) ---------- */
+body.t-teacher #main > .seg, body.t-teacher #ctabs{ padding:4px; border-radius:14px; gap:4px; }
+body.t-teacher #main > .seg button, body.t-teacher #ctabs button{ padding:12px 22px; font-size:16px; border-radius:11px; min-height:48px; }
+body.t-teacher #main > .seg button.on, body.t-teacher #ctabs button.on{ background:var(--grad); color:#fff; box-shadow:0 8px 18px -10px rgba(6,34,107,0.9); }
+/* 수업 안 메뉴는 머리글 아래에 붙어 있어 어디서든 바로 바꾼다 */
+body.t-teacher #ctabs{ position:sticky; top:calc(var(--hdr-h, 64px) + 8px); z-index:6; box-shadow:0 0 0 6px var(--bg), var(--shadow); background:var(--surface); }
+body.t-teacher .cls-head .code-big{ font-size:42px; }
+body.t-teacher .ch-main{ display:flex; align-items:flex-end; justify-content:space-between; gap:20px; flex-wrap:wrap; }
+body.t-teacher .ch-top .row .btn-sm{ min-height:44px; }
+body.t-teacher #sessions .cell{ padding:16px 18px; align-items:center; min-height:72px; }
+body.t-teacher #sessions .cls b{ font-size:17px; }
+body.t-teacher .kpis{ grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); }
+body.t-teacher .kpi{ padding:14px 16px; }
+body.t-teacher .kpi b{ font-size:26px; }
+body.t-teacher .tbl{ font-size:15px; }
+body.t-teacher .tbl td, body.t-teacher .tbl th{ padding:13px 12px; vertical-align:middle; }
+body.t-teacher .tbl thead th{ background:var(--fill); font-size:13px; }
+body.t-teacher .tbl .btn-sm{ min-height:40px; }
+body.t-teacher .newbox{ max-width:760px; padding:20px 22px; }
+body.t-teacher .t-help{ font-size:14px; }
+body.t-teacher .t-help .link{ font-size:14px; }
+@media (orientation:landscape) and (min-width:900px){
+  /* 진행 현황: '확인이 필요해요'와 숫자 칸을 나란히, 수업 설정은 두 줄로 */
+  body.t-teacher #cpane-live:not(.hidden){ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); column-gap:var(--gap); align-items:start; }
+  body.t-teacher #cpane-live > *{ grid-column:1 / -1; }
+  body.t-teacher #cpane-live > #alerts:not(.hidden), body.t-teacher #cpane-live > #alerts:not(.hidden) + .card{ grid-column:auto; align-self:stretch; }
+  body.t-teacher #alerts:not(.hidden) + .card .kpis{ grid-template-columns:repeat(2, minmax(0,1fr)); }
+  body.t-teacher #cpane-settings:not(.hidden){ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); column-gap:var(--gap); align-items:start; }
+  body.t-teacher #cpane-settings > .card:first-child{ grid-row:span 5; }
+  body.t-teacher #persona-edit, body.t-teacher #mat-body{ display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); column-gap:var(--gap); align-items:start; }
+  body.t-teacher #persona-edit > :only-child, body.t-teacher #mat-body > :only-child{ grid-column:1 / -1; }
+  body.t-teacher #cmp-body{ display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); column-gap:20px; }
+}
+
+@media (prefers-reduced-motion:reduce){ body.t *{ transition:none !important; } }

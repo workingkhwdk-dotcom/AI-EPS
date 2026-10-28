@@ -34,10 +34,11 @@ if (!hidden) {
   $("#main")?.prepend(el);
 }
 
-// 'PC 화면으로 보기' ↔ '모바일 화면으로 보기' 링크가 체험 화면으로 가게 한다
+// 'PC 화면으로 보기' ↔ '모바일·태블릿 화면으로 보기' 링크가 체험 화면으로 가게 한다
 const lv = LEVEL === "middle" ? "&lv=middle" : "";
 document.querySelectorAll('a[href^="index.html"]').forEach((a) => { a.href = `demo-play.html?view=pc&t=${TOPIC}${lv}`; });
 document.querySelectorAll('a[href^="m.html"]').forEach((a) => { a.href = `demo-play-m.html?view=m&t=${TOPIC}${lv}`; });
+document.querySelectorAll('a[href^="t.html"]').forEach((a) => { a.href = `demo-play-t.html?view=t&t=${TOPIC}${lv}`; });
 
 // 처음 체험을 시작한 사람에게 학생 화면 사용법을 짚어 준다(tour.js, 한 번만). 단계 안내 창이 먼저 뜨므로 그 창이 닫힌 뒤에 시작한다.
 const TOUR = [
