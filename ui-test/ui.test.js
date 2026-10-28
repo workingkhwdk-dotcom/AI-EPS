@@ -527,7 +527,7 @@ const idsOf = (file) => new Set([...fs.readFileSync(path.join(ROOT, file), "utf8
 test("모바일 화면은 PC 화면과 같은 id 를 모두 가진다(같은 app.js·teacher.js 로 움직이므로)", () => {
   for (const [pc, m] of [["index.html", "m.html"], ["teacher.html", "m-teacher.html"]]) {
     const a = idsOf(pc), b = idsOf(m);
-    a.delete("to-mobile"); // PC 화면에만 있는 '모바일 화면으로 보기'
+    a.delete("to-mobile"); a.delete("to-tablet"); // PC 화면에만 있는 '모바일·태블릿 화면으로 보기'
     assert.deepEqual([...a].filter((x) => !b.has(x)), [], `${m} 에 빠진 id`);
     assert.deepEqual([...b].filter((x) => !a.has(x)), [], `${m} 에만 있는 id`);
   }
@@ -559,6 +559,97 @@ test("휴대폰에서 'PC 화면으로 보기'를 고르면 기억하고, '모�
   await s.pg.waitForURL(/\/m\.html\?view=m$/);
   await s.pg.goto(`${base}/index.html`);
   await s.pg.waitForURL(/\/m\.html$/);
+});
+
+// ---------- 태블릿 전용 화면(t.html, t-teacher.html: tools/build-tablet.js 가 PC 화면에서 만든다) ----------
+const IPAD = "Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+const IPADOS = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15"; // 요즘 아이패드는 맥처럼 알린다
+const ipad = (w = 820, h = 1180, ua = IPAD) => ({ userAgent: ua, viewport: { width: w, height: h }, hasTouch: true });
+
+test("태블릿 화면은 PC 화면에서 만든 그대로다(같은 id, PC 화면을 고친 뒤 node tools/build-tablet.js 를 실행했는지)", () => {
+  const r = require("child_process").spawnSync(process.execPath, [path.join(__dirname, "../tools/build-tablet.js"), "--check"], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+  for (const [pc, t] of [["index.html", "t.html"], ["teacher.html", "t-teacher.html"], ["demo-play.html", "demo-play-t.html"]]) {
+    const a = idsOf(pc), b = idsOf(t);
+    a.delete("to-tablet"); b.delete("to-pc");
+    assert.deepEqual([...a].filter((x) => !b.has(x)), [], `${t} 에 빠진 id`);
+    assert.deepEqual([...b].filter((x) => !a.has(x)), [], `${t} 에만 있는 id`);
+    assert.match(fs.readFileSync(path.join(ROOT, t), "utf8"), /<link rel="stylesheet" href="tablet\.css" \/>/);
+  }
+});
+
+test("태블릿(아이패드 UA, 요즘 아이패드의 맥 UA + 터치)으로 열면 태블릿 화면으로 옮겨 가고, 휴대폰 화면 주소로 열어도 태블릿 화면으로 간다", async () => {
+  const s = await openStudent(studentFixture(), { ctxOpts: ipad() });
+  assert.match(s.pg.url(), /\/t\.html$/, "아이패드 사파리 UA 의 'Mobile/' 때문에 휴대폰으로 보지 않는다");
+  assert.ok(await s.pg.locator("body.t").count());
+  await s.pg.goto(`${base}/index.html?x=1#top`); await s.pg.waitForURL(/\/t\.html\?x=1#top$/);
+  await s.pg.goto(`${base}/m.html`); await s.pg.waitForURL(/\/t\.html$/);
+  const t = await newPage(() => { window.__user = null; window.__docs = {}; window.__cols = {}; }, async () => ({}), undefined, ipad(1180, 820, IPADOS));
+  await t.pg.addInitScript(() => { Object.defineProperty(navigator, "maxTouchPoints", { get: () => 5 }); });
+  await t.pg.goto(`${base}/teacher.html`); await t.pg.waitForURL(/\/t-teacher\.html$/);
+  // 휴대폰으로 태블릿 화면을 열면 모바일 화면으로, PC 로 열면 그대로
+  const p = await newPage(() => {}, async () => ({}), undefined, phone);
+  await p.pg.goto(`${base}/t.html`); await p.pg.waitForURL(/\/m\.html$/);
+  const d = await newPage(() => {}, async () => ({}));
+  await d.pg.goto(`${base}/t.html`); await d.pg.waitForSelector("#j-pw");
+  assert.match(d.pg.url(), /\/t\.html$/);
+  const pcPage = await openStudent(studentFixture());
+  assert.ok(await pcPage.pg.locator("#to-tablet").isHidden(), "PC에는 태블릿 링크를 보이지 않는다");
+});
+
+test("태블릿에서 'PC 화면으로 보기'를 고르면 기억하고, '태블릿 화면으로 보기'로 되돌린다", async () => {
+  const s = await openStudent(studentFixture(), { ctxOpts: ipad() });
+  await s.pg.click("#to-pc a");
+  await s.pg.waitForURL(/\/index\.html\?view=pc$/);
+  await s.pg.goto(`${base}/index.html`); await s.pg.waitForSelector("#j-pw");
+  assert.match(s.pg.url(), /\/index\.html$/, "PC 화면 선택을 기억한다");
+  assert.ok(await s.pg.locator("#to-tablet").isVisible());
+  await s.pg.click("#to-tablet a");
+  await s.pg.waitForURL(/\/t\.html\?view=t$/);
+  await s.pg.goto(`${base}/index.html`); await s.pg.waitForURL(/\/t\.html$/);
+});
+
+test("태블릿 학생 화면: 세로는 위에 단계 막대(머리글 아래에 붙음)와 아래 '다음' 줄, 가로는 왼쪽 단계 옆 막대와 편지·대화창 나란히, 가로로 넘치지 않는다", async () => {
+  for (const [w, h] of [[820, 1180], [768, 1024], [1180, 820], [1024, 768]]) {
+    const s = await openStudent(studentFixture(), { ctxOpts: ipad(w, h), page: "t.html" });
+    await login(s.pg);
+    await s.pg.waitForSelector(".chat-card");
+    const g = await s.pg.evaluate(() => { const r = (q) => document.querySelector(q).getBoundingClientRect(); const tabs = r("#tabs"), chat = r(".chat-card"), hdr = r(".hdr"), b = r(".stage-tab.on");
+      return { tabsW: tabs.width, tabsH: tabs.height, tabsTop: tabs.top, hdrB: hdr.bottom, chatX: chat.left, tabsR: tabs.right, tapH: b.height, overflow: document.documentElement.scrollWidth - innerWidth,
+        letterOpen: document.querySelector("details.letter").open, inputFont: parseFloat(getComputedStyle(document.querySelector("#msg")).fontSize) }; });
+    const label = `${w}x${h}`;
+    assert.ok(g.overflow <= 0, `${label} 가로 넘침 ${g.overflow}`);
+    assert.ok(g.tapH >= 48, `${label} 단계 단추 높이 ${g.tapH}`);
+    assert.ok(g.inputFont >= 16, `${label} 입력 글자 ${g.inputFont}px(16 미만이면 아이패드가 화면을 키운다)`);
+    if (w < h) { assert.ok(g.tabsW > w * 0.9 && g.tabsH < 110, `${label} 세로: 단계 막대가 위에 한 줄 ${JSON.stringify(g)}`); assert.ok(Math.abs(g.tabsTop - g.hdrB) < 2, `${label} 단계 막대가 머리글 바로 아래`); }
+    else { assert.ok(g.tabsW < 240 && g.tabsH > 300 && g.chatX > g.tabsR, `${label} 가로: 왼쪽 옆 막대 ${JSON.stringify(g)}`); assert.ok(g.letterOpen, `${label} 가로: 편지를 펼쳐 둔다`); }
+    await shot(s.pg, `tablet-student-${label}`);
+    // 세로에서는 단계를 옮겨도(스크롤해도) 단계 막대가 머리글 아래에 붙어 있고, '다음' 줄은 화면 아래에 붙는다
+    if (w < h) {
+      await s.pg.click('.stage-tab[data-stage="2"]');
+      await s.pg.evaluate(() => scrollTo(0, 600)); await s.pg.waitForTimeout(150);
+      const st = await s.pg.evaluate(() => ({ tabsTop: document.querySelector("#tabs").getBoundingClientRect().top, hdrB: document.querySelector(".hdr").getBoundingClientRect().bottom, footB: document.querySelector(".nav-foot").getBoundingClientRect().bottom, vh: innerHeight }));
+      assert.ok(Math.abs(st.tabsTop - st.hdrB) < 2, `${label} 스크롤해도 단계 막대가 붙어 있다 ${JSON.stringify(st)}`);
+      assert.ok(Math.abs(st.footB - st.vh) < 2, `${label} '다음' 줄이 화면 아래에 ${JSON.stringify(st)}`);
+    }
+    assert.deepEqual(s.errors, []);
+    await s.ctx.close();
+  }
+});
+
+test("태블릿 교사 화면: 큰 메뉴·누르기 좋은 단추, 가로에서는 수업 설정이 두 줄, 가로로 넘치지 않는다", async () => {
+  for (const [w, h] of [[820, 1180], [1180, 820]]) {
+    const st = teacherFixture(), { pg, errors } = await openTeacher(st, { page: "t-teacher.html", ctxOpts: ipad(w, h) });
+    await pg.click('#ctabs [data-ctab="settings"]');
+    await pg.waitForSelector("#s-deep [data-deep]");
+    const g = await pg.evaluate(() => { const c = [...document.querySelectorAll("#cpane-settings > .card")].map((e) => e.getBoundingClientRect()).filter((r) => r.width > 0);
+      return { overflow: document.documentElement.scrollWidth - innerWidth, tabH: document.querySelector("#ctabs button").getBoundingClientRect().height, cols: new Set(c.map((r) => Math.round(r.left))).size }; });
+    assert.ok(g.overflow <= 0, `${w}x${h} 가로 넘침`);
+    assert.ok(g.tabH >= 48, `${w}x${h} 메뉴 단추 높이 ${g.tabH}`);
+    assert.equal(g.cols, w > h ? 2 : 1, `${w}x${h} 수업 설정 줄 수`);
+    await shot(pg, `tablet-teacher-${w}x${h}`);
+    assert.deepEqual(errors, []);
+  }
 });
 
 test("휴대폰인데 UA 에 휴대폰 표시가 없어도(데스크톱 사이트 요청·앱 안 브라우저) 터치 작은 화면이면 모바일 화면으로 옮겨 간다", async () => {

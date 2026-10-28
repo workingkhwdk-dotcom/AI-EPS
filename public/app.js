@@ -85,8 +85,10 @@ const $ = (s) => document.querySelector(s);
 const panel = $("#panel");
 // 모바일 전용 화면(m.html)인지. 화면이 좁아 안내 글은 접어 두고 활동 칸을 먼저 보여 준다.
 const IS_M = document.body.classList.contains("m");
-// PC 넓은 화면(편지와 대화창을 나란히 놓는 폭, style.css 와 같은 값): 편지를 펼친 채로 둔다
-const WIDE = () => !IS_M && window.matchMedia("(min-width:1100px)").matches;
+// 태블릿 전용 화면(t.html): 배치는 tablet.css 가 맡고, 가로로 놓으면 편지와 대화창을 나란히 둔다
+const IS_T = document.body.classList.contains("t");
+// 편지와 대화창을 나란히 놓는 폭(PC 는 style.css, 태블릿은 tablet.css 와 같은 값): 편지를 펼친 채로 둔다
+const WIDE = () => !IS_M && window.matchMedia(IS_T ? "(orientation:landscape) and (min-width:900px)" : "(min-width:1100px)").matches;
 let groupRef = null, memberRef = null;
 
 // ---------- 데이터 도우미 ----------

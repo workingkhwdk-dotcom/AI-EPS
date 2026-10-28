@@ -30,21 +30,25 @@ for (const id of Object.keys(c.EVENTS)) {
 fs.writeFileSync(path.join(out, "topics.json"), JSON.stringify(topics, null, 1));
 console.log(topics.map((t) => `${t.id}: ${t.title} (${t.personas}명)`).join("\n"));
 
-// ---- 체험 화면(PC·모바일): 학생 화면 index.html / m.html 을 그대로 바탕으로 한다(화면 구성이 바뀌어도 따라가도록 매번 새로 만든다) ----
+// ---- 체험 화면(PC·모바일·태블릿): 학생 화면 index.html / m.html / t.html 을 그대로 바탕으로 한다(화면 구성이 바뀌어도 따라가도록 매번 새로 만든다) ----
+// (t.html 은 tools/build-tablet.js 가 만든다. index.html 을 고쳤다면 그것부터 실행한다)
 const pub = path.join(__dirname, "../public");
 const IMPORTS = ["firebase-app", "firebase-auth", "firebase-firestore", "firebase-functions"]
   .map((n) => `"https://www.gstatic.com/firebasejs/10.12.2/${n}.js": "./demo/stubs/${n}.js"`).join(", ");
 const must = (s, a, b) => { if (!s.includes(a)) throw new Error(`바꿀 부분을 찾지 못했어요: ${a.slice(0, 50)}`); return s.replace(a, b); };
-function page(src, toMobile) {
+// 기기에 맞는 화면으로 옮길 때도 체험 화면끼리 오간다
+const DEMO = { "m.html": "demo-play-m.html", "t.html": "demo-play-t.html" };
+function page(src) {
   let h = fs.readFileSync(path.join(pub, src), "utf8");
   h = h.replace(/<title>[\s\S]*?<\/title>/, "<title>AI-EPS 체험</title>");
   h = h.replace(/<link rel="manifest"[^>]*>\n?/, "");
   h = must(h, '<meta charset="UTF-8" />', `<meta charset="UTF-8" />\n<!-- 체험 화면: ${src} 에서 tools/build-demo-data.js 가 만든다. 직접 고치지 말고 그 스크립트를 고치세요. -->\n<script src="demo/boot.js"></script>\n<script type="importmap">{"imports": {${IMPORTS}}}</script>`);
-  if (toMobile) h = must(h, 'data-mobile="m.html"', 'data-mobile="demo-play-m.html"');
+  h = h.replace(/data-(mobile|tablet)="(m\.html|t\.html)"/g, (_, k, f) => `data-${k}="${DEMO[f]}"`);
   h = must(h, "</head>", '<link rel="stylesheet" href="demo/demo.css" />\n</head>');
   h = must(h, '<script type="module" src="app.js"></script>', '<script type="module" src="app.js"></script>\n<script type="module" src="demo/ui.js"></script>');
   return h;
 }
-fs.writeFileSync(path.join(pub, "demo-play.html"), page("index.html", true));
-fs.writeFileSync(path.join(pub, "demo-play-m.html"), page("m.html", false));
-console.log("demo-play.html, demo-play-m.html");
+fs.writeFileSync(path.join(pub, "demo-play.html"), page("index.html"));
+fs.writeFileSync(path.join(pub, "demo-play-m.html"), page("m.html"));
+fs.writeFileSync(path.join(pub, "demo-play-t.html"), page("t.html"));
+console.log("demo-play.html, demo-play-m.html, demo-play-t.html");
