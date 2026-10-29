@@ -362,3 +362,38 @@ ul.bl li { break-inside: avoid; }
 .pv .pg { break-after: avoid; }
 .pv .prow .k { break-after: avoid; } .pv .prow.long .k + .v > :first-child { break-before: avoid; } .pv .prow.long { orphans: 3; widows: 3; }
 .mini.tight th, .mini.tight td { font-size: 8.4pt; line-height: 1.4; padding: .6mm 1.4mm; }
+
+/* ---- 개정: 학교급·심화 배지를 문장 앞에 둔 줄(배지 칸 + 문장 칸) ---- */
+.hs.m { background: #4d7a2b; }
+.xl { display: grid; grid-template-columns: 7.6mm 1fr; column-gap: .8mm; align-items: start; margin: .5mm 0 0; break-inside: avoid; }
+.xl > .hs, .xl > :first-child { justify-self: start; margin-top: .45mm; }
+.xl .xt { min-width: 0; }
+.lr .lt { display: block; }
+.dv .xl, .rnote .xl { margin-top: .8mm; }
+.rnote { margin: 1.5mm 0 3mm; font-size: 9pt; line-height: 1.55; }
+
+/* ---- 개정: 양쪽 정렬로 글자 사이가 벌어지지 않게 모두 왼쪽 정렬, 문장부호 줄바꿈은 엄격하게 ---- */
+body { line-break: strict; }
+.lr, .obj .ob, p.sub, .fn, .ap0, .ai-item, .l3, ul.bl li, .letter, .letter .lbody p, .flow td.aux, table.fl td.ft > div { text-align: left; }
+
+/* ---- 개정: 부록 1 화면 설명(항목 이름 칸 + 내용 칸) ---- */
+table.fl td.ft .fline { display: grid; grid-template-columns: 9mm 1fr; column-gap: 1.6mm; margin: 0 0 1.6mm; }
+table.fl td.ft .fline b { min-width: 0; }
+table.fl td.ft .fline .xl { margin-top: .6mm; }
+
+/* ---- 개정: 부록 5 척도표 ---- */
+table.rub td { font-size: 8.6pt; line-height: 1.5; }
+table.rub th { font-size: 9pt; }
+table.rub tr.rel td { background: #e6eaf2; font-family: var(--sans); font-weight: 700; color: #2e3a57; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+table.rub .rmeta { font-size: 8pt; color: #444; margin-top: .6mm; }
+table.rub .rpts { font-family: var(--sans); font-weight: 700; font-size: 8pt; margin-top: .8mm; }
+table.rub td .xl { margin-top: 1mm; font-size: 8pt; }
+table.rub tr { break-inside: avoid; }
+
+/* ---- 개정: 쪽을 넘는 프롬프트 상자는 쪽마다 테두리를 다시 그린다(위·아래가 열린 채 잘려 보이지 않게) ---- */
+.pv { -webkit-box-decoration-break: clone; box-decoration-break: clone; border-top: 1px solid #c9d0de; }
+.pvtop + .pv { border-top: 0; }
+.pv ul.pbl li::before { top: .78em; }
+table.rub thead { display: table-header-group; }
+table.rub td .xl { grid-template-columns: 8.4mm 1fr; }
+table.rub tr.rel { break-after: avoid; page-break-after: avoid; }
