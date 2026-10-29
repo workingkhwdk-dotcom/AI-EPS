@@ -1297,6 +1297,9 @@ function reviewFlags(rubric, doc) {
   return out;
 }
 
+// 채점 방식: ai_first(기본) — AI가 먼저 채점하고 교사가 검토·수정한다. independent — 교사가 먼저 채점하고 그 뒤에 AI 제안을 본다(독립 채점, 신뢰도 연구용).
+const modeOf = (sess) => (sess.assessMode === "independent" ? "independent" : "ai_first");
+const scopeOf = (kind) => (kind === "student" ? "student" : "group");
 function releaseOf(sess) { return { score: sess.release?.score === true, seteuk: sess.release?.seteuk === true }; }
 
 exports.assess = onCall(opts, async (req) => {
@@ -1308,15 +1311,18 @@ exports.assess = onCall(opts, async (req) => {
     const members = await membersOf(code);
     const docs = Object.fromEntries((await db.collection(`sessions/${code}/assess`).get()).docs.map((d) => [d.id, d.data()]));
     const cnt = (doc, scope) => rubric.criteria.filter((c) => c.scope === scope && doc?.scores?.[c.id]).length;
+    const cntAi = (doc, scope) => rubric.criteria.filter((c) => c.scope === scope && c.ai && doc?.ai?.[c.id]).length;
+    const cntUnrev = (doc) => Object.values(doc?.scores || {}).filter((x) => x.src === "ai" && x.reviewed === false).length;
     const nG = rubric.criteria.filter((c) => c.scope === "group").length, nS = rubric.criteria.filter((c) => c.scope === "student").length;
-    const groups = Array.from({ length: sess.groupCount }, (_, i) => `g${i + 1}`).map((id) => ({ id, name: `${id.slice(1)}모둠`, members: members.filter((m) => m.groupId === id).length, scored: cnt(docs[id], "group"), total: nG }));
-    const students = members.map((m) => ({ key: m.key, nick: m.nick, code: blindCode(m.key), groupId: m.groupId, scored: cnt(docs[`s_${m.key}`], "student"), total: nS, hasSeteuk: !!docs[`s_${m.key}`]?.seteuk?.text }))
+    const groups = Array.from({ length: sess.groupCount }, (_, i) => `g${i + 1}`).map((id) => ({ id, name: `${id.slice(1)}모둠`, members: members.filter((m) => m.groupId === id).length, scored: cnt(docs[id], "group"), total: nG, ai: cntAi(docs[id], "group"), unreviewed: cntUnrev(docs[id]) }));
+    const students = members.map((m) => ({ key: m.key, nick: m.nick, code: blindCode(m.key), groupId: m.groupId, scored: cnt(docs[`s_${m.key}`], "student"), total: nS, ai: cntAi(docs[`s_${m.key}`], "student"), unreviewed: cntUnrev(docs[`s_${m.key}`]), hasSeteuk: !!docs[`s_${m.key}`]?.seteuk?.text }))
       .sort((a, b) => a.groupId.localeCompare(b.groupId, "en", { numeric: true }) || a.code.localeCompare(b.code));
     const done = groups.reduce((s, g) => s + g.scored, 0) + students.reduce((s, x) => s + x.scored, 0);
     const total = groups.reduce((s, g) => s + g.total, 0) + students.reduce((s, x) => s + x.total, 0);
+    const unreviewed = Object.values(docs).reduce((n, d) => n + cntUnrev(d), 0);
     const reviewCount = Object.values(docs).reduce((n, d) => n + Object.keys(reviewFlags(rubric, d)).length, 0);
     return {
-      rubric, groups, students, progress: { done, total, reviewCount }, release: releaseOf(sess), seteukMax: sess.seteukMax || A.SETEUK_MAX.def, seteukRange: [A.SETEUK_MAX.min, A.SETEUK_MAX.max],
+      rubric, groups, students, progress: { done, total, reviewCount, unreviewed }, mode: modeOf(sess), aiTotal: { group: rubric.criteria.filter((c) => c.scope === "group" && c.ai).length, student: rubric.criteria.filter((c) => c.scope === "student" && c.ai).length }, release: releaseOf(sess), seteukMax: sess.seteukMax || A.SETEUK_MAX.def, seteukRange: [A.SETEUK_MAX.min, A.SETEUK_MAX.max],
       aiUsed: sess.assessAiCount || 0, aiCap: ASSESS_AI_CAP, aiRuns: ASSESS_RUNS, thresholds: A.THRESHOLDS,
     };
   }
@@ -1327,7 +1333,7 @@ exports.assess = onCall(opts, async (req) => {
     const [{ evidence, empty }, snap] = await Promise.all([loadEvidence(code, sess, kind, id, members), assessRef(code, key).get()]);
     const doc = snap.data() || {};
     return {
-      kind, id, evidence, empty, scores: doc.scores || {}, ai: aiRevealed(doc), hasAi: Object.fromEntries(Object.keys(doc.ai || {}).map((c) => [c, true])),
+      kind, id, mode: modeOf(sess), evidence, empty, scores: doc.scores || {}, ai: modeOf(sess) === "ai_first" ? doc.ai || {} : aiRevealed(doc), hasAi: Object.fromEntries(Object.keys(doc.ai || {}).map((c) => [c, true])),
       review: reviewFlags(rubric, doc), seteuk: kind === "student" ? { text: doc.seteuk?.text || "", t: doc.seteuk?.t || 0 } : null,
     };
   }
@@ -1341,15 +1347,47 @@ exports.assess = onCall(opts, async (req) => {
     const { evidence, empty } = await loadEvidence(code, sess, kind, id, members);
     const doc = (await assessRef(code, key).get()).data() || {};
     const prev = doc.scores?.[c.id];
-    // AI 제안은 첫 저장 전에는 보지 못했으므로, 두 번째 저장부터만 AI 제안과의 차이를 따진다(독립 채점을 지킨다).
-    const err = A.checkScoreInput({ c, level, note, evidenceIsEmpty: empty[c.id], aiLevel: prev ? doc.ai?.[c.id]?.level : undefined });
+    // AI가 먼저 채점하는 방식(ai_first)에서는 AI 제안을 보고 정하므로 처음 저장부터 AI 제안과의 차이를 따진다.
+    // 교사가 먼저 채점하는 방식(independent)에서는 첫 저장 전에는 AI 제안을 못 봤으므로 두 번째 저장부터만 따진다(독립 채점을 지킨다).
+    const mode = modeOf(sess), aiRec = doc.ai?.[c.id];
+    const err = A.checkScoreInput({ c, level, note, evidenceIsEmpty: empty[c.id], aiLevel: mode === "ai_first" || prev ? aiRec?.level : undefined });
     if (err) throw new HttpsError("invalid-argument", err);
     const pts = level === -1 ? 0 : c.levels[level].pts;
     const revs = [...(prev?.revs || []), ...(prev ? [{ level: prev.level, note: prev.note || "", t: prev.t }] : [])].slice(-5);
-    const score = { level, pts, note, t: Date.now(), by: auth.uid, ...(revs.length ? { revs } : {}) };
+    // src: ai(AI 제안 그대로) · edited(교사가 고침) · teacher(AI를 보기 전에 매김). reviewed: 교사가 저장·확인함
+    let src = "teacher";
+    if (aiRec && Number.isInteger(aiRec.level) && (mode === "ai_first" || (prev && prev.src !== "teacher"))) src = level === aiRec.level ? "ai" : "edited";
+    const score = { level, pts, note, t: Date.now(), by: auth.uid, src, reviewed: true, ...(src === "edited" ? { aiLevel: aiRec.level } : {}), ...(revs.length ? { revs } : {}) };
     await patchAssess(assessRef(code, key), { [`scores.${c.id}`]: score, kind, name: kind === "group" ? `${id.slice(1)}모둠` : members.find((m) => m.key === id)?.nick || "" });
     const merged = { ...doc, scores: { ...(doc.scores || {}), [c.id]: score } };
-    return { score, ai: aiRevealed(merged)[c.id] || null, review: reviewFlags(rubric, merged)[c.id] || null, evidenceEmpty: empty[c.id], evidence: evidence[c.id] };
+    return { score, ai: (mode === "ai_first" ? merged.ai || {} : aiRevealed(merged))[c.id] || null, review: reviewFlags(rubric, merged)[c.id] || null, evidenceEmpty: empty[c.id], evidence: evidence[c.id] };
+  }
+
+  // AI 제안을 점수로 적용한다(교사가 아직 채점하지 않은 칸만). 적용한 점수는 '검토 전'이고, 교사가 저장·확인하면 검토 완료가 된다.
+  if (action === "applyAi") {
+    const members = await membersOf(code);
+    const targets = req.data?.all === true
+      ? [...Array.from({ length: sess.groupCount }, (_, i) => ({ kind: "group", id: `g${i + 1}` })), ...members.map((m) => ({ kind: "student", id: m.key }))]
+      : [subjectArgs(req, sess, members)];
+    let applied = 0, skipped = 0, subjects = 0;
+    for (const t of targets) {
+      const key = subjKey(t.kind, t.id);
+      const doc = (await assessRef(code, key).get()).data() || {};
+      const cands = Object.entries(doc.ai || {}).filter(([cid]) => !doc.scores?.[cid]);
+      if (!cands.length) continue;
+      const { empty } = await loadEvidence(code, sess, t.kind, t.id, members);
+      const patch = {};
+      for (const [cid, a] of cands) {
+        const c = rubric.criteria.find((x) => x.id === cid && x.scope === scopeOf(t.kind));
+        if (!c || !Number.isInteger(a.level)) continue;
+        const note = A.clip(`AI 제안: ${a.reason || "수준 설명에 비추어 판단"}`, 500);
+        if (A.checkScoreInput({ c, level: a.level, note, evidenceIsEmpty: empty[cid] })) { skipped++; continue; }
+        patch[`scores.${cid}`] = { level: a.level, pts: a.level === -1 ? 0 : c.levels[a.level].pts, note, t: Date.now(), by: "ai", src: "ai", reviewed: false };
+        applied++;
+      }
+      if (Object.keys(patch).length) { subjects++; await patchAssess(assessRef(code, key), { ...patch, kind: t.kind, name: t.kind === "group" ? `${t.id.slice(1)}모둠` : members.find((m) => m.key === t.id)?.nick || "" }); }
+    }
+    return { applied, skipped, subjects };
   }
 
   if (action === "recheck") {
@@ -1372,7 +1410,7 @@ exports.assess = onCall(opts, async (req) => {
       const doc = d.data(), kind = d.id.startsWith("s_") ? "student" : "group", id = kind === "student" ? d.id.slice(2) : d.id;
       if (kind === "student" && !members.some((m) => m.key === id)) continue;
       for (const c of rubric.criteria) {
-        if (c.scope !== (kind === "student" ? "student" : "group") || !doc.scores?.[c.id] || doc.recheck?.[c.id]) continue;
+        if (c.scope !== (kind === "student" ? "student" : "group") || !doc.scores?.[c.id] || doc.scores[c.id].reviewed === false || doc.recheck?.[c.id]) continue;
         if (!A.inRecheckSample(`${d.id}:${c.id}`)) continue;
         left++;
         if (items.length < 6) items.push({ kind, id, criterion: c.id });
@@ -1409,6 +1447,11 @@ exports.assess = onCall(opts, async (req) => {
     return { release: { ...releaseOf(sess), ...(patch["release.score"] !== undefined ? { score: patch["release.score"] } : {}), ...(patch["release.seteuk"] !== undefined ? { seteuk: patch["release.seteuk"] } : {}) } };
   }
 
+  if (action === "config" && req.data?.assessMode !== undefined) {
+    if (!["ai_first", "independent"].includes(req.data.assessMode)) throw new HttpsError("invalid-argument", "채점 방식이 올바르지 않습니다.");
+    await db.doc(`sessions/${code}`).update({ assessMode: req.data.assessMode });
+    return { mode: req.data.assessMode };
+  }
   if (action === "config") {
     const n = parseInt(req.data?.seteukMax, 10);
     if (!(n >= A.SETEUK_MAX.min && n <= A.SETEUK_MAX.max)) throw new HttpsError("invalid-argument", `세특 한도는 ${A.SETEUK_MAX.min}~${A.SETEUK_MAX.max}바이트 사이로 정하세요.`);
@@ -1476,17 +1519,18 @@ exports.assessAi = onCall(assessAiOpts, async (req) => {
     if (items.length) {
       if (used + ASSESS_RUNS + 1 > ASSESS_AI_CAP) throw new HttpsError("resource-exhausted", `이 수업의 평가용 AI 호출 한도(${ASSESS_AI_CAP}회)에 가까워 더 받을 수 없어요.`);
       await bump(ASSESS_RUNS);
-      const messages = A.scorerMessages({ rubric, items, deep: deepOf(sess) });
-      const runs = (await Promise.allSettled(Array.from({ length: ASSESS_RUNS }, async () => {
-        const text = await callModel({ apiKey, model: ASSESS_FAST_MODEL.value(), messages, json: true, maxTokens: 1800, efforts: [effort === "minimal" ? "low" : effort, "low"] });
-        return A.parseScorer(extractJson(text), items);
-      }))).map((r) => (r.status === "fulfilled" ? r.value : (failed++, console.error("AI 채점 실패:", r.reason?.message), null))).filter(Boolean);
+      const messages = A.scorerMessages({ rubric, items, scope: scopeOf(kind) });
+      const one = async () => A.parseScorer(extractJson(await callModel({ apiKey, model: ASSESS_FAST_MODEL.value(), messages, json: true, maxTokens: 1800, efforts: [effort === "minimal" ? "low" : effort, "low"] })), items);
+      const settle = (rs) => rs.map((r) => (r.status === "fulfilled" ? r.value : (failed++, console.error("AI 채점 실패:", r.reason?.message), null))).filter(Boolean);
+      // 같은 프롬프트라 첫 호출이 끝나 캐시가 만들어진 뒤에 나머지를 보내면 입력 요금이 줄어든다(OpenAI 자동 프롬프트 캐시)
+      const runs = settle(await Promise.allSettled([one()]));
+      runs.push(...settle(await Promise.allSettled(Array.from({ length: ASSESS_RUNS - 1 }, one))));
       let combined = A.combineRuns(runs, items);
       // 갈리거나 인용을 못 찾은 기준(또는 빠른 모델이 답하지 못한 기준)만 고성능 모델이 한 번 더 판정한다
       const hard = items.filter(({ c }) => A.needsEscalation(combined[c.id]));
       if (hard.length) {
         await bump(1);
-        const [h] = await Promise.allSettled([(async () => A.parseScorer(extractJson(await callModel({ apiKey, model: ASSESS_MODEL.value(), messages: A.scorerMessages({ rubric, items: hard, deep: deepOf(sess) }), json: true, maxTokens: 1800, efforts: [effort === "minimal" ? "low" : effort, "low"] })), hard))()]);
+        const [h] = await Promise.allSettled([(async () => A.parseScorer(extractJson(await callModel({ apiKey, model: ASSESS_MODEL.value(), messages: A.scorerMessages({ rubric, items: hard, scope: scopeOf(kind) }), json: true, maxTokens: 1800, efforts: [effort === "minimal" ? "low" : effort, "low"] })), hard))()]);
         if (h.status === "rejected") { failed++; console.error("AI 재판정 실패:", h.reason?.message); }
         combined = A.applyAdjudication(combined, h.status === "fulfilled" ? h.value : null, hard);
         escalatedCount = hard.length;

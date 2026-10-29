@@ -2468,7 +2468,8 @@ const A_THRESH = { minPairs: 10, exact: 70, adjacent: 95, kappa: 0.6, selfConsis
 function assessFixture() {
   const st = teacherFixture(), base = st.handler;
   const rubric = RUBRIC.rubricFor("high", { causeMap: true });
-  const S = { scores: {}, release: { score: false, seteuk: false }, seteukText: "", seteukMax: 1500, aiAsked: false };
+  const S = { scores: {}, release: { score: false, seteuk: false }, seteukText: "", seteukMax: 1500, aiAsked: false, mode: "independent", aiDone: false };
+  const AIC12 = { level: 1, levels: [1, 1, 1], spread: 0, quote: "모두 안전을 바란다", quoteOk: true, reason: "두 바람을 담았으나 근거가 부족", n: 3 };
   const ev = { c12: [{ id: "e1", label: "같은 점", text: "모두 안전을 바란다" }, { id: "e2", label: "우리가 풀 질문", text: "어떻게 하면 안전을 지키면서도 인권을 존중할 수 있을까?" }], c22: [{ id: "e1", label: "원인 추측", text: "사람들의 불안" }] };
   const grp = rubric.criteria.filter((c) => c.scope === "group");
   st.assess = S;
@@ -2477,23 +2478,25 @@ function assessFixture() {
       st.calls.push([name, data]);
       switch (data.action) {
         case "get": return {
-          rubric, groups: [{ id: "g1", name: "1모둠", members: 2, scored: Object.keys(S.scores).length, total: grp.length }, { id: "g2", name: "2모둠", members: 0, scored: 0, total: grp.length }],
-          students: [{ key: "k1", nick: "가람", code: "S-AB12", groupId: "g1", scored: 0, total: 7, hasSeteuk: !!S.seteukText }, { key: "k2", nick: "나래", code: "S-0F3C", groupId: "g1", scored: 0, total: 7, hasSeteuk: false }],
-          progress: { done: Object.keys(S.scores).length, total: 2 * grp.length + 8, reviewCount: 0 }, release: S.release, seteukMax: S.seteukMax, seteukRange: [300, 3000], aiUsed: 0, aiCap: 1500, aiRuns: 3, thresholds: A_THRESH };
+          rubric, groups: [{ id: "g1", name: "1모둠", members: 2, scored: Object.keys(S.scores).length, total: grp.length, ai: S.aiDone ? 6 : 0, unreviewed: 0 }, { id: "g2", name: "2모둠", members: 0, scored: 0, total: grp.length, ai: 0, unreviewed: 0 }],
+          students: [{ key: "k1", nick: "가람", code: "S-AB12", groupId: "g1", scored: 0, total: 7, ai: S.aiDone ? 6 : 0, unreviewed: 0, hasSeteuk: !!S.seteukText }, { key: "k2", nick: "나래", code: "S-0F3C", groupId: "g1", scored: 0, total: 7, ai: S.aiDone ? 6 : 0, unreviewed: 0, hasSeteuk: false }],
+          mode: S.mode, aiTotal: { group: 6, student: 6 },
+          progress: { done: Object.keys(S.scores).length, total: 2 * grp.length + 8, reviewCount: 0, unreviewed: Object.values(S.scores).filter((x) => x.src === "ai" && x.reviewed === false).length }, release: S.release, seteukMax: S.seteukMax, seteukRange: [300, 3000], aiUsed: 0, aiCap: 1500, aiRuns: 3, thresholds: A_THRESH };
         case "subject": {
           const cs = data.kind === "group" ? grp : rubric.criteria.filter((c) => c.scope === "student");
-          return { kind: data.kind, id: data.id, evidence: Object.fromEntries(cs.map((c) => [c.id, ev[c.id] || []])), empty: Object.fromEntries(cs.map((c) => [c.id, !(ev[c.id] || []).length])), scores: S.scores,
-            ai: S.scores.c12 ? { c12: { level: 1, levels: [1, 1, 1], spread: 0, quote: "모두 안전을 바란다", quoteOk: true, reason: "두 바람을 담았으나 근거가 부족", n: 3 } } : {}, hasAi: S.aiAsked ? { c12: true } : {}, review: {}, seteuk: { text: S.seteukText, t: 0 } };
+          return { kind: data.kind, id: data.id, mode: S.mode, evidence: Object.fromEntries(cs.map((c) => [c.id, ev[c.id] || []])), empty: Object.fromEntries(cs.map((c) => [c.id, !(ev[c.id] || []).length])), scores: S.scores,
+            ai: S.mode === "ai_first" ? (S.aiDone ? { c12: AIC12 } : {}) : S.scores.c12 ? { c12: AIC12 } : {}, hasAi: S.aiAsked || S.aiDone ? { c12: true } : {}, review: {}, seteuk: { text: S.seteukText, t: 0 } };
         }
         case "save": {
           const c = rubric.criteria.find((x) => x.id === data.criterion);
           if (data.level === 0 && String(data.note || "").length < 8) throw new Error("functions: 가장 높은 수준은 평가 근거를 8자 이상 써야 해요.");
-          S.scores[data.criterion] = { level: data.level, pts: data.level === -1 ? 0 : c.levels[data.level].pts, note: data.note, t: 1 };
+          S.scores[data.criterion] = { level: data.level, pts: data.level === -1 ? 0 : c.levels[data.level].pts, note: data.note, t: 1, src: "teacher", reviewed: true };
           return { score: S.scores[data.criterion], ai: data.criterion === "c12" ? { level: 1, levels: [1, 1, 1], spread: 0, quote: "모두 안전을 바란다", quoteOk: true, reason: "두 바람을 담았으나 근거가 부족", n: 3 } : null, review: null };
         }
         case "release": S.release = { ...S.release, ...(data.score !== undefined ? { score: data.score } : {}), ...(data.seteuk !== undefined ? { seteuk: data.seteuk } : {}) }; return { release: S.release };
         case "seteukSave": S.seteukText = data.text; return { text: data.text, bytes: 10, warnings: [] };
-        case "config": S.seteukMax = data.seteukMax; return { seteukMax: data.seteukMax };
+        case "config": if (data.assessMode) { S.mode = data.assessMode; return { mode: S.mode }; } S.seteukMax = data.seteukMax; return { seteukMax: data.seteukMax };
+        case "applyAi": S.scores.c12 = { level: 1, pts: 8, note: "AI 제안: 두 바람을 담았으나 근거가 부족", t: 1, by: "ai", src: "ai", reviewed: false }; return { applied: 1, skipped: 0, subjects: 1 };
         case "reliability": return { overall: { n: 12, exact: 58.3, adjacent: 100, kappa: 0.52, bias: 0.42 }, byCriterion: [{ id: "c12", name: "모둠 문제 정하기", n: 12, exact: 58.3, adjacent: 100, kappa: 0.52, bias: 0.4 }], recheck: { n: 0, exact: null, adjacent: null, kappa: null, bias: null }, self: { n: 12, same: 75 },
           distribution: [{ id: "c12", name: "모둠 문제 정하기", n: 12, mean: 72.5, sd: 14.2 }], warnings: ["교사–AI 일치율 58.3%가 기준(70%)보다 낮습니다. 불일치 항목을 다시 살펴보세요."], thresholds: A_THRESH, groups: [{ id: "g1", name: "1모둠", group: 52 }], scored: 12 };
         case "recheck": return { items: [], left: 0, total: 12 };
@@ -2516,8 +2519,8 @@ function assessFixture() {
           dropped: [{ part: "기", text: "리더십이 뛰어남.", why: "근거가 연결되지 않아 뺐어요" }], warnings: ["부분과 부분을 잇는 말이 적어 앞뒤가 끊겨 읽힐 수 있음(승·전·결의 첫 문장)"], bytes: 1480, max: 1500, target: data.decision === "lower" ? 600 : 1500, reason: "범위 내", tries: 2, log: [{ n: 1, bytes: 1650 }, { n: 2, bytes: 1480 }], calls: 2, models: { strong: 1, fast: 1 }, grade: data.grade, emphasis: data.emphasis, decision: data.decision || "keep",
           evidence: { e1: { label: "내 활동 · 힘든 것", text: "일자리를 구하기 어려움" }, e2: { label: "내 활동 · 내가 쓴 원인 추측(법·제도)", text: "제도가 낯설다" }, e3: { label: "모둠 활동 · 확인된 사실", text: "허가율 약 2%" } } };
       }
-      S.aiAsked = true;
-      return { ok: 3, auto: 1, failedRuns: 0 };
+      S.aiAsked = true; S.aiDone = true;
+      return { ok: 3, auto: 1, failedRuns: 0, escalated: 0 };
     }
     return base(name, data);
   };
@@ -2554,6 +2557,55 @@ test("교사 평가: 척도표 점수가 보이고, 근거가 있어야 채점�
   assert.match(ai, /AI 제2평정 잘함 8점/); assert.match(ai, /3회 일치/); assert.match(ai, /인용 확인됨/); assert.match(ai, /내 채점과 같음/); assert.match(ai, /최종 판단은 교사/);
   assert.equal(st.calls.filter(([n, d]) => n === "assess" && d.action === "save").length, 2);
   if (process.env.UI_SHOT) await pg.screenshot({ path: `${process.env.UI_SHOT}/assess-pc.png`, fullPage: true });
+  assert.deepEqual(errors, []);
+});
+
+test("교사 평가: AI가 먼저 채점 — 전체 일괄 채점, AI 점수 미리 선택, 확인·수정, 채점 방식 바꾸기, 사용 순서 안내", async () => {
+  const st = assessFixture();
+  st.assess.mode = "ai_first";
+  const { pg, errors } = await openTeacher(st);
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-root .as-batch");
+  // 사용 순서(처음 쓰는 교사를 위한 안내)와 채점 방식 선택
+  await pg.locator(".as-batch summary").click();
+  const guide = await pg.locator(".as-batch").innerText();
+  assert.match(guide, /AI로 전체 채점[\s\S]*검토 전[\s\S]*세특.*탭/); assert.match(guide, /자동 캐시로 입력 요금이 줄어요/);
+  assert.equal(await pg.locator("#as-mode").inputValue(), "ai_first");
+  // AI 채점 전: 일괄 채점 단추와 안내
+  assert.match(await pg.locator("[data-asbatch]").innerText(), /AI로 전체 채점 \(모둠 1 · 학생 2명\)/);
+  assert.ok(await pg.locator("#as-apply").isChecked());
+  assert.match(await pg.locator('[data-cid="c12"]').innerText(), /아직 AI 채점 전이에요/);
+  await pg.click("[data-asbatch]");
+  assert.match(await pg.locator(".modal").innerText(), /모둠 1개와 학생 2명[\s\S]*약 10번/);
+  await pg.click(".modal .btn-primary");
+  await pg.waitForFunction(() => /완료/.test(document.querySelector(".toast")?.textContent || ""));
+  assert.deepEqual(st.calls.filter(([n, d]) => n === "assessAi").map(([, d]) => [d.kind, d.id]), [["group", "g1"], ["student", "k1"], ["student", "k2"]]);
+  assert.ok(st.calls.some(([n, d]) => n === "assess" && d.action === "applyAi" && d.all === true));
+  // 적용된 AI 점수: 검토 전 표시, 상단에 검토 전 수
+  await pg.waitForSelector('[data-cid="c12"] .tag:has-text("AI 점수 · 검토 전")');
+  assert.match(await pg.locator('[data-cid="c12"] textarea').inputValue(), /^AI 제안: 두 바람을/);
+  assert.match(await pg.locator('[data-cid="c12"] [data-assave]').innerText(), /확인·저장/);
+  assert.match(await pg.locator('[data-cid="c12"] .as-ai').innerText(), /AI 제안/);
+  // 교사가 맞다고 확인(같은 수준 저장) → 검토 완료로 바뀐다
+  await pg.locator('[data-cid="c12"] [data-assave]').click();
+  await pg.waitForSelector('[data-cid="c12"] .tag:has-text("교사 채점")');
+  // 채점 방식을 독립 채점으로 바꾸면 AI 점수가 다시 가려진다
+  await pg.selectOption("#as-mode", "independent");
+  await pg.waitForFunction(() => document.querySelector("#as-mode")?.value === "independent");
+  assert.equal(st.assess.mode, "independent");
+  assert.deepEqual(errors, []);
+});
+
+test("교사 평가: AI 점수를 아직 검토하지 않았으면 점수 공개 확인 창에서 알려 준다", async () => {
+  const st = assessFixture();
+  st.assess.mode = "ai_first"; st.assess.aiDone = true;
+  st.assess.scores.c12 = { level: 1, pts: 8, note: "AI 제안: x", t: 1, by: "ai", src: "ai", reviewed: false };
+  const { pg, errors } = await openTeacher(st);
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-root .as-rel");
+  await pg.click('[data-asrel="score"]');
+  assert.match(await pg.locator(".modal").innerText(), /AI 점수를 아직 검토하지 않은 칸이 1개/);
+  await pg.click(".modal .btn:has-text('취소')");
   assert.deepEqual(errors, []);
 });
 

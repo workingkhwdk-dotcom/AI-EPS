@@ -155,6 +155,22 @@ test("AI 채점 합치기: 가운데 값, 흔들림, 2회뿐이면 낮은 쪽", 
   assert.equal(A.combineRuns([run(-1), run(-1), run(2)], items).c12.level, -1);
 });
 
+test("AI 채점 프롬프트: 학생이 달라도 앞부분(규칙+수준표)이 같아 프롬프트 캐시가 먹고, 학생별 근거는 맨 뒤에 둔다", () => {
+  const r = R.rubricFor("high", deepAll);
+  const crit = r.criteria.filter((c) => c.scope === "student");
+  const mk = (txt) => A.scorerMessages({ rubric: r, items: crit.slice(0, 2).map((c) => ({ c, evidence: [{ id: "e1", label: "내 글", text: txt }] })), scope: "student" });
+  const a = mk("학생 A가 쓴 아주 긴 글"), b = mk("전혀 다른 학생 B의 글입니다");
+  assert.equal(a[0].content, b[0].content);
+  const [ua, ub] = [a[1].content, b[1].content];
+  const cut = ua.indexOf("[채점할 학생의 근거]");
+  assert.ok(cut > 1500, `공통 앞부분이 길다: ${cut}`);
+  assert.equal(ua.slice(0, cut), ub.slice(0, cut), "근거 앞은 학생이 달라도 글자 하나 다르지 않다");
+  assert.ok(ua.slice(cut).includes("학생 A가 쓴") && !ua.slice(0, cut).includes("학생 A가"));
+  // 근거가 있는 기준만 채우라고 알리되, 수준표는 그 영역 기준 전체가 들어 있다
+  assert.ok(crit.every((c) => ua.includes(`## ${c.id} `)));
+  assert.match(ua, /아래 2개 기준\(c11, c21\)만 채운다/);
+});
+
 test("AI 채점 프롬프트: 근거를 <evidence> 로 감싸고 학생 글의 지시는 따르지 않는다고 못박는다", () => {
   const r = R.rubricFor("high", deepAll);
   const c = r.criteria.find((x) => x.id === "c12");
@@ -197,6 +213,22 @@ test("신뢰도 보고서: 표본이 적으면 해석 경고, 일치율이 낮�
   assert.ok(few.distribution.find((d) => d.id === "c12").n === 3);
 });
 
+test("신뢰도: AI 점수를 따른 점수(ai·edited)는 교사–AI 일치도에 넣지 않고 수정률로 본다", () => {
+  const r = R.rubricFor("high");
+  const docs = [];
+  for (let i = 0; i < 12; i++) docs.push({ id: `g${i}`, scores: { c12: { level: 1, pts: 8, src: i < 9 ? "ai" : "edited" } }, ai: { c12: { level: 1, n: 3, spread: 0 } } });
+  const rep = A.reliabilityReport(r, docs);
+  assert.equal(rep.overall.n, 0, "독립 채점이 아니라 일치도 계산에서 빠진다");
+  assert.deepEqual([rep.edit.same, rep.edit.changed, rep.edit.rate], [9, 3, 25]);
+  const noEdit = A.reliabilityReport(r, docs.map((d) => ({ ...d, scores: { c12: { ...d.scores.c12, src: "ai" } } })));
+  assert.ok(noEdit.warnings.some((w) => /한 번도 고치지 않았/.test(w)));
+  const manyEdit = A.reliabilityReport(r, docs.map((d) => ({ ...d, scores: { c12: { ...d.scores.c12, src: "edited" } } })));
+  assert.ok(manyEdit.warnings.some((w) => /100% 고쳤어요/.test(w)));
+  // 독립 채점(src teacher 또는 없음)은 그대로 일치도에 들어간다
+  const indep = A.reliabilityReport(r, docs.map((d) => ({ ...d, scores: { c12: { level: 1, pts: 8 } } })));
+  assert.equal(indep.overall.n, 12);
+});
+
 test("재채점 표본: 같은 열쇠는 늘 같은 결과, 대략 1/5", () => {
   const keys = Array.from({ length: 400 }, (_, i) => `s_${i}:c11`);
   const picked = keys.filter((k) => A.inRecheckSample(k));
@@ -217,12 +249,12 @@ global.fetch = async (url, init) => {
   const sys = body.messages[0].content;
   let content;
   if (sys.includes("제2 채점자")) {
-    const ids = [...body.messages[1].content.matchAll(/^## (c\d\d) /gm)].map((m) => m[1]);
+    const ids = ((body.messages[1].content.match(/아래 \d+개 기준\(([^)]*)\)만 채운다/) || [])[1] || "").split(", ").filter(Boolean);
     scoreModels.push(body.model);
     const lunaCalls = scoreModels.filter((m) => /luna/.test(m)).length;
     const level = (id) => (scoreSplit && /luna/.test(body.model) && id === "c12" ? (lunaCalls % 2 ? 0 : 2) : 1);
     // 인용문: 그 기준의 근거 첫 항목에서 그대로 가져온다(근거가 비면 빈 문자열)
-    const firstText = (id) => { const sec = body.messages[1].content.split("## ").find((x) => x.startsWith(id + " ")) || ""; const m = sec.match(/\[e1\] ([^\n]+)/); return m ? m[1].slice(-8) : ""; };
+    const firstText = (id) => { const sec = body.messages[1].content.split("### ").find((x) => x.startsWith(id + " 근거")) || ""; const m = sec.match(/\[e1\] ([^\n]+)/); return m ? m[1].slice(-8) : ""; };
     content = JSON.stringify({ items: ids.map((id) => ({ id, level: level(id), quote: aiMode === "bad" ? "학생이 쓰지 않은 문장입니다 정말로" : firstText(id), reason: "수준 설명 일부 충족" })) });
   } else if (sys.includes("질적 수준을 판정하는 평가자")) {
     const poor = levelMode === "poor";
@@ -256,7 +288,7 @@ const K1 = credKey(1, "가나"), K2 = credKey(1, "다라");
 
 async function seed(over = {}) {
   store.clear();
-  store.set(`sessions/${CODE}`, { teacherUid: "T1", title: "난민 수업", eventId: "jeju2018", groupCount: 2, closed: false, started: true, level: "high", deep: deepAll, ...over });
+  store.set(`sessions/${CODE}`, { teacherUid: "T1", title: "난민 수업", eventId: "jeju2018", groupCount: 2, closed: false, started: true, level: "high", deep: deepAll, assessMode: "independent", ...over });
   store.set(`sessions/${CODE}/groups/g1`, { name: "1모둠", aiCount: 2, memberCount: 2, work: WORK });
   store.set(`sessions/${CODE}/groups/g2`, { name: "2모둠", aiCount: 0, memberCount: 0, work: {} });
   store.set(`sessions/${CODE}/members/U1`, { groupId: "g1", nickname: "가나", credKey: K1, chatCount: 1, coachCount: 0 });
@@ -331,6 +363,59 @@ test("통합 채점: 인용문을 근거에서 못 찾으면 고성능이 다시
   assert.ok(r.escalated >= 1 && scoreModels.some((m) => !/luna/.test(m)));
   await seed({ assessAiCount: 1497 });
   await assert.rejects(() => api.assessAi(as({ action: "score", kind: "group", id: "g1" })), /한도/);
+});
+
+test("통합 AI 먼저: AI 제안이 바로 보이고, 점수로 적용한 뒤 교사가 확인·수정한다(출처 ai·edited, 검토 전·후)", async () => {
+  await seed({ assessMode: undefined }); // 기본값은 AI 먼저
+  const g = await api.assess(as({ action: "get" }));
+  assert.equal(g.mode, "ai_first");
+  await api.assessAi(as({ action: "score", kind: "group", id: "g1" }));
+  // 교사가 아직 채점하지 않았어도 AI 제안이 내려온다
+  let sub = await api.assess(as({ action: "subject", kind: "group", id: "g1" }));
+  assert.equal(sub.mode, "ai_first");
+  assert.ok(sub.ai.c12 && sub.ai.c23 && sub.ai.c51);
+  assert.deepEqual(sub.scores, {});
+  // AI 제안을 점수로 적용(교사가 아직 안 한 칸만). 적용된 점수는 '검토 전'
+  const r = await api.assess(as({ action: "applyAi", kind: "group", id: "g1" }));
+  assert.ok(r.applied >= 5 && r.subjects === 1);
+  sub = await api.assess(as({ action: "subject", kind: "group", id: "g1" }));
+  assert.deepEqual([sub.scores.c12.src, sub.scores.c12.reviewed, sub.scores.c12.by], ["ai", false, "ai"]);
+  assert.equal(sub.scores.c12.pts, 8);
+  assert.match(sub.scores.c12.note, /^AI 제안:/);
+  let g2 = await api.assess(as({ action: "get" }));
+  assert.equal(g2.progress.unreviewed, r.applied);
+  assert.equal(g2.groups[0].unreviewed, r.applied);
+  // 교사가 같은 수준으로 저장하면 '확인'(ai, 검토 완료), 다른 수준으로 저장하면 '수정'(edited, AI 수준 기록)
+  const ok = await api.assess(as({ action: "save", kind: "group", id: "g1", criterion: "c12", level: 1, note: "AI와 같게 확인함" }));
+  assert.deepEqual([ok.score.src, ok.score.reviewed], ["ai", true]);
+  const ed = await api.assess(as({ action: "save", kind: "group", id: "g1", criterion: "c23", level: 2, note: "" }));
+  assert.deepEqual([ed.score.src, ed.score.aiLevel, ed.score.pts], ["edited", 1, 6]);
+  g2 = await api.assess(as({ action: "get" }));
+  assert.equal(g2.progress.unreviewed, r.applied - 2);
+  // 처음 저장부터 AI 제안과 두 수준 이상 다르면 평가 근거가 필요하다(AI 제안을 이미 봤기 때문)
+  await assert.rejects(() => api.assess(as({ action: "save", kind: "group", id: "g1", criterion: "c32", level: 3, note: "" })), /평가 근거/);
+  // 이미 채점한 칸은 다시 적용하지 않는다
+  assert.equal((await api.assess(as({ action: "applyAi", kind: "group", id: "g1" }))).applied, 0);
+  // 방식을 바꾸면 이후 AI 제안을 다시 가린다
+  assert.equal((await api.assess(as({ action: "config", assessMode: "independent" }))).mode, "independent");
+  await assert.rejects(() => api.assess(as({ action: "config", assessMode: "x" })), /채점 방식/);
+});
+
+test("통합 AI 먼저: 전체 일괄 적용은 모든 모둠·학생에 적용하고, 검토 전 점수는 재채점 표본에서 빠진다", async () => {
+  await seed({ assessMode: undefined });
+  await api.assessAi(as({ action: "score", kind: "group", id: "g1" }));
+  await api.assessAi(as({ action: "score", kind: "student", id: K1 }));
+  const r = await api.assess(as({ action: "applyAi", all: true }));
+  assert.equal(r.subjects, 2);
+  const g = await api.assess(as({ action: "get" }));
+  assert.equal(g.students.find((x) => x.key === K1).ai >= 1, true);
+  assert.ok(g.progress.unreviewed >= 6);
+  // 모두 검토 전이라 재채점 표본이 없다
+  assert.deepEqual((await api.assess(as({ action: "recheck" }))).items, []);
+  // 학생 점수도 개인 칸에 들어간다
+  const doc = store.get(`sessions/${CODE}/assess/s_${K1}`);
+  assert.ok(Object.keys(doc.scores).every((c) => ["c11", "c21", "c22", "c31", "c41", "c52", "c62"].includes(c)));
+  assert.ok(!doc.scores.c62, "교사 관찰 칸(c62)은 AI가 채점하지 않는다");
 });
 
 test("통합: 둘째 저장부터 AI 제안과 두 수준 이상 다르면 평가 근거 필수, 변경 이력이 남는다", async () => {
