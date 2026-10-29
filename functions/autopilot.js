@@ -46,23 +46,23 @@ function triage({ c, ai, flags = [] }) {
   const reasons = [];
   if (!ai) return { pass: false, reasons: ["AI 채점 전"] };
   if (ai.auto) return { pass: true, reasons: [] }; // 학생이 쓴 근거가 비어 미제출로 본 칸
-  if (ai.spread > 0) reasons.push("AI 3번이 서로 다른 수준으로 갈렸어요");
-  if (ai.esc && ai.fastLevel !== undefined && ai.fastLevel !== null && ai.fastLevel !== ai.level) reasons.push("고성능 재판정이 빠른 모델과 달랐어요");
-  if (ai.escFailed) reasons.push("고성능 재판정을 받지 못했어요");
-  if (ai.level !== -1 && !ai.quoteOk) reasons.push("AI가 인용한 문장을 근거에서 찾지 못했어요");
-  if (ai.borderline) reasons.push("AI가 두 수준 사이라 애매하다고 표시했어요");
-  for (const f of flags) reasons.push(f === "지시문 의심" ? "학생 글에 AI에게 점수를 요구하는 듯한 문장이 있어요" : "학생이 쓴 근거가 너무 짧아 AI 혼자 판단하기 어려워요");
+  if (ai.spread > 0) reasons.push("AI가 세 번 채점했는데 결과가 달랐어요");
+  if (ai.esc && ai.fastLevel !== undefined && ai.fastLevel !== null && ai.fastLevel !== ai.level) reasons.push("정밀 모델로 다시 보니 판단이 달라졌어요");
+  if (ai.escFailed) reasons.push("정밀 모델로 다시 보지 못했어요");
+  if (ai.level !== -1 && !ai.quoteOk) reasons.push("AI가 근거로 든 문장이 학생 글에 없어요");
+  if (ai.borderline) reasons.push("AI가 두 수준 사이에서 애매하다고 했어요");
+  for (const f of flags) reasons.push(f === "지시문 의심" ? "학생 글에 AI에게 점수를 요구하는 듯한 문장이 있어요" : "학생이 쓴 글이 너무 짧아 AI 혼자 판단하기 어려워요");
   const last = c.levels.length - 1;
-  if ((ai.level === 0 || ai.level === last) && !(ai.esc && ai.fastLevel === ai.level)) reasons.push("가장 높은·낮은 수준은 고성능 재판정이 같을 때만 통과해요");
+  if ((ai.level === 0 || ai.level === last) && !(ai.esc && ai.fastLevel === ai.level)) reasons.push("가장 높거나 낮은 수준이라 선생님이 확인해요");
   return { pass: reasons.length === 0, reasons };
 }
 // 운영 상태(정지·교정)를 더한 최종 판정. calib: 교정을 쓰는지, calibPass: 기준ID → 통과 여부 | null(아직 교정 없음)
 function gate({ tri, cid, calibOn, calibPass, paused }) {
   const reasons = [...tri.reasons];
-  if (paused) reasons.unshift("감사에서 AI와 안 맞아 자동 통과를 멈췄어요");
+  if (paused) reasons.unshift("다시 채점해 본 결과 AI와 자주 달라 AI 자동 확정을 멈췄어요");
   if (calibOn) {
-    if (!calibPass) reasons.unshift("교정이 아직 없어 자동 통과를 쓸 수 없어요");
-    else if (calibPass[cid] !== true) reasons.unshift("이 기준은 교정을 통과하지 못했어요");
+    if (!calibPass) reasons.unshift("AI를 선생님 기준에 아직 맞춰 보지 않았어요");
+    else if (calibPass[cid] !== true) reasons.unshift("이 항목은 맞춰 보기를 통과하지 못했어요(덜 맞거나 샘플이 모자람)");
   }
   return { pass: reasons.length === 0, reasons };
 }

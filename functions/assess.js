@@ -292,16 +292,16 @@ function reliabilityReport(rubric, docs) {
     return { id: c.id, name: c.name, n: v.length, mean: Math.round(m * 1000) / 10, sd: Math.round(sd * 1000) / 10 };
   });
   const T = THRESHOLDS, warns = [];
-  if (overall.n && overall.n < T.minPairs) warns.push(`교사–AI 비교 자료가 ${overall.n}건뿐이라 일치도를 해석하기 이릅니다(${T.minPairs}건 이상 권장).`);
+  if (overall.n && overall.n < T.minPairs) warns.push(`선생님과 AI를 비교한 것이 ${overall.n}개뿐이라 일치도를 해석하기 이릅니다(${T.minPairs}개 이상 권장).`);
   if (overall.n >= T.minPairs) {
-    if (overall.exact < T.exact) warns.push(`교사–AI 일치율 ${overall.exact}%가 기준(${T.exact}%)보다 낮습니다. 불일치 항목을 다시 살펴보세요.`);
-    if (overall.kappa !== null && overall.kappa < T.kappa) warns.push(`가중 카파 ${overall.kappa}가 기준(${T.kappa})보다 낮습니다. 척도 해석이 평정마다 다를 수 있습니다.`);
+    if (overall.exact < T.exact) warns.push(`선생님과 AI의 일치율(같은 수준을 고른 비율) ${overall.exact}%가 기준(${T.exact}%)보다 낮습니다. 다르게 고른 항목을 다시 살펴보세요.`);
+    if (overall.kappa !== null && overall.kappa < T.kappa) warns.push(`일치도(카파) ${overall.kappa}가 기준(${T.kappa})보다 낮습니다. 선생님과 AI가 척도표를 다르게 읽고 있을 수 있습니다.`);
     if (Math.abs(overall.bias) >= T.bias) warns.push(`교사 점수가 AI보다 평균 ${Math.abs(overall.bias)}수준 ${overall.bias > 0 ? "후한" : "엄격한"} 편입니다.`);
   }
   if (self.n >= T.minPairs && self.same < T.selfConsistency) warns.push(`AI의 반복 채점이 같은 수준으로 나온 비율이 ${self.same}%로 낮습니다. AI 제안은 참고만 하세요.`);
-  if (recheck.n >= 5 && recheck.exact < T.recheckExact) warns.push(`재채점 일치율이 ${recheck.exact}%입니다. 척도 기준을 다시 읽고 채점 기준을 맞춰 보세요.`);
+  if (recheck.n >= 5 && recheck.exact < T.recheckExact) warns.push(`다시 채점했을 때 같은 비율이 ${recheck.exact}%입니다. 척도표를 다시 읽고 채점 기준을 맞춰 보세요.`);
   const nEdit = edit.same + edit.changed, editRate = nEdit ? pct(edit.changed, nEdit) : null;
-  if (nEdit >= T.minPairs && edit.changed === 0) warns.push("AI 점수를 한 번도 고치지 않았어요. 꼼꼼히 검토했는지 재채점 표본으로 점검해 보세요.");
+  if (nEdit >= T.minPairs && edit.changed === 0) warns.push("AI 점수를 한 번도 고치지 않았어요. 꼼꼼히 확인했는지 '다시 채점해 보기'로 점검해 보세요.");
   if (nEdit >= T.minPairs && editRate > 50) warns.push(`AI 점수를 ${editRate}% 고쳤어요. AI 제안이 이 수업의 기준과 맞지 않을 수 있어요(척도·근거를 확인해 보세요).`);
   return { overall, byCriterion, recheck, self, edit: { same: edit.same, changed: edit.changed, rate: editRate }, distribution: stat, warnings: warns, thresholds: T };
 }
@@ -319,7 +319,7 @@ const NOTE_MIN = 8;
 function checkScoreInput({ c, level, note, evidenceIsEmpty, aiLevel }) {
   if (!Number.isInteger(level) || level < -1 || level >= c.levels.length) return "수준을 고르세요.";
   if (evidenceIsEmpty && level !== -1) return "학생이 쓴 근거가 없어 '미제출'만 고를 수 있어요.";
-  if (!evidenceIsEmpty && level === -1) return "근거가 있는 칸은 '미제출'로 매길 수 없어요. 수준을 고르세요.";
+  if (!evidenceIsEmpty && level === -1) return "학생이 쓴 글이 있는 항목은 '미제출'로 매길 수 없어요. 수준을 고르세요.";
   const n = c.levels.length, need = [];
   if (level === 0) need.push("가장 높은 수준");
   if (level === n - 1) need.push("가장 낮은 수준");

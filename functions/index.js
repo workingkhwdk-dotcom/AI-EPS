@@ -1470,7 +1470,7 @@ exports.assess = onCall(opts, async (req) => {
     const members = await membersOf(code);
     const c = rubric.criteria.find((x) => x.id === String(req.data?.criterion));
     const level = Number(req.data?.level);
-    if (!c || c.ai !== false || c.scope !== "student") throw new HttpsError("invalid-argument", "일괄 적용은 협력 같은 교사 관찰 칸에만 쓸 수 있어요.");
+    if (!c || c.ai !== false || c.scope !== "student") throw new HttpsError("invalid-argument", "한꺼번에 매기기는 협력 태도처럼 선생님이 관찰하는 항목에만 쓸 수 있어요.");
     if (!Number.isInteger(level) || level < 0 || level >= c.levels.length) throw new HttpsError("invalid-argument", "수준을 고르세요.");
     const note = A.clip(req.data?.note, 500);
     let applied = 0, skipped = 0;
@@ -1525,9 +1525,9 @@ exports.assess = onCall(opts, async (req) => {
     const members = await membersOf(code);
     const m = members.find((x) => x.key === String(req.data?.id));
     const cid = String(req.data?.criterion || "");
-    if (!m || !/^c\d\d$/.test(cid)) throw new HttpsError("invalid-argument", "이의 제기를 찾을 수 없습니다.");
+    if (!m || !/^c\d\d$/.test(cid)) throw new HttpsError("invalid-argument", "이의 신청을 찾을 수 없습니다.");
     const doc = (await assessRef(code, `s_${m.key}`).get()).data() || {};
-    if (!doc.appeals?.[cid]) throw new HttpsError("not-found", "이의 제기를 찾을 수 없습니다.");
+    if (!doc.appeals?.[cid]) throw new HttpsError("not-found", "이의 신청을 찾을 수 없습니다.");
     await patchAssess(assessRef(code, `s_${m.key}`), { [`appeals.${cid}.status`]: "resolved", [`appeals.${cid}.reply`]: A.clip(req.data?.reply, 300), [`appeals.${cid}.resolvedAt`]: Date.now() });
     return { ok: true };
   }
@@ -1537,7 +1537,7 @@ exports.assess = onCall(opts, async (req) => {
     const members = await membersOf(code);
     const groups = Array.from({ length: sess.groupCount }, (_, i) => ({ id: `g${i + 1}`, members: members.filter((m) => m.groupId === `g${i + 1}`).length }));
     const sample = AP.pickCalibSample({ students: members.map((m) => ({ key: m.key })), groups });
-    if (sample.filter((t) => t.kind === "student").length < 3) throw new HttpsError("failed-precondition", "교정 표본으로 쓸 학생이 3명 이상 있어야 해요.");
+    if (sample.filter((t) => t.kind === "student").length < 3) throw new HttpsError("failed-precondition", "AI를 기준에 맞춰 보려면 샘플로 쓸 학생이 3명 이상 있어야 해요.");
     await db.doc(`sessions/${code}`).update({ calib: { key: calibKeyOf(sess), status: "collecting", sample, startedAt: Date.now() } });
     return { sample, students: sample.filter((t) => t.kind === "student").length, groups: sample.filter((t) => t.kind === "group").length };
   }
@@ -1556,7 +1556,7 @@ exports.assess = onCall(opts, async (req) => {
       const c = rubric.criteria.find((x) => x.id === String(req.data?.criterion));
       const level = Number(req.data?.level);
       const doc = docsSnap.find((d) => d.id === key)?.data();
-      if (!c || !doc?.scores?.[c.id]) throw new HttpsError("failed-precondition", "먼저 채점한 칸만 다시 채점할 수 있어요.");
+      if (!c || !doc?.scores?.[c.id]) throw new HttpsError("failed-precondition", "먼저 채점한 항목만 다시 채점할 수 있어요.");
       if (!Number.isInteger(level) || level < -1 || level >= c.levels.length) throw new HttpsError("invalid-argument", "수준을 고르세요.");
       await patchAssess(assessRef(code, key), { [`recheck.${c.id}`]: { level, t: Date.now() } });
       return { ok: true };
@@ -1612,7 +1612,7 @@ exports.assess = onCall(opts, async (req) => {
   }
   if (action === "config") {
     const n = parseInt(req.data?.seteukMax, 10);
-    if (!(n >= A.SETEUK_MAX.min && n <= A.SETEUK_MAX.max)) throw new HttpsError("invalid-argument", `세특 한도는 ${A.SETEUK_MAX.min}~${A.SETEUK_MAX.max}바이트 사이로 정하세요.`);
+    if (!(n >= A.SETEUK_MAX.min && n <= A.SETEUK_MAX.max)) throw new HttpsError("invalid-argument", `세특 분량은 ${A.SETEUK_MAX.min}~${A.SETEUK_MAX.max}바이트 사이로 정하세요.`);
     await db.doc(`sessions/${code}`).update({ seteukMax: n });
     return { seteukMax: n };
   }
@@ -1741,11 +1741,11 @@ exports.assessAi = onCall(assessAiOpts, async (req) => {
 
     // ---- ④⑤ 초안(기승전결 4부분) + NEIS 바이트 수렴 ----
     const prep = doc.seteuk?.prep;
-    if (!prep || prep.target !== target) throw new HttpsError("failed-precondition", "먼저 수준 판정을 해 주세요. (글자 수 한도를 바꿨다면 다시 판정해야 해요)");
+    if (!prep || prep.target !== target) throw new HttpsError("failed-precondition", "먼저 수준 판정을 해 주세요. 초안 만들기를 다시 누르면 다시 판정해요(분량을 바꾸면 다시 판정해야 해요).");
     const grade = SK.GRADES.includes(req.data?.grade) ? req.data.grade : prep.grade;
     const emphasis = SK.EMPHASIS[req.data?.emphasis] ? req.data.emphasis : "balance";
     let decision = String(req.data?.decision || "");
-    if (prep.needsAdjustment && !["lower", "keep", "cancel"].includes(decision)) throw new HttpsError("failed-precondition", "근거가 목표 분량에 비해 적어요. 분량을 낮출지 유지할지 먼저 골라 주세요.");
+    if (prep.needsAdjustment && !["lower", "keep", "cancel"].includes(decision)) throw new HttpsError("failed-precondition", "학생 글이 분량에 비해 적어요. 짧게 쓸지 분량을 맞출지 먼저 골라 주세요.");
     if (decision === "cancel") return { cancelled: true };
     if (!prep.needsAdjustment) decision = "keep";
     const dec = SK.resolveDecision(decision, target, prep.suggestedMax);
@@ -1838,7 +1838,7 @@ exports.myResult = onCall(opts, async (req) => {
     m = { nickname, groupId: `g${groupNo}`, credKey: key };
   }
   const base = { title: sess.title, nickname: m.nickname, groupId: m.groupId, released: rel };
-  if (req.data?.appeal && !rel.score) throw new HttpsError("failed-precondition", "점수가 공개된 뒤에 이의를 제기할 수 있어요.");
+  if (req.data?.appeal && !rel.score) throw new HttpsError("failed-precondition", "점수가 공개된 뒤에 이의를 신청할 수 있어요.");
   if (!rel.score && !rel.seteuk) return base;
   const key = studentKeyOf(m);
   const [stuSnap, grpSnap] = await Promise.all([assessRef(code, `s_${key}`).get(), assessRef(code, m.groupId).get()]);
@@ -1850,10 +1850,10 @@ exports.myResult = onCall(opts, async (req) => {
     const rubric = rubricOfSession(sess);
     const cid = String(req.data.appeal.criterion || ""), text = A.clip(req.data.appeal.text, 300);
     const c = rubric.criteria.find((x) => x.id === cid);
-    if (!rel.score) throw new HttpsError("failed-precondition", "점수가 공개된 뒤에 이의를 제기할 수 있어요.");
-    if (!c || !confirmedOf(c)) throw new HttpsError("not-found", "이의를 제기할 칸을 찾을 수 없어요.");
+    if (!rel.score) throw new HttpsError("failed-precondition", "점수가 공개된 뒤에 이의를 신청할 수 있어요.");
+    if (!c || !confirmedOf(c)) throw new HttpsError("not-found", "이의를 신청할 항목을 찾을 수 없어요.");
     if (text.length < 4) throw new HttpsError("invalid-argument", "이유를 4자 이상 써 주세요.");
-    if (stu.appeals?.[cid]?.status === "resolved") throw new HttpsError("failed-precondition", "이미 처리된 이의 제기예요.");
+    if (stu.appeals?.[cid]?.status === "resolved") throw new HttpsError("failed-precondition", "이미 처리된 이의 신청이에요.");
     const rec = { text, t: Date.now(), status: "open" };
     await patchAssess(assessRef(code, `s_${key}`), { [`appeals.${cid}`]: rec, kind: "student", name: m.nickname });
     stu.appeals = { ...(stu.appeals || {}), [cid]: rec };

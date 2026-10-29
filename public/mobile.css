@@ -246,3 +246,10 @@ body.m{ --navh:calc(54px + env(safe-area-inset-bottom)); --hdrh:calc(41px + env(
 .m .qr-mini{ width:56px; height:56px; }
 /* 대화 중 알림은 화면 위쪽에 띄워 아래 입력창을 가리지 않는다 */
 .m.chat-mode .toast{ top:calc(60px + env(safe-area-inset-top)); bottom:auto; }
+
+/* 평가 척도표: 항목마다 카드 한 장, 수준 이름을 칸 앞에 붙인다(PC 표의 열 너비는 쓰지 않는다) */
+.m-teacher .as-rubric thead{ display:none; }
+.m-teacher .as-rubric td, .m-teacher .as-rubric th{ min-width:0; font-size:13.5px; }
+.m-teacher .as-rubric tbody tr{ grid-template-columns:1fr; }
+.m-teacher .as-rubric tr.as-el{ background:none; padding:10px 4px 0; }
+.m-teacher .as-rubric td[data-lv]::before{ content:attr(data-lv); display:block; font-weight:800; color:var(--ink); }
