@@ -298,23 +298,39 @@ test("통합: 독립 채점 — AI 제안은 교사가 그 기준을 저장하�
   assert.equal(sub.ai.c12.spread, 0);
 });
 
-test("통합 채점: 정확도를 위해 빠른 모델이 같은 근거를 3번 채점하고 고성능으로 올리지 않는다", async () => {
+test("통합 채점: 빠른 모델이 3번 채점하고, 일치하면 고성능은 부르지 않는다", async () => {
   await seed();
   scoreModels.length = 0; scoreSplit = false;
   const r = await api.assessAi(as({ action: "score", kind: "group", id: "g1" }));
-  assert.deepEqual([scoreModels.length, scoreModels.every((m) => /luna/.test(m))], [3, true]);
-  assert.equal(r.ok >= 5, true);
-  let d = store.get(`sessions/${CODE}/assess/g1`).ai;
-  assert.deepEqual([d.c12.n, d.c12.spread, d.c12.levels.length], [3, 0, 3]);
+  assert.deepEqual([scoreModels.length, scoreModels.every((m) => /luna/.test(m)), r.escalated], [3, true, 0]);
+  const d = store.get(`sessions/${CODE}/assess/g1`).ai;
+  assert.deepEqual([d.c12.n, d.c12.spread, d.c12.levels.length, !!d.c12.esc], [3, 0, 3, false]);
   assert.equal(store.get(`sessions/${CODE}`).assessAiCount, 3);
-  // 갈리면 가운데 값을 쓰고 흔들림(spread)을 알린다. 고성능 모델은 부르지 않는다
+});
+
+test("통합 채점: 3번이 갈린 기준만 고성능이 한 번 더 판정하고 그 판정이 최종 AI 제안이 된다", async () => {
+  await seed();
   scoreModels.length = 0; scoreSplit = true;
-  await api.assessAi(as({ action: "score", kind: "group", id: "g1" }));
-  assert.equal(scoreModels.length, 3);
-  assert.ok(scoreModels.every((m) => /luna/.test(m)));
-  d = store.get(`sessions/${CODE}/assess/g1`).ai;
-  assert.ok(d.c12.spread >= 1 && d.c12.n === 3);
+  const r = await api.assessAi(as({ action: "score", kind: "group", id: "g1" }));
+  assert.deepEqual(scoreModels.map((m) => /luna/.test(m)), [true, true, true, false]);
+  assert.equal(r.escalated, 1);
+  const d = store.get(`sessions/${CODE}/assess/g1`).ai;
+  assert.deepEqual([d.c12.esc, d.c12.n, d.c12.levels.length, d.c12.level], [true, 4, 4, 1], "빠른 모델 3번(0·2·0)이 갈려 고성능(1)이 최종");
+  assert.ok(d.c12.spread >= 1);
+  assert.ok(Number.isInteger(d.c12.fastLevel));
+  assert.equal(!!d.c23.esc, false, "일치한 다른 기준은 그대로");
+  assert.equal(store.get(`sessions/${CODE}`).assessAiCount, 4);
   scoreSplit = false;
+});
+
+test("통합 채점: 인용문을 근거에서 못 찾으면 고성능이 다시 판정하고, 한도에 모자라면 받지 않는다", async () => {
+  await seed();
+  scoreModels.length = 0; aiMode = "bad";
+  const r = await api.assessAi(as({ action: "score", kind: "group", id: "g1" }));
+  aiMode = "normal";
+  assert.ok(r.escalated >= 1 && scoreModels.some((m) => !/luna/.test(m)));
+  await seed({ assessAiCount: 1497 });
+  await assert.rejects(() => api.assessAi(as({ action: "score", kind: "group", id: "g1" })), /한도/);
 });
 
 test("통합: 둘째 저장부터 AI 제안과 두 수준 이상 다르면 평가 근거 필수, 변경 이력이 남는다", async () => {

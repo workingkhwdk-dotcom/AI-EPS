@@ -1215,9 +1215,10 @@ exports.demoRequest = onCall({ ...aiOpts, maxInstances: 2 }, async (req) => {
 const A = require("./assess");
 const { rubricFor, totals } = require("./rubric");
 // 비용과 성능을 나누는 하이브리드: 대부분은 빠른(저가) 모델이 하고, 어려운 곳만 고성능 모델이 맡는다.
-//  - 채점 제안: 정확도가 중요해 빠른 모델이 같은 근거를 3번 채점하고 가운데 값과 흔들림을 쓴다(고성능 모델로 올리지 않는다)
+//  - 채점 제안: 정확도가 중요해 빠른 모델이 같은 근거를 3번 채점하고, 3번이 갈리거나 인용문을 못 찾은 기준만 고성능 모델이 한 번 더 판정한다(그 판정이 최종 AI 제안)
 //  - 세특: 수준 판정은 빠른 모델(OPENAI_MODEL), 첫 초안은 고성능, 분량 보정 반복은 빠른 모델. 보정이 구조를 깨거나 3번 넘게 걸리면 고성능으로 올린다
-const ASSESS_FAST_MODEL = modelParam("ASSESS_FAST_MODEL", "gpt-5.6-luna"); // 채점 제안(제2평정자)
+const ASSESS_FAST_MODEL = modelParam("ASSESS_FAST_MODEL", "gpt-5.6-luna"); // 채점 제안(제2평정자) 3번 채점
+const ASSESS_MODEL = modelParam("ASSESS_MODEL", "gpt-5.6-terra"); // 갈리거나 인용을 못 찾은 기준의 고성능 재판정
 const SETEUK_MODEL = modelParam("SETEUK_MODEL", "gpt-5.6-terra"); // 세특 첫 초안과 올려 쓴 보정
 const SETEUK_FIX_MODEL = modelParam("SETEUK_FIX_MODEL", "gpt-5.6-luna"); // 세특 분량 보정(압축·보강)
 const ASSESS_RUNS = 3; // 같은 근거를 AI가 몇 번 채점해 가운데 값과 흔들림을 구하는지
@@ -1471,21 +1472,30 @@ exports.assessAi = onCall(assessAiOpts, async (req) => {
     const items = crits.filter((c) => !empty[c.id]).map((c) => ({ c, evidence: evidence[c.id] }));
     const patch = {};
     for (const c of crits.filter((x) => empty[x.id])) patch[`ai.${c.id}`] = { level: -1, levels: [-1], spread: 0, quote: "", quoteOk: true, reason: "학생이 쓴 근거가 비어 있음", n: 0, auto: true, t: Date.now() };
-    let ok = 0, failed = 0;
+    let ok = 0, failed = 0, escalatedCount = 0;
     if (items.length) {
-      if (used + ASSESS_RUNS > ASSESS_AI_CAP) throw new HttpsError("resource-exhausted", `이 수업의 평가용 AI 호출 한도(${ASSESS_AI_CAP}회)에 가까워 더 받을 수 없어요.`);
+      if (used + ASSESS_RUNS + 1 > ASSESS_AI_CAP) throw new HttpsError("resource-exhausted", `이 수업의 평가용 AI 호출 한도(${ASSESS_AI_CAP}회)에 가까워 더 받을 수 없어요.`);
       await bump(ASSESS_RUNS);
       const messages = A.scorerMessages({ rubric, items, deep: deepOf(sess) });
       const runs = (await Promise.allSettled(Array.from({ length: ASSESS_RUNS }, async () => {
         const text = await callModel({ apiKey, model: ASSESS_FAST_MODEL.value(), messages, json: true, maxTokens: 1800, efforts: [effort === "minimal" ? "low" : effort, "low"] });
         return A.parseScorer(extractJson(text), items);
       }))).map((r) => (r.status === "fulfilled" ? r.value : (failed++, console.error("AI 채점 실패:", r.reason?.message), null))).filter(Boolean);
-      const combined = A.combineRuns(runs, items);
+      let combined = A.combineRuns(runs, items);
+      // 갈리거나 인용을 못 찾은 기준(또는 빠른 모델이 답하지 못한 기준)만 고성능 모델이 한 번 더 판정한다
+      const hard = items.filter(({ c }) => A.needsEscalation(combined[c.id]));
+      if (hard.length) {
+        await bump(1);
+        const [h] = await Promise.allSettled([(async () => A.parseScorer(extractJson(await callModel({ apiKey, model: ASSESS_MODEL.value(), messages: A.scorerMessages({ rubric, items: hard, deep: deepOf(sess) }), json: true, maxTokens: 1800, efforts: [effort === "minimal" ? "low" : effort, "low"] })), hard))()]);
+        if (h.status === "rejected") { failed++; console.error("AI 재판정 실패:", h.reason?.message); }
+        combined = A.applyAdjudication(combined, h.status === "fulfilled" ? h.value : null, hard);
+        escalatedCount = hard.length;
+      }
       for (const [cid, v] of Object.entries(combined)) { patch[`ai.${cid}`] = { ...v, t: Date.now() }; ok++; }
       if (!ok) throw new HttpsError("unavailable", "AI 응답을 받지 못했어요. 잠시 뒤에 다시 시도하세요.");
     }
     if (Object.keys(patch).length) await patchAssess(assessRef(code, key), patch);
-    return { ok, auto: crits.length - items.length, failedRuns: failed };
+    return { ok, auto: crits.length - items.length, failedRuns: failed, escalated: escalatedCount };
   }
 
   // ---- 세특 ①② 근거 확인과 수준 판정(경량 모델). 결과는 교사에게 보여 주고, 빈약하면 하향·유지·취소를 고르게 한다. ----

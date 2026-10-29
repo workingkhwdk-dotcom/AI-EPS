@@ -81,7 +81,7 @@ function scoreHtml() {
   return head + `<div class="card as-sub">
     <div class="row" style="justify-content:space-between"><div><h3 style="margin:0">${esc(subjLabel())}</h3><div class="meta-line">채점 ${done}/${cs.length}칸 · 지금까지 ${total} / ${maxT}점</div></div>
       <div class="row"><button class="btn btn-tinted btn-sm" data-asai type="button" ${st.busy ? "disabled" : ""}>${gotAi ? "AI 제안 다시 받기" : "AI 제안 받기"}</button></div></div>
-    <div class="meta-line" style="margin:6px 0 2px">AI 제안은 <b>내가 그 기준의 수준을 저장한 뒤에만</b> 보여요(먼저 보면 AI 의견에 끌려요). 같은 근거를 ${d.aiRuns}번 채점해 가운데 값과 흔들림을 알려 줘요. 이 수업의 AI 사용 ${d.aiUsed} / ${d.aiCap}회</div></div>`
+    <div class="meta-line" style="margin:6px 0 2px">AI 제안은 <b>내가 그 기준의 수준을 저장한 뒤에만</b> 보여요(먼저 보면 AI 의견에 끌려요). 빠른 모델이 같은 근거를 ${d.aiRuns}번 채점하고, 갈리거나 인용을 확인하지 못한 기준은 고성능 모델이 한 번 더 판정해요. 이 수업의 AI 사용 ${d.aiUsed} / ${d.aiCap}회</div></div>`
     + cs.map((c) => criterionHtml(c, s)).join("");
 }
 function subjLabel() {
@@ -113,7 +113,7 @@ function aiHtml(c, sc, ai, rv, has) {
   const same = ai.level === sc.level, near = Math.abs(rank(c, ai.level) - rank(c, sc.level)) === 1;
   return `<div class="as-ai ${same ? "same" : rv ? "dev" : near ? "near" : "dev"}">
     <div><b>AI 제2평정</b> ${esc(lvlLabel(c, ai.level))} ${ptsOf(c, ai.level)}점 · ${ai.n}번 채점: ${ai.levels.map((l) => esc(lvlLabel(c, l))).join(" / ")}
-      ${ai.spread ? `<span class="tag y">AI도 갈렸어요</span>` : `<span class="tag">${ai.n}회 일치</span>`}
+      ${ai.esc ? `<span class="tag b">고성능 재판정${ai.escFailed ? " 실패" : ""}</span>` : ""}${ai.spread ? `<span class="tag y">빠른 모델 3번이 갈렸어요</span>` : `<span class="tag">${ai.n}회 일치</span>`}
       ${ai.auto ? "" : ai.quoteOk ? `<span class="tag b">인용 확인됨</span>` : `<span class="tag r">인용문을 근거에서 못 찾음</span>`}
       <span class="tag ${same ? "" : "y"}">${same ? "내 채점과 같음" : near ? "한 수준 차이" : "두 수준 이상 차이"}</span></div>
     ${ai.reason ? `<div class="meta-line">${esc(ai.reason)}</div>` : ""}${ai.quote ? `<div class="meta-line">인용: “${esc(ai.quote)}”</div>` : ""}

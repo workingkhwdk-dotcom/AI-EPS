@@ -213,6 +213,21 @@ function combineRuns(runs, items) {
   return out;
 }
 
+// 빠른 모델 3번의 결과가 갈렸거나(spread), 인용문을 근거에서 못 찾았거나, 합쳐지지 못한 기준은 고성능 모델이 한 번 더 판정한다.
+const needsEscalation = (r) => !r || r.spread > 0 || (r.level !== -1 && !r.quoteOk);
+// 고성능 모델의 판정(strongRun: 기준ID → 결과)을 합친다: 재판정한 기준은 고성능의 수준이 최종 AI 제안이 되고,
+// 빠른 모델 3번의 수준(levels)과 흔들림(spread)은 기록으로 남긴다. 고성능이 답하지 못한 기준은 빠른 모델의 가운데 값을 그대로 쓴다.
+function applyAdjudication(combined, strongRun, hard) {
+  const out = { ...combined };
+  for (const { c } of hard) {
+    const h = strongRun?.[c.id];
+    if (!h) { if (out[c.id]) out[c.id] = { ...out[c.id], esc: true, escFailed: true }; continue; }
+    const prev = combined[c.id];
+    out[c.id] = { level: h.level, levels: [...(prev?.levels || []), h.level], spread: prev?.spread || 0, quote: h.quote, quoteOk: h.quoteOk, reason: h.reason, n: (prev?.n || 0) + 1, esc: true, fastLevel: prev?.level ?? null };
+  }
+  return out;
+}
+
 // ---------- 신뢰도 통계 ----------
 const rankOf = (level, n) => (level === -1 ? n : level);
 
@@ -311,7 +326,7 @@ const isRefLabel = (label) => REF_LABELS.test(label);
 
 module.exports = {
   clip, listOf, evidenceFor, evidenceEmpty, evidenceText,
-  scorerMessages, parseScorer, combineRuns, normQuote,
+  scorerMessages, parseScorer, combineRuns, normQuote, needsEscalation, applyAdjudication,
   weightedKappa, agreementStats, reliabilityReport, inRecheckSample, THRESHOLDS,
   checkScoreInput, NOTE_MIN, rankOf,
   byteLen, SETEUK_MAX, checkSeteuk, isRefLabel,
