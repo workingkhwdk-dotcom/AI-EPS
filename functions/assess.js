@@ -167,7 +167,8 @@ const SCORER_SYSTEM = `너는 한국 중·고등학교 사회과 수행평가의
 4. 근거가 비어 있거나 기준과 무관하면 level -1(미제출)로 한다.
 5. quote 는 해당 evidence 에서 글자 그대로 복사한 12~80자의 한 구절이다. 마땅한 구절이 없으면 빈 문자열("").
 6. reason 은 80자 이내의 한국어로, 어떤 수준 설명을 충족·미충족했는지 쓴다.
-7. JSON 객체 하나만 출력한다.`;
+7. 두 수준 사이에서 정말 망설여지면 그 기준의 borderline 을 true 로 한다(확실하면 false).
+8. JSON 객체 하나만 출력한다.`;
 
 // 프롬프트 캐시를 쓰려고 앞부분(규칙 + 그 영역 기준 전체의 수준표)을 모든 학생에게 똑같이 두고, 학생마다 다른 근거는 맨 뒤에 붙인다.
 // OpenAI 는 앞부분이 같은 긴 프롬프트(1024토큰 이상)를 자동으로 캐시해 그 부분 입력 요금을 깎아 준다. 같은 학생의 반복 채점도 전체가 같아 캐시된다.
@@ -181,7 +182,7 @@ function scorerMessages({ rubric, items, scope }) {
   const evidence = items.map(({ c, evidence: ev }) => `### ${c.id} 근거\n<evidence>\n${evidenceText(ev) || "(비어 있음)"}\n</evidence>`).join("\n\n");
   return [
     { role: "system", content: SCORER_SYSTEM },
-    { role: "user", content: `학교급: ${rubric.level === "middle" ? "중학교" : "고등학교"}\n\n[평가 기준과 수준표]\n${rubricBlock}\n\n출력 형식: {"items":[{"id":"기준ID","level":정수,"quote":"","reason":""}]}\n\n[채점할 학생의 근거] 아래 ${items.length}개 기준(${items.map(({ c }) => c.id).join(", ")})만 채운다.\n\n${evidence}` },
+    { role: "user", content: `학교급: ${rubric.level === "middle" ? "중학교" : "고등학교"}\n\n[평가 기준과 수준표]\n${rubricBlock}\n\n출력 형식: {"items":[{"id":"기준ID","level":정수,"quote":"","reason":"","borderline":false}]}\n\n[채점할 학생의 근거] 아래 ${items.length}개 기준(${items.map(({ c }) => c.id).join(", ")})만 채운다.\n\n${evidence}` },
   ];
 }
 
@@ -197,7 +198,7 @@ function parseScorer(obj, items) {
     if (!Number.isInteger(level) || level < -1 || level >= x.c.levels.length) continue;
     const quote = clip(it.quote, 120);
     const body = normQuote((x.evidence || []).map((e) => e.text).join(" "));
-    out[x.c.id] = { level: x.evidence.length ? level : -1, quote, quoteOk: !!quote && body.includes(normQuote(quote)), reason: clip(it.reason, 160) };
+    out[x.c.id] = { level: x.evidence.length ? level : -1, quote, quoteOk: !!quote && body.includes(normQuote(quote)), reason: clip(it.reason, 160), borderline: it.borderline === true };
   }
   return out;
 }
@@ -212,7 +213,7 @@ function combineRuns(runs, items) {
     const mid = rs.length % 2 ? ranks[(rs.length - 1) / 2] : ranks[rs.length / 2];
     const level = mid === c.levels.length ? -1 : mid;
     const rep = rs.find((r) => (r.level === -1 ? c.levels.length : r.level) === mid) || rs[0];
-    out[c.id] = { level, levels: rs.map((r) => r.level), spread: ranks[ranks.length - 1] - ranks[0], quote: rep.quote, quoteOk: rep.quoteOk, reason: rep.reason, n: rs.length };
+    out[c.id] = { level, levels: rs.map((r) => r.level), spread: ranks[ranks.length - 1] - ranks[0], quote: rep.quote, quoteOk: rep.quoteOk, reason: rep.reason, borderline: rs.some((r) => r.borderline), n: rs.length };
   }
   return out;
 }
@@ -227,7 +228,7 @@ function applyAdjudication(combined, strongRun, hard) {
     const h = strongRun?.[c.id];
     if (!h) { if (out[c.id]) out[c.id] = { ...out[c.id], esc: true, escFailed: true }; continue; }
     const prev = combined[c.id];
-    out[c.id] = { level: h.level, levels: [...(prev?.levels || []), h.level], spread: prev?.spread || 0, quote: h.quote, quoteOk: h.quoteOk, reason: h.reason, n: (prev?.n || 0) + 1, esc: true, fastLevel: prev?.level ?? null };
+    out[c.id] = { level: h.level, levels: [...(prev?.levels || []), h.level], spread: prev?.spread || 0, quote: h.quote, quoteOk: h.quoteOk, reason: h.reason, borderline: !!(h.borderline || prev?.borderline), n: (prev?.n || 0) + 1, esc: true, fastLevel: prev?.level ?? null };
   }
   return out;
 }

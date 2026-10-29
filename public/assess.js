@@ -9,7 +9,7 @@ import { confirmModal, showModal } from "./modal.js";
 
 const $ = (s) => document.querySelector(s);
 const root = () => $("#as-root");
-const st = { code: null, data: null, view: "score", kind: "group", id: null, sub: null, blind: true, sk: {}, emphasis: "balance", recheck: null, rel: null, busy: false, rubricOpen: false, batch: null };
+const st = { code: null, data: null, view: "score", kind: "group", id: null, sub: null, blind: true, sk: {}, emphasis: "balance", recheck: null, rel: null, busy: false, rubricOpen: false, batch: null, queue: null };
 
 // 서버(functions/seteuk.js)와 같은 NEIS 바이트: 한글 3, 그 밖 1
 export const byteLen = (str) => { let n = 0; for (let i = 0; i < String(str ?? "").length; i++) { const c = String(str).charCodeAt(i); n += (c >= 0xac00 && c <= 0xd7a3) || (c >= 0x1100 && c <= 0x11ff) || (c >= 0x3130 && c <= 0x318f) ? 3 : 1; } return n; };
@@ -23,10 +23,11 @@ const subjName = (x) => (st.kind === "group" ? x.name : st.blind ? x.code : `${x
 const busy = (html) => `<div class="card">${html || waitHtml({ steps: STEPS.load })}</div>`;
 
 export async function openAssess(code) {
-  if (st.code !== code) Object.assign(st, { code, data: null, view: "score", kind: "group", id: null, sub: null, sk: {}, recheck: null, rel: null });
+  if (st.code !== code) Object.assign(st, { code, data: null, view: "score", kind: "group", id: null, sub: null, sk: {}, recheck: null, rel: null, queue: null });
   if (!st.data) root().innerHTML = busy();
   try { await refresh(); } catch (e) { root().innerHTML = `<div class="notice">${esc(errMsg(e))}</div>`; return; }
   if (!st.id) { const first = subjList()[0]; st.id = first ? subjId(first) : null; if (st.id) await loadSubject(); }
+  if (st.data.auto?.on && st.data.queue.exceptions + st.data.queue.appeals > 0 && st.view === "score") st.view = "queue";
   render();
 }
 
@@ -55,30 +56,52 @@ function render() {
       <div class="meta-line" style="margin-top:6px">점수와 세특은 따로 공개해요. 공개하면 학생이 자기 화면의 <b>내 결과</b>에서 보고, 끄면 바로 보이지 않아요.</div>
     </div>
     ${batchHtml()}
-    <div class="seg" id="as-views">${[["score", "채점"], ["seteuk", "세특"], ["reli", "신뢰도 점검"], ["rubric", "척도표"]].map(([k, n]) => `<button data-asv="${k}" class="${st.view === k ? "on" : ""}">${n}</button>`).join("")}</div>
-    <div id="as-body">${st.view === "score" ? scoreHtml() : st.view === "seteuk" ? seteukHtml() : st.view === "reli" ? reliHtml() : rubricHtml()}</div>`;
+    <div class="seg" id="as-views">${[...(d.auto?.on || d.queue?.appeals ? [["queue", `예외 큐${d.queue.exceptions + d.queue.appeals ? ` (${d.queue.exceptions + d.queue.appeals})` : ""}`]] : []), ["score", "채점"], ["seteuk", "세특"], ["reli", "신뢰도 점검"], ["rubric", "척도표"]].map(([k, n]) => `<button data-asv="${k}" class="${st.view === k ? "on" : ""}">${n}</button>`).join("")}</div>
+    <div id="as-body">${st.view === "queue" ? queueHtml() : st.view === "score" ? scoreHtml() : st.view === "seteuk" ? seteukHtml() : st.view === "reli" ? reliHtml() : rubricHtml()}</div>`;
   if (st.view === "reli" && !st.rel) loadReli();
+  if (st.view === "queue" && !st.queue) loadQueue();
 }
-// 일괄 AI 채점 카드와 사용 순서. 화면은 채점 방식(ai_first: AI가 먼저, independent: 교사가 먼저)에 따라 안내가 달라진다.
+// AI 채점 카드: 검토 방식(예외만 검토 · 교정), 일괄 채점·확정, 사용 순서. 확정과 공개는 늘 교사가 직접 누른다.
 function batchHtml() {
-  const d = st.data, b = st.batch, aiFirst = d.mode === "ai_first";
+  const d = st.data, b = st.batch, auto = d.auto?.on, aiFirst = d.mode === "ai_first", q = d.queue || {};
   const gT = d.groups.filter((g) => g.members > 0), todoG = gT.filter((g) => g.ai < d.aiTotal.group).length, todoS = d.students.filter((x) => x.ai < d.aiTotal.student).length;
+  const date = (t) => (t ? new Date(t).toLocaleDateString("ko-KR") : "");
   return `<div class="card as-batch">
-    <div class="row" style="justify-content:space-between"><h4 style="margin:0">AI로 한꺼번에 채점</h4>
-      <label class="meta-line">채점 방식 <select id="as-mode"><option value="ai_first" ${aiFirst ? "selected" : ""}>AI가 먼저 채점 → 교사가 검토·수정 (권장)</option><option value="independent" ${aiFirst ? "" : "selected"}>교사가 먼저 채점 → 그 뒤 AI 제안 보기 (독립 채점)</option></select></label></div>
+    <div class="row" style="justify-content:space-between"><h4 style="margin:0">AI로 채점하고, 어려운 칸만 검토</h4>
+      ${auto ? "" : `<label class="meta-line">채점 방식 <select id="as-mode"><option value="ai_first" ${aiFirst ? "selected" : ""}>AI가 먼저 → 교사가 검토·수정</option><option value="independent" ${aiFirst ? "" : "selected"}>교사가 먼저 → 그 뒤 AI 제안 (독립 채점)</option></select></label>`}</div>
+    <div class="as-auto"><label class="chk"><input type="checkbox" id="as-auto-on" ${auto ? "checked" : ""}> <b>예외만 검토</b> — AI가 3번 독립 채점해 일치하고 근거가 확실한 칸은 확정 후보로, 어려운 칸만 예외 큐로 보내요</label>
+      ${auto ? `<label class="chk"><input type="checkbox" id="as-calib-on" ${d.auto.calib ? "checked" : ""}> <b>교정 사용</b> — AI가 내 기준과 맞는지 먼저 확인하고, 통과한 기준만 자동 통과해요(한 번 하면 같은 척도·사건의 다른 수업에서 재사용)</label>` : ""}</div>
+    ${auto ? `<div class="as-count"><span class="tag ${q.exceptions ? "y" : ""}">예외 ${q.exceptions}</span><span class="tag ${d.progress.unreviewed ? "b" : ""}">확정 후보 ${d.progress.unreviewed}</span><span class="tag ${q.appeals ? "r" : ""}">이의 제기 ${q.appeals}</span><span class="tag ${q.observation ? "y" : ""}">협력 칸 미채점 ${q.observation}명</span></div>` : ""}
+    ${auto && d.autoPaused ? `<div class="notice yellow">감사에서 확정한 점수를 가린 채 다시 채점해 보니 AI와 ${d.audit.exact}%만 맞아(${d.audit.n}칸) <b>자동 통과를 멈췄어요</b>. 새로 채점하는 칸은 모두 예외로 가요. <button class="link" type="button" data-asresume>다시 켜기</button></div>` : ""}
+    ${auto && d.auto.calib ? calibHtml(d.calib, date) : ""}
     ${b && b.running ? `<div class="as-prog" role="status"><div><b>AI가 채점하는 중</b> ${b.done} / ${b.total} · ${esc(b.label)}</div><div class="as-bar"><i style="width:${Math.round((b.done / b.total) * 100)}%"></i></div></div>
       <div class="row"><button class="btn btn-plain btn-sm" data-asbatch type="button">${b.stop ? "멈추는 중…" : "멈추기"}</button></div>`
     : `<div class="row" style="margin-top:8px"><button class="btn btn-primary btn-sm" data-asbatch type="button">${todoG + todoS ? `✨ AI로 전체 채점 (모둠 ${todoG} · 학생 ${todoS}명)` : "✨ AI로 전체 다시 채점"}</button>
-      ${aiFirst ? `<label class="chk"><input type="checkbox" id="as-apply" checked> 채점 뒤 AI 점수를 바로 적용(검토 전으로 표시)</label>` : ""}</div>`}
+      ${auto && d.progress.unreviewed ? `<button class="btn btn-tinted btn-sm" data-asconfirmall type="button">✔ 확정 후보 ${d.progress.unreviewed}칸 일괄 확정</button>` : ""}
+      ${aiFirst && !auto ? `<label class="chk"><input type="checkbox" id="as-apply" checked> 채점 뒤 AI 점수를 바로 적용(검토 전으로 표시)</label>` : ""}</div>`}
     <details class="as-ev"><summary>사용 순서</summary><ol class="as-steps">
-      ${aiFirst
-        ? `<li><b>AI로 전체 채점</b>을 눌러요. 모든 모둠·학생을 AI가 채점해요(몇 분 걸려요. 멈춰도 되고, 한 곳씩 아래에서도 받을 수 있어요).</li>
-           <li>아래 <b>채점</b>에서 모둠(모둠 칸)과 학생(개인 칸)을 하나씩 열어 <b>학생이 쓴 근거</b>와 AI 점수를 비교해요. 맞으면 <b>✓ 확인</b>, 다르면 수준을 고치고 평가 근거를 써서 <b>저장</b>해요. <b>검토 전</b> 표시가 0이 될 때까지요.</li>
-           <li>협력 칸은 AI가 채점하지 않으니 직접 채점해요.</li>
-           <li><b>세특</b> 탭에서 세특을 만들고, 위 <b>점수 공개하기</b>·<b>세특 공개하기</b>로 학생에게 보여 줘요.</li>`
-        : `<li>아래 <b>채점</b>에서 먼저 내가 채점해요(AI 점수는 가려져 있어요).</li><li>수준을 저장하면 그 칸의 AI 제안이 보여요. 크게 다르면 평가 근거를 써요.</li><li>채점 방식을 <b>AI가 먼저</b>로 바꾸면 AI 점수를 먼저 보고 고칠 수 있어요.</li>`}
+      ${auto
+        ? `<li><b>AI로 전체 채점</b>을 눌러요. 모든 모둠·학생을 AI가 3번씩 독립 채점해요(몇 분 걸려요, 멈출 수 있어요).</li>
+           ${d.auto.calib ? `<li><b>교정</b>: 표본 학생·모둠을 AI 점수 없이 채점하면, AI가 내 기준과 맞는 기준만 자동 통과를 열어 줘요. 한 번 하면 같은 척도·사건의 다음 수업에서는 건너뛰어요.</li>` : ""}
+           <li>채점이 끝나면 통과한 칸은 <b>확정 후보</b>(학생에게 아직 안 보임)로, 어려운 칸은 <b>예외 큐</b>로 가요. 예외 큐에서 이유와 근거를 보고 직접 정해요. 협력 칸은 AI가 못 하니 한꺼번에 적용할 수 있어요.</li>
+           <li><b>✔ 확정 후보 일괄 확정</b>을 누르면 확정돼요. 마지막으로 <b>점수 공개하기</b>·<b>세특 공개하기</b>도 직접 눌러요. 학생이 점수에 이의를 제기하면 예외 큐에 나타나요.</li>`
+        : aiFirst
+        ? `<li><b>AI로 전체 채점</b>을 눌러요. 끝나면 AI 점수가 <b>검토 전</b>으로 적용돼요.</li><li>아래 <b>채점</b>에서 하나씩 열어 근거와 AI 점수를 비교해 맞으면 <b>✓ 확인</b>, 다르면 고쳐서 <b>저장</b>해요. 협력 칸은 직접 채점해요.</li><li><b>세특</b> 탭에서 세특을 만들고, <b>점수 공개하기</b>·<b>세특 공개하기</b>를 눌러요.</li>`
+        : `<li>아래 <b>채점</b>에서 먼저 내가 채점해요(AI 점수는 가려져 있어요).</li><li>수준을 저장하면 그 칸의 AI 제안이 보여요. 크게 다르면 평가 근거를 써요.</li>`}
       <li class="meta-line">AI 채점은 대상마다 AI를 ${d.aiRuns}번 부르고, 갈리는 기준만 고성능 모델이 한 번 더 판정해요. 앞부분이 모두 같아 AI 서비스의 자동 캐시로 입력 요금이 줄어요. 이 수업의 AI 사용 ${d.aiUsed} / ${d.aiCap}회.</li>
     </ol></details></div>`;
+}
+// 교정 패널: 표본을 AI 점수 없이 채점 → 일치도로 기준마다 자동 통과 여부를 정하고 결과를 재사용한다
+function calibHtml(c, date) {
+  if (!c) return "";
+  if (c.state === "none") return `<div class="as-calib"><b>교정이 아직 없어요.</b> 지금은 모든 칸이 예외 큐로 가요. 교정을 하면 AI와 내가 같게 채점한 기준만 자동 통과를 쓸 수 있어요. <div class="row" style="margin-top:6px"><button class="btn btn-tinted btn-sm" data-ascalib type="button">교정 시작</button></div></div>`;
+  if (c.state === "collecting") return `<div class="as-calib"><b>교정 중</b> — <span class="tag b">🎯 교정 표본</span>으로 표시된 학생 ${c.sampleSize ? "" : ""}·모둠을 <b>AI 점수 없이</b> 채점해 주세요(채점 목록에서 고르세요). 표본을 모두 채점하면 자동으로 결과가 나와요. 표본의 AI 점수는 가려져 있어요.</div>`;
+  const per = c.perCriterion || {};
+  return `<div class="as-calib ok"><b>교정 완료</b> ${c.reused ? `· 다른 수업(${esc(c.from)})에서 ${date(c.t)}에 한 교정을 <b>재사용</b> 중` : `· ${date(c.t)}`} · 자동 통과 가능한 기준 <b>${c.passed} / ${c.total}</b>
+    ${c.overall ? `<span class="meta-line">(표본 ${c.overall.n}칸 · 일치율 ${fmtN(c.overall.exact, "%")} · 카파 ${fmtN(c.overall.kappa)})</span>` : ""}
+    <details class="as-ev"><summary>기준별 결과</summary><div class="chipbar">${Object.entries(per).map(([id, x]) => { const cr = st.data.rubric.criteria.find((y) => y.id === id); return `<span class="chip sm ${x.pass ? "on" : ""}" title="비교 ${x.n}칸 · 일치율 ${fmtN(x.exact, "%")}">${esc(cr?.name || id)} ${x.pass ? "✓" : `✗ ${x.n}칸`}</span>`; }).join("")}</div>
+    <div class="meta-line">✗ 표시는 비교 표본이 3칸 미만이거나 AI와 덜 맞은 기준이에요(그 기준은 계속 예외 큐로 가요). 척도표나 사건·심화 설정을 바꾸면 다시 교정해요.</div></details>
+    <div class="row" style="margin-top:6px"><button class="btn btn-plain btn-sm" data-ascalib type="button">다시 교정</button></div></div>`;
 }
 const relBtn = (k, name, on) => `<div class="as-rel-item ${on ? "on" : ""}"><span class="tag ${on ? "" : "x"}">${name} ${on ? "공개 중" : "비공개"}</span>
   <button class="btn ${on ? "btn-plain" : "btn-primary"} btn-sm" data-asrel="${k}" type="button">${name} ${on ? "공개 끄기" : "공개하기"}</button></div>`;
@@ -88,7 +111,7 @@ function pickerHtml() {
   const sorted = st.kind === "student" && st.blind ? [...list].sort((a, b) => a.code.localeCompare(b.code)) : list;
   return `<div class="row" style="margin-bottom:8px"><div class="seg" style="margin:0"><button data-ask="group" class="${st.kind === "group" ? "on" : ""}">모둠 칸(${st.data.groups[0]?.total || 0}개)</button><button data-ask="student" class="${st.kind === "student" ? "on" : ""}">개인 칸(${st.data.students[0]?.total || 0}개)</button></div>
       ${st.kind === "student" ? `<label class="chk"><input type="checkbox" id="as-blind" ${st.blind ? "checked" : ""}> 익명 채점</label>` : ""}</div>
-    <div class="chipbar as-pick">${sorted.map((x) => `<button class="chip sm ${subjId(x) === st.id ? "on" : ""}" data-asid="${esc(subjId(x))}">${esc(subjName(x))} <span class="as-n">${x.scored}/${x.total}</span></button>`).join("") || `<span class="meta-line">아직 대상이 없어요.</span>`}</div>
+    <div class="chipbar as-pick">${sorted.map((x) => `<button class="chip sm ${subjId(x) === st.id ? "on" : ""}" data-asid="${esc(subjId(x))}">${x.calibSample ? "🎯 " : ""}${esc(subjName(x))}${x.exc ? ` <span class="tag y">예외 ${x.exc}</span>` : ""} <span class="as-n">${x.scored}/${x.total}</span></button>`).join("") || `<span class="meta-line">아직 대상이 없어요.</span>`}</div>
     ${st.kind === "student" && st.blind ? `<div class="meta-line" style="margin-top:6px">익명 채점: 별명 대신 코드로 보여 줘요. 같은 모둠이라도 순서를 섞어 먼저 본 학생에게 끌리지 않게 해요.</div>` : ""}`;
 }
 
@@ -99,12 +122,13 @@ function scoreHtml() {
   if (!st.sub) return head + busy();
   const s = st.sub, cs = critsOf(st.kind);
   const gotAi = cs.some((c) => c.ai && s.hasAi[c.id]);
+  const calibNote = s.calibSample ? `<div class="notice muted" style="margin:8px 0 0">🎯 교정 표본이에요. AI 점수를 가린 채 채점해 주세요. 표본을 모두 채점하면 AI와 얼마나 맞는지 자동으로 계산해요.</div>` : "";
   const total = cs.reduce((n, c) => n + (s.scores[c.id] ? s.scores[c.id].pts : 0), 0), maxT = cs.reduce((n, c) => n + c.max, 0), done = cs.filter((c) => s.scores[c.id]).length;
   return head + `<div class="card as-sub">
     <div class="row" style="justify-content:space-between"><div><h3 style="margin:0">${esc(subjLabel())}</h3><div class="meta-line">채점 ${done}/${cs.length}칸 · 지금까지 ${total} / ${maxT}점</div></div>
       <div class="row"><button class="btn btn-tinted btn-sm" data-asai type="button" ${st.busy ? "disabled" : ""}>${gotAi ? "AI 다시 채점" : "AI 채점"}</button>
         ${d.mode === "ai_first" && cs.some((c) => c.ai && s.ai[c.id] && !s.scores[c.id]) ? `<button class="btn btn-primary btn-sm" data-asapply type="button" ${st.busy ? "disabled" : ""}>AI 점수 모두 적용</button>` : ""}</div></div>
-    <div class="meta-line" style="margin:6px 0 2px">${d.mode === "ai_first" ? "AI 점수가 미리 골라져 있어요. <b>근거를 보고 맞으면 ✓ 확인, 다르면 고쳐서 저장</b>해요." : "AI 제안은 <b>내가 그 기준의 수준을 저장한 뒤에만</b> 보여요(먼저 보면 AI 의견에 끌려요)."}</div></div>`
+    ${calibNote}<div class="meta-line" style="margin:6px 0 2px">${s.mode === "ai_first" ? "AI 점수가 미리 골라져 있어요. <b>근거를 보고 맞으면 ✓ 확인, 다르면 고쳐서 저장</b>해요." : "AI 제안은 <b>내가 그 기준의 수준을 저장한 뒤에만</b> 보여요(먼저 보면 AI 의견에 끌려요)."}</div></div>`
     + cs.map((c) => criterionHtml(c, s)).join("");
 }
 function subjLabel() {
@@ -149,6 +173,57 @@ function aiHtml(c, sc, ai, rv, has, mode) {
     <div class="meta-line">AI 점수는 제안이에요. 최종 판단은 교사가 해요.</div></div>`;
 }
 const rank = (c, level) => (level === -1 ? c.levels.length : level);
+
+// ---------- 예외 큐 ----------
+// AI가 통과시키지 못한 칸(이유 표시)과 학생의 이의 제기. 교사는 여기만 보면 된다.
+async function loadQueue(offset = 0) {
+  try { st.queue = (await call("assess")({ code: st.code, action: "queue", offset })).data; } catch (e) { toast(errMsg(e), true); st.queue = { items: [], total: 0, offset: 0, appeals: 0 }; }
+  if (st.view === "queue") render();
+}
+function queueHtml() {
+  const q = st.queue, d = st.data;
+  if (!q) return busy();
+  const obs = d.queue.observation;
+  const bulk = obs ? `<div class="card as-bulk"><h4 style="margin:0 0 4px">협력 칸(교사 관찰) 일괄 적용</h4><div class="meta-line">AI가 채점하지 못하는 칸이에요. 학생 ${obs}명에게 같은 수준을 한꺼번에 적용해요(산출물을 한 건도 쓰지 않은 학생은 건너뛰니 따로 봐 주세요).</div>
+    <div class="row" style="margin-top:8px"><select id="as-bulk-lv">${crit("c62").levels.map((l) => `<option value="${l.idx}" ${l.idx === 1 ? "selected" : ""}>${esc(l.label)} ${l.pts}점</option>`).join("")}</select>
+      <input type="text" id="as-bulk-note" maxlength="100" placeholder="평가 근거 (예: 모둠 활동에 고르게 참여함)" style="flex:1;min-width:160px"><button class="btn btn-tinted btn-sm" data-asbulk type="button">적용</button></div></div>` : "";
+  if (!q.items.length) return bulk + `<div class="card"><div class="notice green" style="margin:0">처리할 예외나 이의 제기가 없어요. ${d.progress.unreviewed ? "위의 <b>✔ 확정 후보 일괄 확정</b>을 눌러 확정하세요." : "점수·세특을 공개해도 좋은지 확인하세요."}</div></div>`;
+  return bulk + `<div class="meta-line" style="margin:0 2px 8px">${q.total}건 중 ${q.offset + 1}~${q.offset + q.items.length}번째예요. 처리하면 목록에서 사라져요.</div>` + q.items.map(queueCard).join("")
+    + (q.offset + q.items.length < q.total ? `<div class="row"><button class="btn btn-plain btn-sm" data-qmore type="button">다음 ${Math.min(12, q.total - q.offset - q.items.length)}건 보기</button></div>` : "");
+}
+function queueCard(it) {
+  const who = it.kind === "group" ? it.code : st.blind ? it.code : `${(it.groupId || "").slice(1)}모둠 ${it.nick}`;
+  const ai = it.ai, pre = it.score ? it.score.level : ai && Number.isInteger(ai.level) ? ai.level : null;
+  const key = `${it.kind}|${it.id}|${it.cid}`;
+  return `<div class="card as-crit q-card" data-q="${esc(key)}" data-via="${esc(it.via || "")}">
+    <div class="row" style="justify-content:space-between"><h4 style="margin:0">${it.type === "appeal" ? `<span class="tag r">이의 제기</span> ` : `<span class="tag y">예외</span> `}${esc(who)} › ${esc(it.el)} › ${esc(it.name)}</h4>${it.score ? `<span class="tag">현재 ${esc(lvlLabelL(it.levels, it.score.level))} ${it.score.pts}점</span>` : ""}</div>
+    ${it.appeal ? `<div class="notice yellow" style="margin:8px 0 0">학생의 이의: “${esc(it.appeal.text)}”</div>` : ""}
+    ${it.reasons.length ? `<div class="as-why">${it.reasons.map((r) => `<span class="tag y">${esc(r)}</span>`).join(" ")}</div>` : ""}
+    <details class="as-ev" open><summary>학생이 쓴 근거 ${it.empty ? `<span class="tag r">근거 없음</span>` : `<span class="meta-line">(${(it.evidence || []).length}개)</span>`}</summary>
+      ${(it.evidence || []).length ? it.evidence.map((e) => `<div class="logline"><div class="q">${esc(e.label)}</div><div class="a">${esc(e.text)}</div></div>`).join("") : `<div class="meta-line">기록이 없어요.</div>`}</details>
+    ${ai && !ai.auto ? `<div class="as-ai"><b>AI</b> ${esc(lvlLabelL(it.levels, ai.level))} · ${ai.n}번 채점: ${ai.levels.map((l) => esc(lvlLabelL(it.levels, l))).join(" / ")}${ai.esc ? ` <span class="tag b">고성능 재판정</span>` : ""}${ai.spread ? ` <span class="tag y">갈렸어요</span>` : ""}${ai.reason ? `<div class="meta-line">${esc(ai.reason)}</div>` : ""}${ai.quote ? `<div class="meta-line">인용: “${esc(ai.quote)}”</div>` : ""}</div>` : ""}
+    <div class="as-lv">${[...it.levels.map((l) => [l.idx, l.label, l.pts, l.desc]), [-1, "미제출", 0, "근거가 비어 있어 평가할 수 없음"]].map(([idx, label, pts, desc]) => `<label class="lvopt ${pre === idx ? "cur" : ""}"><input type="radio" name="q-${esc(key)}" value="${idx}" ${pre === idx ? "checked" : ""} ${(idx === -1) !== !!it.empty ? "disabled" : ""}><span class="lvh"><b>${esc(label)}</b> <span class="tag b">${pts}점</span></span><span class="lvd">${esc(desc)}</span></label>`).join("")}</div>
+    <textarea class="q-note" maxlength="500" rows="2" placeholder="평가 근거 (점수를 공개하면 학생에게 보여요)">${esc(it.score?.note ?? (ai?.reason && !ai.auto ? `AI 제안: ${ai.reason}` : ""))}</textarea>
+    <div class="row" style="margin-top:8px"><button class="btn btn-primary btn-sm" data-qsave type="button">✓ 정하기</button>
+      ${it.type === "appeal" ? `<input type="text" class="q-reply" maxlength="300" placeholder="학생에게 보낼 답(선택)" style="flex:1;min-width:140px"><button class="btn btn-tinted btn-sm" data-qresolve type="button">이의 처리 완료</button>` : ""}</div></div>`;
+}
+const lvlLabelL = (levels, level) => (level === -1 ? "미제출" : levels[level]?.label || "");
+async function qSave(btn) {
+  const card = btn.closest("[data-q]"), [kind, id, cid] = card.dataset.q.split("|");
+  const pick = card.querySelector('input[type="radio"]:checked');
+  if (!pick) return toast("수준을 먼저 고르세요.", true);
+  await guard(async () => {
+    await call("assess")({ code: st.code, action: "save", kind, id, criterion: cid, level: Number(pick.value), note: card.querySelector(".q-note").value });
+    toast("저장했어요"); st.queue = null; await refresh(); render();
+  });
+}
+async function qResolve(btn) {
+  const card = btn.closest("[data-q]"), [, , cid] = card.dataset.q.split("|");
+  await guard(async () => {
+    await call("assess")({ code: st.code, action: "resolveAppeal", id: card.dataset.via, criterion: cid, reply: card.querySelector(".q-reply")?.value || "" });
+    toast("이의 제기를 처리했어요"); st.queue = null; await refresh(); render();
+  });
+}
 
 // ---------- 세특 ----------
 // 순서: ① 근거 확인 → ② 수준 판정(빈약하면 하향·유지·취소) → ④ 기승전결 초안 → ⑤ 분량 보정 → ⑥ 검토·직접 수정·저장.
@@ -372,14 +447,14 @@ async function applyAiBtn() {
 }
 async function batchAi() {
   if (st.batch?.running) { st.batch.stop = true; render(); return; }
-  const d = st.data, aiFirst = d.mode === "ai_first", applyAfter = aiFirst && $("#as-apply")?.checked !== false;
+  const d = st.data, aiFirst = d.mode === "ai_first", applyAfter = d.auto?.on || (aiFirst && $("#as-apply")?.checked !== false);
   const need = (x, tot) => x.ai < tot;
   let targets = [...d.groups.filter((g) => g.members > 0 && need(g, d.aiTotal.group)).map((g) => ({ kind: "group", id: g.id, name: g.name })), ...d.students.filter((x) => need(x, d.aiTotal.student)).map((x) => ({ kind: "student", id: x.key, name: st.blind ? x.code : `${x.groupId.slice(1)}모둠 ${x.nick}` }))];
   const redo = !targets.length;
   if (redo) targets = [...d.groups.filter((g) => g.members > 0).map((g) => ({ kind: "group", id: g.id, name: g.name })), ...d.students.map((x) => ({ kind: "student", id: x.key, name: st.blind ? x.code : `${x.groupId.slice(1)}모둠 ${x.nick}` }))];
   if (!targets.length) return toast("채점할 대상이 없어요.", true);
   const est = Math.round(targets.length * 3.4);
-  if (!(await confirmModal(redo ? "AI로 전체를 다시 채점할까요?" : "AI로 전체를 채점할까요?", `<p>모둠 ${targets.filter((t) => t.kind === "group").length}개와 학생 ${targets.filter((t) => t.kind === "student").length}명을 AI가 차례로 채점해요. AI 호출은 모두 약 ${est}번이에요(이 수업 한도 ${d.aiCap}회 중 ${d.aiUsed}회 사용).</p><p class="meta-line">${applyAfter ? "채점이 끝나면 AI 점수가 <b>검토 전</b>으로 적용돼요. 하나씩 확인·수정해 주세요." : "채점이 끝나면 각 칸에서 AI 점수를 보고 고를 수 있어요."} 중간에 멈춰도 돼요.</p>`, "채점 시작", "취소"))) return;
+  if (!(await confirmModal(redo ? "AI로 전체를 다시 채점할까요?" : "AI로 전체를 채점할까요?", `<p>모둠 ${targets.filter((t) => t.kind === "group").length}개와 학생 ${targets.filter((t) => t.kind === "student").length}명을 AI가 차례로 채점해요. AI 호출은 모두 약 ${est}번이에요(이 수업 한도 ${d.aiCap}회 중 ${d.aiUsed}회 사용).</p><p class="meta-line">${applyAfter ? (d.auto?.on ? "채점이 끝나면 통과한 칸은 <b>확정 후보</b>로, 어려운 칸은 <b>예외 큐</b>로 가요. 확정은 직접 눌러요." : "채점이 끝나면 AI 점수가 <b>검토 전</b>으로 적용돼요. 하나씩 확인·수정해 주세요.") : "채점이 끝나면 각 칸에서 AI 점수를 보고 고를 수 있어요."} 중간에 멈춰도 돼요.</p>`, "채점 시작", "취소"))) return;
   st.batch = { running: true, done: 0, total: targets.length, label: "", stop: false };
   let fail = 0;
   render();
@@ -393,12 +468,45 @@ async function batchAi() {
   const stopped = st.batch.stop, done = st.batch.done;
   st.batch = null;
   try {
-    if (applyAfter && done) { const r = (await call("assess")({ code: st.code, action: "applyAi", all: true })).data; toast(`${stopped ? "멈췄어요. " : ""}AI 채점 ${done}곳 완료 · 점수 ${r.applied}칸을 적용했어요(검토 전)${fail ? ` · ${fail}곳 실패` : ""}`); }
+    if (applyAfter && done) { const r = (await call("assess")({ code: st.code, action: "applyAi", all: true })).data; toast(`${stopped ? "멈췄어요. " : ""}AI 채점 ${done}곳 완료 · ${d.auto?.on ? `확정 후보 ${r.applied}칸, 예외 ${r.exceptions}칸` : `점수 ${r.applied}칸을 적용했어요(검토 전)`}${fail ? ` · ${fail}곳 실패` : ""}`); }
     else toast(`${stopped ? "멈췄어요. " : ""}AI 채점 ${done}곳 완료${fail ? ` · ${fail}곳 실패` : ""}`);
   } catch (e) { toast(errMsg(e), true); }
   await refresh(); if (st.id) await loadSubject(); render();
 }
 
+async function setAuto(patch) {
+  await guard(async () => {
+    const cur = st.data.auto, next = { ...cur, ...patch };
+    await call("assess")({ code: st.code, action: "config", assessAuto: next });
+    st.queue = null; await refresh();
+    if (next.on && st.data.queue.exceptions + st.data.queue.appeals > 0) st.view = "queue"; else if (!next.on && st.view === "queue") st.view = "score";
+    if (st.id) await loadSubject();
+    render();
+  });
+}
+async function startCalib() {
+  const c = st.data.calib;
+  if (!(await confirmModal(c?.state === "ready" ? "다시 교정할까요?" : "교정을 시작할까요?", `<p>표본 학생 6명과 학생이 있는 모둠(최대 4개)을 정해요. <b>AI 점수는 가려지니</b> 평소처럼 채점해 주세요(약 40~60칸, 20~30분). 표본을 모두 채점하면 AI와 얼마나 맞는지 계산해서 <b>자동 통과를 쓸 기준</b>을 정해요.</p><p class="meta-line">표본 채점은 그대로 최종 점수가 돼요. 교정 결과는 같은 척도표·학교급·사건·심화 설정의 다른 수업에서도 다시 쓰여요.</p>`, "교정 시작", "취소"))) return;
+  await guard(async () => {
+    const r = (await call("assess")({ code: st.code, action: "calibStart" })).data;
+    toast(`표본 학생 ${r.students}명·모둠 ${r.groups}개를 정했어요. 🎯 표시를 채점해 주세요.`);
+    st.queue = null; await refresh(); st.view = "score"; st.kind = "student"; const f = st.data.students.find((x) => x.calibSample); if (f) { st.id = f.key; await loadSubject(); } render();
+  });
+}
+async function confirmAllBtn() {
+  const n = st.data.progress.unreviewed;
+  if (!(await confirmModal(`확정 후보 ${n}칸을 확정할까요?`, `<p>AI가 통과시킨 점수 ${n}칸이 <b>확정</b>돼요. 확정된 점수는 점수를 공개할 때 학생에게 보여요(공개는 따로 눌러요).</p><p class="meta-line">예외 큐에 남은 칸(${st.data.queue.exceptions}칸)은 확정되지 않아요.</p>`, "일괄 확정", "취소"))) return;
+  await guard(async () => {
+    const r = (await call("assess")({ code: st.code, action: "confirmAll" })).data;
+    toast(`${r.confirmed}칸을 확정했어요`); st.queue = null; await refresh(); if (st.id) await loadSubject(); render();
+  });
+}
+async function bulkCoop() {
+  await guard(async () => {
+    const r = (await call("assess")({ code: st.code, action: "bulkLevel", criterion: "c62", level: Number($("#as-bulk-lv").value), note: $("#as-bulk-note").value })).data;
+    toast(`협력 칸 ${r.applied}명에게 적용했어요${r.skipped ? ` (산출물을 안 쓴 ${r.skipped}명은 건너뜀)` : ""}`); st.queue = null; await refresh(); render();
+  });
+}
 async function askAi() {
   await guard(async () => {
     const b = root().querySelector("[data-asai]"); if (b) { b.disabled = true; b.textContent = "AI가 채점하는 중…"; }
@@ -422,6 +530,13 @@ document.addEventListener("click", async (e) => {
   else if ((b = t("[data-assave]"))) saveCriterion(b.dataset.assave);
   else if (t("[data-asai]")) askAi();
   else if (t("[data-asbatch]")) batchAi();
+  else if (t("[data-qsave]")) qSave(t("[data-qsave]"));
+  else if (t("[data-qresolve]")) qResolve(t("[data-qresolve]"));
+  else if (t("[data-qmore]")) { const o = (st.queue?.offset || 0) + 12; st.queue = null; loadQueue(o); }
+  else if (t("[data-asbulk]")) bulkCoop();
+  else if (t("[data-ascalib]")) startCalib();
+  else if (t("[data-asconfirmall]")) confirmAllBtn();
+  else if (t("[data-asresume]")) guard(async () => { await call("assess")({ code: st.code, action: "autoResume" }); await refresh(); render(); });
   else if (t("[data-asapply]")) applyAiBtn();
   else if (t("[data-asmake]")) makeSeteuk();
   else if (t("[data-asseteuk]")) saveSeteuk();
@@ -441,6 +556,8 @@ document.addEventListener("change", async (e) => {
     await guard(async () => { const r = await call("assess")({ code: st.code, action: "config", seteukMax: Number(e.target.value) }); st.data.seteukMax = r.data.seteukMax; for (const k of Object.values(st.sk)) { k.prep = null; k.gen = null; } toast("글자 수 한도를 바꿨어요. 수준 판정을 다시 해요"); render(); });
   }
   else if (e.target.id === "as-emp") st.emphasis = e.target.value;
+  else if (e.target.id === "as-auto-on") setAuto({ on: e.target.checked });
+  else if (e.target.id === "as-calib-on") setAuto({ calib: e.target.checked });
   else if (e.target.id === "as-mode") {
     await guard(async () => { await call("assess")({ code: st.code, action: "config", assessMode: e.target.value }); await refresh(); await loadSubject(); toast(e.target.value === "ai_first" ? "AI가 먼저 채점하는 방식이에요" : "교사가 먼저 채점하는 방식(독립 채점)이에요"); render(); });
   }

@@ -1213,7 +1213,8 @@ exports.demoRequest = onCall({ ...aiOpts, maxInstances: 2 }, async (req) => {
 // 학생은 myResult 로만 본다. 공개 여부(sessions/{code}.release.score·seteuk)는 서로 독립이고, 읽을 때마다 서버가 걸러 준다.
 // 학생 열쇠는 uid 가 아니라 별명 열쇠(credKey)다: 로그아웃 후 다시 들어와 uid 가 바뀌어도 같은 학생으로 이어진다.
 const A = require("./assess");
-const { rubricFor, totals } = require("./rubric");
+const { rubricFor, totals, RUBRIC_VERSION } = require("./rubric");
+const AP = require("./autopilot");
 // 비용과 성능을 나누는 하이브리드: 대부분은 빠른(저가) 모델이 하고, 어려운 곳만 고성능 모델이 맡는다.
 //  - 채점 제안: 정확도가 중요해 빠른 모델이 같은 근거를 3번 채점하고, 3번이 갈리거나 인용문을 못 찾은 기준만 고성능 모델이 한 번 더 판정한다(그 판정이 최종 AI 제안)
 //  - 세특: 수준 판정은 빠른 모델(OPENAI_MODEL), 첫 초안은 고성능, 분량 보정 반복은 빠른 모델. 보정이 구조를 깨거나 3번 넘게 걸리면 고성능으로 올린다
@@ -1270,7 +1271,7 @@ async function loadEvidence(code, sess, kind, id, members) {
   const evidence = {}, empty = {};
   for (const c of rubric.criteria.filter((x) => x.scope === scope)) {
     evidence[c.id] = A.evidenceFor(c.id, ctx);
-    empty[c.id] = A.evidenceEmpty(evidence[c.id]);
+    empty[c.id] = c.ai === false ? false : A.evidenceEmpty(evidence[c.id]); // 교사 관찰 칸(AI 없음)은 근거가 없다고 막지 않는다
   }
   return { rubric, evidence, empty, ctx, gid };
 }
@@ -1300,6 +1301,57 @@ function reviewFlags(rubric, doc) {
 // 채점 방식: ai_first(기본) — AI가 먼저 채점하고 교사가 검토·수정한다. independent — 교사가 먼저 채점하고 그 뒤에 AI 제안을 본다(독립 채점, 신뢰도 연구용).
 const modeOf = (sess) => (sess.assessMode === "independent" ? "independent" : "ai_first");
 const scopeOf = (kind) => (kind === "student" ? "student" : "group");
+// 예외만 검토(auto): on 이면 AI가 통과시킨 칸은 '확정 후보'로 적용하고 예외만 교사 큐로 보낸다. calib 이면 교정을 통과한 기준만 자동 통과를 쓴다.
+const autoOf = (sess) => ({ on: sess.assessAuto?.on !== false, calib: sess.assessAuto?.calib === true });
+const subjectKeyOf = (t) => subjKey(t.kind, t.id);
+const calibKeyOf = (sess) => AP.calibKey({ level: levelOf(sess), source: sess.topicId ? `topic:${sess.topicId}` : sess.eventId, deep: deepOf(sess), version: RUBRIC_VERSION });
+const calibDocRef = (uid, key) => db.doc(`teacherAssess/${uid}/calibrations/${key}`);
+
+// 교정 상태: 같은 열쇠(척도표 버전·학교급·사건·심화)의 이전 교정이 있으면 재사용, 표본을 모으는 중이면 끝났는지 확인해 결과를 저장한다.
+async function calibInfo(code, sess, uid, docs, rubric) {
+  const key = calibKeyOf(sess);
+  const saved = (await calibDocRef(uid, key).get()).data();
+  const cal = sess.calib;
+  if (cal && cal.key === key && cal.status === "collecting") {
+    if (AP.calibComplete(rubric, docs, cal.sample, subjectKeyOf)) {
+      const report = AP.calibrationReport(rubric, docs, cal.sample, subjectKeyOf);
+      const rec = { key, report, pass: report.pass, t: Date.now(), from: code, level: levelOf(sess), rv: RUBRIC_VERSION };
+      await calibDocRef(uid, key).set(rec);
+      await db.doc(`sessions/${code}`).update({ "calib.status": "done" });
+      return { key, state: "ready", pass: report.pass, report, t: rec.t, reused: false, sample: [] };
+    }
+    return { key, state: "collecting", pass: null, report: null, sample: cal.sample };
+  }
+  if (saved) return { key, state: "ready", pass: saved.pass, report: saved.report, t: saved.t, reused: saved.from !== code, from: saved.from, sample: [] };
+  return { key, state: "none", pass: null, report: null, sample: [] };
+}
+// 감사: 일괄 확정한 AI 점수를 교사가 점수를 가린 채 다시 채점(재채점 표본)한 결과가 안 맞으면 자동 통과를 멈춘다.
+function auditOf(rubric, docs, sess) {
+  const pairs = [];
+  for (const d of Object.values(docs)) for (const [cid, sc] of Object.entries(d.scores || {})) {
+    const r = d.recheck?.[cid];
+    if (sc.src === "ai" && sc.reviewed === true && r && r.t > (sess.autoResumeAt || 0)) pairs.push([sc.level, r.level]);
+  }
+  return AP.auditStatus(pairs, rubric.criteria[0].levels.length);
+}
+async function autoContext(code, sess, uid, rubric) {
+  const auto = autoOf(sess);
+  const docs = Object.fromEntries((await db.collection(`sessions/${code}/assess`).get()).docs.map((d) => [d.id, d.data()]));
+  const calib = auto.on && auto.calib ? await calibInfo(code, sess, uid, docs, rubric) : null;
+  const audit = auto.on ? auditOf(rubric, docs, sess) : { n: 0, exact: null, paused: false };
+  const sample = new Set(calib?.state === "collecting" ? calib.sample.map(subjectKeyOf) : []);
+  return { auto, docs, calib, audit, paused: auto.on && audit.paused, sample };
+}
+// 칸 하나의 최종 통과 판정(AI 규칙 + 교정 + 감사 정지)
+function gateCell(ctx, doc, c) {
+  const rec = doc?.ai?.[c.id];
+  if (!rec) return null;
+  const tri = rec.tri || AP.triage({ c, ai: rec, flags: rec.flags || [] });
+  return AP.gate({ tri, cid: c.id, calibOn: ctx.auto.calib, calibPass: ctx.calib?.pass || null, paused: ctx.paused });
+}
+const countExceptions = (ctx, rubric, doc, kind, key) => (!ctx.auto.on || ctx.sample.has(key) ? 0
+  : rubric.criteria.filter((c) => c.scope === scopeOf(kind) && c.ai && doc?.ai?.[c.id] && !doc?.scores?.[c.id] && !gateCell(ctx, doc, c).pass).length);
+const appealsOf = (doc) => Object.entries(doc?.appeals || {}).filter(([, a]) => a.status === "open");
 function releaseOf(sess) { return { score: sess.release?.score === true, seteuk: sess.release?.seteuk === true }; }
 
 exports.assess = onCall(opts, async (req) => {
@@ -1309,20 +1361,24 @@ exports.assess = onCall(opts, async (req) => {
 
   if (action === "get") {
     const members = await membersOf(code);
-    const docs = Object.fromEntries((await db.collection(`sessions/${code}/assess`).get()).docs.map((d) => [d.id, d.data()]));
+    const ctx = await autoContext(code, sess, auth.uid, rubric);
+    const docs = ctx.docs;
     const cnt = (doc, scope) => rubric.criteria.filter((c) => c.scope === scope && doc?.scores?.[c.id]).length;
     const cntAi = (doc, scope) => rubric.criteria.filter((c) => c.scope === scope && c.ai && doc?.ai?.[c.id]).length;
     const cntUnrev = (doc) => Object.values(doc?.scores || {}).filter((x) => x.src === "ai" && x.reviewed === false).length;
     const nG = rubric.criteria.filter((c) => c.scope === "group").length, nS = rubric.criteria.filter((c) => c.scope === "student").length;
-    const groups = Array.from({ length: sess.groupCount }, (_, i) => `g${i + 1}`).map((id) => ({ id, name: `${id.slice(1)}모둠`, members: members.filter((m) => m.groupId === id).length, scored: cnt(docs[id], "group"), total: nG, ai: cntAi(docs[id], "group"), unreviewed: cntUnrev(docs[id]) }));
-    const students = members.map((m) => ({ key: m.key, nick: m.nick, code: blindCode(m.key), groupId: m.groupId, scored: cnt(docs[`s_${m.key}`], "student"), total: nS, ai: cntAi(docs[`s_${m.key}`], "student"), unreviewed: cntUnrev(docs[`s_${m.key}`]), hasSeteuk: !!docs[`s_${m.key}`]?.seteuk?.text }))
+    const groups = Array.from({ length: sess.groupCount }, (_, i) => `g${i + 1}`).map((id) => ({ id, name: `${id.slice(1)}모둠`, members: members.filter((m) => m.groupId === id).length, scored: cnt(docs[id], "group"), total: nG, ai: cntAi(docs[id], "group"), unreviewed: cntUnrev(docs[id]), exc: countExceptions(ctx, rubric, docs[id], "group", id), calibSample: ctx.sample.has(id) }));
+    const students = members.map((m) => ({ key: m.key, nick: m.nick, code: blindCode(m.key), groupId: m.groupId, scored: cnt(docs[`s_${m.key}`], "student"), total: nS, ai: cntAi(docs[`s_${m.key}`], "student"), unreviewed: cntUnrev(docs[`s_${m.key}`]), exc: countExceptions(ctx, rubric, docs[`s_${m.key}`], "student", `s_${m.key}`), calibSample: ctx.sample.has(`s_${m.key}`), appeals: appealsOf(docs[`s_${m.key}`]).length, hasSeteuk: !!docs[`s_${m.key}`]?.seteuk?.text }))
       .sort((a, b) => a.groupId.localeCompare(b.groupId, "en", { numeric: true }) || a.code.localeCompare(b.code));
     const done = groups.reduce((s, g) => s + g.scored, 0) + students.reduce((s, x) => s + x.scored, 0);
     const total = groups.reduce((s, g) => s + g.total, 0) + students.reduce((s, x) => s + x.total, 0);
     const unreviewed = Object.values(docs).reduce((n, d) => n + cntUnrev(d), 0);
+    const queue = { exceptions: groups.reduce((n, g) => n + g.exc, 0) + students.reduce((n, x) => n + x.exc, 0), appeals: students.reduce((n, x) => n + x.appeals, 0),
+      observation: students.filter((x) => !docs[`s_${x.key}`]?.scores?.c62).length };
     const reviewCount = Object.values(docs).reduce((n, d) => n + Object.keys(reviewFlags(rubric, d)).length, 0);
     return {
-      rubric, groups, students, progress: { done, total, reviewCount, unreviewed }, mode: modeOf(sess), aiTotal: { group: rubric.criteria.filter((c) => c.scope === "group" && c.ai).length, student: rubric.criteria.filter((c) => c.scope === "student" && c.ai).length }, release: releaseOf(sess), seteukMax: sess.seteukMax || A.SETEUK_MAX.def, seteukRange: [A.SETEUK_MAX.min, A.SETEUK_MAX.max],
+      rubric, groups, students, progress: { done, total, reviewCount, unreviewed }, mode: modeOf(sess), auto: ctx.auto, autoPaused: ctx.paused, audit: ctx.audit, queue,
+      calib: ctx.calib ? { key: ctx.calib.key, state: ctx.calib.state, reused: ctx.calib.reused, from: ctx.calib.from || null, t: ctx.calib.t || null, passed: ctx.calib.report?.passed ?? null, total: ctx.calib.report?.total ?? null, overall: ctx.calib.report?.overall || null, perCriterion: ctx.calib.report?.perCriterion || null, sampleSize: ctx.calib.sample.length } : null, aiTotal: { group: rubric.criteria.filter((c) => c.scope === "group" && c.ai).length, student: rubric.criteria.filter((c) => c.scope === "student" && c.ai).length }, release: releaseOf(sess), seteukMax: sess.seteukMax || A.SETEUK_MAX.def, seteukRange: [A.SETEUK_MAX.min, A.SETEUK_MAX.max],
       aiUsed: sess.assessAiCount || 0, aiCap: ASSESS_AI_CAP, aiRuns: ASSESS_RUNS, thresholds: A.THRESHOLDS,
     };
   }
@@ -1332,8 +1388,10 @@ exports.assess = onCall(opts, async (req) => {
     const { kind, id, key } = subjectArgs(req, sess, members);
     const [{ evidence, empty }, snap] = await Promise.all([loadEvidence(code, sess, kind, id, members), assessRef(code, key).get()]);
     const doc = snap.data() || {};
+    const cs = sess.calib?.status === "collecting" && sess.calib.key === calibKeyOf(sess) && sess.calib.sample.some((t) => subjectKeyOf(t) === key);
+    const aiFirst = modeOf(sess) === "ai_first" && !cs; // 교정 표본은 AI를 가린 채 채점한다
     return {
-      kind, id, mode: modeOf(sess), evidence, empty, scores: doc.scores || {}, ai: modeOf(sess) === "ai_first" ? doc.ai || {} : aiRevealed(doc), hasAi: Object.fromEntries(Object.keys(doc.ai || {}).map((c) => [c, true])),
+      kind, id, mode: aiFirst ? "ai_first" : "independent", calibSample: cs, evidence, empty, scores: doc.scores || {}, ai: aiFirst ? doc.ai || {} : aiRevealed(doc), hasAi: Object.fromEntries(Object.keys(doc.ai || {}).map((c) => [c, true])),
       review: reviewFlags(rubric, doc), seteuk: kind === "student" ? { text: doc.seteuk?.text || "", t: doc.seteuk?.t || 0 } : null,
     };
   }
@@ -1349,7 +1407,8 @@ exports.assess = onCall(opts, async (req) => {
     const prev = doc.scores?.[c.id];
     // AI가 먼저 채점하는 방식(ai_first)에서는 AI 제안을 보고 정하므로 처음 저장부터 AI 제안과의 차이를 따진다.
     // 교사가 먼저 채점하는 방식(independent)에서는 첫 저장 전에는 AI 제안을 못 봤으므로 두 번째 저장부터만 따진다(독립 채점을 지킨다).
-    const mode = modeOf(sess), aiRec = doc.ai?.[c.id];
+    const calibHidden = sess.calib?.status === "collecting" && sess.calib.key === calibKeyOf(sess) && sess.calib.sample.some((t) => subjectKeyOf(t) === key);
+    const mode = calibHidden ? "independent" : modeOf(sess), aiRec = doc.ai?.[c.id];
     const err = A.checkScoreInput({ c, level, note, evidenceIsEmpty: empty[c.id], aiLevel: mode === "ai_first" || prev ? aiRec?.level : undefined });
     if (err) throw new HttpsError("invalid-argument", err);
     const pts = level === -1 ? 0 : c.levels[level].pts;
@@ -1360,19 +1419,21 @@ exports.assess = onCall(opts, async (req) => {
     const score = { level, pts, note, t: Date.now(), by: auth.uid, src, reviewed: true, ...(src === "edited" ? { aiLevel: aiRec.level } : {}), ...(revs.length ? { revs } : {}) };
     await patchAssess(assessRef(code, key), { [`scores.${c.id}`]: score, kind, name: kind === "group" ? `${id.slice(1)}모둠` : members.find((m) => m.key === id)?.nick || "" });
     const merged = { ...doc, scores: { ...(doc.scores || {}), [c.id]: score } };
-    return { score, ai: (mode === "ai_first" ? merged.ai || {} : aiRevealed(merged))[c.id] || null, review: reviewFlags(rubric, merged)[c.id] || null, evidenceEmpty: empty[c.id], evidence: evidence[c.id] };
+    return { score, ai: (mode === "ai_first" ? merged.ai || {} : aiRevealed(merged))[c.id] || null, mode, review: reviewFlags(rubric, merged)[c.id] || null, evidenceEmpty: empty[c.id], evidence: evidence[c.id] };
   }
 
   // AI 제안을 점수로 적용한다(교사가 아직 채점하지 않은 칸만). 적용한 점수는 '검토 전'이고, 교사가 저장·확인하면 검토 완료가 된다.
   if (action === "applyAi") {
     const members = await membersOf(code);
+    const ctx = await autoContext(code, sess, auth.uid, rubric);
     const targets = req.data?.all === true
       ? [...Array.from({ length: sess.groupCount }, (_, i) => ({ kind: "group", id: `g${i + 1}` })), ...members.map((m) => ({ kind: "student", id: m.key }))]
       : [subjectArgs(req, sess, members)];
-    let applied = 0, skipped = 0, subjects = 0;
+    let applied = 0, skipped = 0, subjects = 0, exceptions = 0;
     for (const t of targets) {
       const key = subjKey(t.kind, t.id);
-      const doc = (await assessRef(code, key).get()).data() || {};
+      if (ctx.sample.has(key)) continue; // 교정 표본은 교사가 AI를 가린 채 직접 채점한다
+      const doc = ctx.docs[key] || {};
       const cands = Object.entries(doc.ai || {}).filter(([cid]) => !doc.scores?.[cid]);
       if (!cands.length) continue;
       const { empty } = await loadEvidence(code, sess, t.kind, t.id, members);
@@ -1380,14 +1441,111 @@ exports.assess = onCall(opts, async (req) => {
       for (const [cid, a] of cands) {
         const c = rubric.criteria.find((x) => x.id === cid && x.scope === scopeOf(t.kind));
         if (!c || !Number.isInteger(a.level)) continue;
+        // 예외만 검토: AI가 통과시킨 칸만 '확정 후보'로 적용하고, 어려운 칸은 점수를 정하지 않고 예외 큐로 보낸다
+        if (ctx.auto.on && !gateCell(ctx, doc, c).pass) { exceptions++; continue; }
         const note = A.clip(`AI 제안: ${a.reason || "수준 설명에 비추어 판단"}`, 500);
         if (A.checkScoreInput({ c, level: a.level, note, evidenceIsEmpty: empty[cid] })) { skipped++; continue; }
-        patch[`scores.${cid}`] = { level: a.level, pts: a.level === -1 ? 0 : c.levels[a.level].pts, note, t: Date.now(), by: "ai", src: "ai", reviewed: false };
+        patch[`scores.${cid}`] = { level: a.level, pts: a.level === -1 ? 0 : c.levels[a.level].pts, note, t: Date.now(), by: "ai", src: "ai", reviewed: false, ...(ctx.auto.on ? { auto: true } : {}) };
         applied++;
       }
       if (Object.keys(patch).length) { subjects++; await patchAssess(assessRef(code, key), { ...patch, kind: t.kind, name: t.kind === "group" ? `${t.id.slice(1)}모둠` : members.find((m) => m.key === t.id)?.nick || "" }); }
     }
-    return { applied, skipped, subjects };
+    return { applied, skipped, subjects, exceptions };
+  }
+
+  // 교사가 '일괄 확정'을 눌러야 AI가 통과시킨 점수(검토 전)가 확정된다. 확정 전 점수는 학생에게 공개돼도 보이지 않는다.
+  if (action === "confirmAll") {
+    const docsSnap = (await db.collection(`sessions/${code}/assess`).get()).docs;
+    let confirmed = 0;
+    for (const d of docsSnap) {
+      const patch = {};
+      for (const [cid, sc] of Object.entries(d.data().scores || {})) if (sc.src === "ai" && sc.reviewed === false && (req.data?.onlyAuto !== true || sc.auto === true)) { patch[`scores.${cid}.reviewed`] = true; patch[`scores.${cid}.confirmedAt`] = Date.now(); confirmed++; }
+      if (Object.keys(patch).length) await assessRef(code, d.id).update(patch);
+    }
+    return { confirmed };
+  }
+
+  // 교사 관찰 칸(협력)은 AI가 못 보므로 한 번에 같은 수준을 적용한다. 산출물을 한 건도 쓰지 않은 학생은 건너뛴다(교사가 따로 본다).
+  if (action === "bulkLevel") {
+    const members = await membersOf(code);
+    const c = rubric.criteria.find((x) => x.id === String(req.data?.criterion));
+    const level = Number(req.data?.level);
+    if (!c || c.ai !== false || c.scope !== "student") throw new HttpsError("invalid-argument", "일괄 적용은 협력 같은 교사 관찰 칸에만 쓸 수 있어요.");
+    if (!Number.isInteger(level) || level < 0 || level >= c.levels.length) throw new HttpsError("invalid-argument", "수준을 고르세요.");
+    const note = A.clip(req.data?.note, 500);
+    let applied = 0, skipped = 0;
+    for (const m of members) {
+      const key = `s_${m.key}`, doc = (await assessRef(code, key).get()).data() || {};
+      if (doc.scores?.[c.id]) continue;
+      const { evidence } = await loadEvidence(code, sess, "student", m.key, members);
+      const n = Number((evidence[c.id]?.[0]?.text || "").match(/쓴 항목 (\d+)건/)?.[1] || 0);
+      if (n === 0) { skipped++; continue; }
+      await patchAssess(assessRef(code, key), { [`scores.${c.id}`]: { level, pts: c.levels[level].pts, note, t: Date.now(), by: auth.uid, src: "teacher", reviewed: true }, kind: "student", name: m.nick });
+      applied++;
+    }
+    return { applied, skipped };
+  }
+
+  // 예외 큐: AI가 통과시키지 못한 칸과 학생의 이의 제기. 교사는 이것만 보면 된다.
+  if (action === "queue") {
+    const members = await membersOf(code);
+    const ctx = await autoContext(code, sess, auth.uid, rubric);
+    const all = [];
+    const nickOf = (key) => members.find((m) => m.key === key);
+    for (const [docId, doc] of Object.entries(ctx.docs)) {
+      const kind = docId.startsWith("s_") ? "student" : "group", id = kind === "student" ? docId.slice(2) : docId;
+      if (kind === "student" && !nickOf(id)) continue;
+      if (ctx.sample.has(docId)) continue;
+      if (kind === "student") for (const [cid, a] of appealsOf(doc)) {
+        const c = rubric.criteria.find((x) => x.id === cid); if (!c) continue;
+        const gid = nickOf(id).groupId;
+        all.push({ type: "appeal", kind: c.scope === "group" ? "group" : "student", id: c.scope === "group" ? gid : id, via: id, cid, appeal: a, order: 0 });
+      }
+      if (ctx.auto.on) for (const c of rubric.criteria.filter((x) => x.scope === scopeOf(kind) && x.ai)) {
+        if (doc.scores?.[c.id] || !doc.ai?.[c.id]) continue;
+        const g = gateCell(ctx, doc, c);
+        if (!g.pass) all.push({ type: "exception", kind, id, cid: c.id, reasons: g.reasons, order: 1 });
+      }
+    }
+    all.sort((a, b) => a.order - b.order);
+    const offset = Math.max(0, parseInt(req.data?.offset, 10) || 0), limit = 12;
+    const cache = new Map(), items = [];
+    for (const it of all.slice(offset, offset + limit)) {
+      const ck = `${it.kind}:${it.id}`;
+      if (!cache.has(ck)) cache.set(ck, await loadEvidence(code, sess, it.kind, it.id, members));
+      const ev = cache.get(ck), c = rubric.criteria.find((x) => x.id === it.cid);
+      const doc = ctx.docs[subjKey(it.kind, it.id)] || {};
+      const stu = it.kind === "student" ? nickOf(it.id) : null;
+      items.push({ type: it.type, kind: it.kind, id: it.id, via: it.via || null, cid: it.cid, name: c.name, el: c.elName, code: it.kind === "student" ? blindCode(it.id) : `${it.id.slice(1)}모둠`, nick: stu?.nick || null, groupId: stu?.groupId || (it.kind === "group" ? it.id : null),
+        reasons: it.reasons || [], appeal: it.appeal || null, evidence: ev.evidence[it.cid], empty: ev.empty[it.cid], ai: doc.ai?.[it.cid] || null, score: doc.scores?.[it.cid] || null, levels: c.levels, max: c.max });
+    }
+    return { items, total: all.length, offset, appeals: all.filter((x) => x.type === "appeal").length };
+  }
+  if (action === "resolveAppeal") {
+    const members = await membersOf(code);
+    const m = members.find((x) => x.key === String(req.data?.id));
+    const cid = String(req.data?.criterion || "");
+    if (!m || !/^c\d\d$/.test(cid)) throw new HttpsError("invalid-argument", "이의 제기를 찾을 수 없습니다.");
+    const doc = (await assessRef(code, `s_${m.key}`).get()).data() || {};
+    if (!doc.appeals?.[cid]) throw new HttpsError("not-found", "이의 제기를 찾을 수 없습니다.");
+    await patchAssess(assessRef(code, `s_${m.key}`), { [`appeals.${cid}.status`]: "resolved", [`appeals.${cid}.reply`]: A.clip(req.data?.reply, 300), [`appeals.${cid}.resolvedAt`]: Date.now() });
+    return { ok: true };
+  }
+
+  // 교정(재사용)과 자동 통과 설정
+  if (action === "calibStart") {
+    const members = await membersOf(code);
+    const groups = Array.from({ length: sess.groupCount }, (_, i) => ({ id: `g${i + 1}`, members: members.filter((m) => m.groupId === `g${i + 1}`).length }));
+    const sample = AP.pickCalibSample({ students: members.map((m) => ({ key: m.key })), groups });
+    if (sample.filter((t) => t.kind === "student").length < 3) throw new HttpsError("failed-precondition", "교정 표본으로 쓸 학생이 3명 이상 있어야 해요.");
+    await db.doc(`sessions/${code}`).update({ calib: { key: calibKeyOf(sess), status: "collecting", sample, startedAt: Date.now() } });
+    return { sample, students: sample.filter((t) => t.kind === "student").length, groups: sample.filter((t) => t.kind === "group").length };
+  }
+  if (action === "autoResume") { await db.doc(`sessions/${code}`).update({ autoResumeAt: Date.now() }); return { ok: true }; }
+  if (action === "config" && req.data?.assessAuto !== undefined) {
+    const a = req.data.assessAuto;
+    await db.doc(`sessions/${code}`).update({ assessAuto: { on: a?.on !== false, calib: a?.calib === true } });
+    return { auto: { on: a?.on !== false, calib: a?.calib === true } };
   }
 
   if (action === "recheck") {
@@ -1411,7 +1569,7 @@ exports.assess = onCall(opts, async (req) => {
       if (kind === "student" && !members.some((m) => m.key === id)) continue;
       for (const c of rubric.criteria) {
         if (c.scope !== (kind === "student" ? "student" : "group") || !doc.scores?.[c.id] || doc.scores[c.id].reviewed === false || doc.recheck?.[c.id]) continue;
-        if (!A.inRecheckSample(`${d.id}:${c.id}`)) continue;
+        if (!A.inRecheckSample(`${d.id}:${c.id}`, autoOf(sess).on ? AP.T.auditRate : 5)) continue;
         left++;
         if (items.length < 6) items.push({ kind, id, criterion: c.id });
       }
@@ -1514,7 +1672,7 @@ exports.assessAi = onCall(assessAiOpts, async (req) => {
     const crits = rubric.criteria.filter((c) => c.scope === (kind === "student" ? "student" : "group") && c.ai);
     const items = crits.filter((c) => !empty[c.id]).map((c) => ({ c, evidence: evidence[c.id] }));
     const patch = {};
-    for (const c of crits.filter((x) => empty[x.id])) patch[`ai.${c.id}`] = { level: -1, levels: [-1], spread: 0, quote: "", quoteOk: true, reason: "학생이 쓴 근거가 비어 있음", n: 0, auto: true, t: Date.now() };
+    for (const c of crits.filter((x) => empty[x.id])) patch[`ai.${c.id}`] = { level: -1, levels: [-1], spread: 0, quote: "", quoteOk: true, reason: "학생이 쓴 근거가 비어 있음", n: 0, auto: true, tri: { pass: true, reasons: [] }, flags: [], t: Date.now() };
     let ok = 0, failed = 0, escalatedCount = 0;
     if (items.length) {
       if (used + ASSESS_RUNS + 1 > ASSESS_AI_CAP) throw new HttpsError("resource-exhausted", `이 수업의 평가용 AI 호출 한도(${ASSESS_AI_CAP}회)에 가까워 더 받을 수 없어요.`);
@@ -1527,7 +1685,10 @@ exports.assessAi = onCall(assessAiOpts, async (req) => {
       runs.push(...settle(await Promise.allSettled(Array.from({ length: ASSESS_RUNS - 1 }, one))));
       let combined = A.combineRuns(runs, items);
       // 갈리거나 인용을 못 찾은 기준(또는 빠른 모델이 답하지 못한 기준)만 고성능 모델이 한 번 더 판정한다
-      const hard = items.filter(({ c }) => A.needsEscalation(combined[c.id]));
+      const autoOn = autoOf(sess).on;
+      const extreme = (r, c) => !!r && r.level !== -1 && (r.level === 0 || r.level === c.levels.length - 1);
+      // 예외만 검토에서는 가장 높은·낮은 수준도 고성능 모델이 한 번 더 확인해 같을 때만 통과시킨다
+      const hard = items.filter(({ c }) => A.needsEscalation(combined[c.id]) || (autoOn && extreme(combined[c.id], c)));
       if (hard.length) {
         await bump(1);
         const [h] = await Promise.allSettled([(async () => A.parseScorer(extractJson(await callModel({ apiKey, model: ASSESS_MODEL.value(), messages: A.scorerMessages({ rubric, items: hard, scope: scopeOf(kind) }), json: true, maxTokens: 1800, efforts: [effort === "minimal" ? "low" : effort, "low"] })), hard))()]);
@@ -1535,7 +1696,14 @@ exports.assessAi = onCall(assessAiOpts, async (req) => {
         combined = A.applyAdjudication(combined, h.status === "fulfilled" ? h.value : null, hard);
         escalatedCount = hard.length;
       }
-      for (const [cid, v] of Object.entries(combined)) { patch[`ai.${cid}`] = { ...v, t: Date.now() }; ok++; }
+      const hardIds = new Set(hard.map(({ c }) => c.id));
+      for (const [cid, v] of Object.entries(combined)) {
+        const c = rubric.criteria.find((x) => x.id === cid);
+        const rec = { ...v, esc: hardIds.has(cid), t: Date.now() };
+        const flags = AP.evidenceFlags(evidence[cid], { isRef: A.isRefLabel });
+        patch[`ai.${cid}`] = { ...rec, flags, tri: AP.triage({ c, ai: rec, flags }), meta: { rv: RUBRIC_VERSION, fast: ASSESS_FAST_MODEL.value(), ...(hardIds.has(cid) ? { strong: ASSESS_MODEL.value() } : {}) } };
+        ok++;
+      }
       if (!ok) throw new HttpsError("unavailable", "AI 응답을 받지 못했어요. 잠시 뒤에 다시 시도하세요.");
     }
     if (Object.keys(patch).length) await patchAssess(assessRef(code, key), patch);
@@ -1670,19 +1838,36 @@ exports.myResult = onCall(opts, async (req) => {
     m = { nickname, groupId: `g${groupNo}`, credKey: key };
   }
   const base = { title: sess.title, nickname: m.nickname, groupId: m.groupId, released: rel };
+  if (req.data?.appeal && !rel.score) throw new HttpsError("failed-precondition", "점수가 공개된 뒤에 이의를 제기할 수 있어요.");
   if (!rel.score && !rel.seteuk) return base;
   const key = studentKeyOf(m);
   const [stuSnap, grpSnap] = await Promise.all([assessRef(code, `s_${key}`).get(), assessRef(code, m.groupId).get()]);
   const stu = stuSnap.data() || {}, grp = grpSnap.data() || {};
   const out = { ...base };
+  const confirmedOf = (c) => { const s = (c.scope === "student" ? stu : grp).scores?.[c.id]; return s && s.reviewed !== false ? s : null; }; // 교사가 확정하기 전(검토 전) 점수는 보이지 않는다
+  // 이의 제기: 점수가 공개된 뒤, 확정된 칸에 한해 한 칸에 하나. 교사의 예외 큐로 간다.
+  if (req.data?.appeal) {
+    const rubric = rubricOfSession(sess);
+    const cid = String(req.data.appeal.criterion || ""), text = A.clip(req.data.appeal.text, 300);
+    const c = rubric.criteria.find((x) => x.id === cid);
+    if (!rel.score) throw new HttpsError("failed-precondition", "점수가 공개된 뒤에 이의를 제기할 수 있어요.");
+    if (!c || !confirmedOf(c)) throw new HttpsError("not-found", "이의를 제기할 칸을 찾을 수 없어요.");
+    if (text.length < 4) throw new HttpsError("invalid-argument", "이유를 4자 이상 써 주세요.");
+    if (stu.appeals?.[cid]?.status === "resolved") throw new HttpsError("failed-precondition", "이미 처리된 이의 제기예요.");
+    const rec = { text, t: Date.now(), status: "open" };
+    await patchAssess(assessRef(code, `s_${key}`), { [`appeals.${cid}`]: rec, kind: "student", name: m.nickname });
+    stu.appeals = { ...(stu.appeals || {}), [cid]: rec };
+  }
   if (rel.score) {
     const rubric = rubricOfSession(sess);
     const scores = {};
     const items = rubric.criteria.map((c) => {
-      const s = (c.scope === "student" ? stu : grp).scores?.[c.id];
+      const s = confirmedOf(c);
       if (s) scores[c.id] = s;
+      const ap = stu.appeals?.[c.id];
       return { id: c.id, element: c.elName, name: c.name, scope: c.scope, max: c.max, scored: !!s, pts: s ? s.pts : null,
-        level: s ? (s.level === -1 ? "미제출" : c.levels[s.level].label) : null, desc: s && s.level !== -1 ? c.levels[s.level].desc : "", note: s?.note || "" };
+        level: s ? (s.level === -1 ? "미제출" : c.levels[s.level].label) : null, desc: s && s.level !== -1 ? c.levels[s.level].desc : "", note: s?.note || "",
+        appeal: ap ? { status: ap.status, text: ap.text, reply: ap.reply || "" } : null };
     });
     out.score = { ...totals(rubric, scores), indivMax: rubric.indivMax, groupMax: rubric.total - rubric.indivMax, items, labels: rubric.labels };
   }

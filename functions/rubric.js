@@ -258,4 +258,7 @@ function totals(rubric, scores) {
   return { total: indiv + group, indiv, group, done, count: rubric.criteria.length, complete: done === rubric.criteria.length, max: rubric.total };
 }
 
-module.exports = { ELEMENTS, CRITERIA, SCALES, schoolOf, ptsFor, rubricFor, totals };
+// 척도표 버전: 기준·수준 서술이 바뀌면 달라진다. AI 판정 기록과 교정(재사용)이 어느 척도표 기준인지 구분하는 데 쓴다.
+const RUBRIC_VERSION = require("crypto").createHash("sha1").update(JSON.stringify(CRITERIA)).digest("hex").slice(0, 8);
+
+module.exports = { RUBRIC_VERSION, ELEMENTS, CRITERIA, SCALES, schoolOf, ptsFor, rubricFor, totals };
