@@ -8,11 +8,12 @@ const A = require("../assess");
 const { hashPassword, credKey } = require("../password");
 
 // ---------- 척도표 ----------
-test("척도표: 중·고 모두 100점 만점, 개인 25 / 모둠 75, 수준마다 점수가 붙는다", () => {
+test("척도표: 중·고 모두 100점 만점, 개인 60 / 모둠 40, 수준마다 점수가 붙는다", () => {
   for (const lv of ["high", "middle"]) {
     const r = R.rubricFor(lv);
     assert.equal(r.total, 100);
-    assert.equal(r.indivMax, 25);
+    assert.equal(r.indivMax, 60);
+    assert.equal(r.criteria.filter((c) => c.scope === "group").reduce((n, c) => n + c.max, 0), 40);
     assert.equal(r.criteria.length, 13);
     for (const c of r.criteria) {
       assert.equal(c.levels.length, lv === "high" ? 4 : 3);
@@ -22,9 +23,11 @@ test("척도표: 중·고 모두 100점 만점, 개인 25 / 모둠 75, 수준마
     }
   }
   assert.deepEqual(R.rubricFor("high").criteria[1].levels.map((l) => l.pts), [10, 8, 6, 4]);
-  assert.deepEqual(R.rubricFor("high").criteria[2].levels.map((l) => l.pts), [5, 4, 3, 2]);
+  assert.deepEqual(R.rubricFor("high").criteria.find((c) => c.id === "c42").levels.map((l) => l.pts), [5, 4, 3, 2]);
+  // 개인 칸: 인물 이해·처음 생각·내가 쓴 원인·내가 낸 해결책·내가 쓴 예측·생각의 변화·협력
+  assert.deepEqual(R.rubricFor("high").criteria.filter((c) => c.scope === "student").map((c) => c.id), ["c11", "c21", "c22", "c31", "c41", "c52", "c62"]);
   assert.deepEqual(R.rubricFor("middle").criteria[1].levels.map((l) => l.pts), [10, 7, 4]);
-  assert.deepEqual(R.rubricFor("middle").criteria[2].levels.map((l) => l.pts), [5, 4, 2]);
+  assert.deepEqual(R.rubricFor("middle").criteria.find((c) => c.id === "c42").levels.map((l) => l.pts), [5, 4, 2]);
   assert.equal(R.ptsFor("high", 10, -1), 0);
   assert.equal(R.ptsFor("high", 10, 4), null);
 });
@@ -75,7 +78,7 @@ const WORK = {
     checks: { q1: { heard: "가짜 난민이 많다", question: "허가율이 얼마인가", refute: "허가율이 높다면 틀림", fo: "사실", nick: "가나", t: 1 } },
   },
   s3: { direct: { q1: { verdict: "일부만 사실", source: "2단계 자료의 허가 통계를 보니 ~" } }, chain: { evidence: "허가율 약 2%", meaning: "대부분 불허", cause: "제도 이해 부족" } },
-  s4: { before: "제도 설명회를 열자", proposals: { p1: { text: "제도 설명회를 연다", cause: "제도 이해 부족", t: 1 } }, final: "설명회와 상담창구를 만든다", finalReason: "원인에 직접 닿기 때문" },
+  s4: { before: "제도 설명회를 열자", proposals: { p1: { text: "제도 설명회를 연다", cause: "제도 이해 부족", nick: "가나", t: 1 } }, final: "설명회와 상담창구를 만든다", finalReason: "원인에 직접 닿기 때문" },
   s7: { compare: "실제로는 심사가 길어졌다", after: { U1: "처음엔 무서웠지만 이야기를 들으니 걱정이 줄었다" }, checks: { 0: true }, reflection: "AI의 의견 중 비용 문제는 받아들였다" },
 };
 const deepAll = Object.fromEntries(["beliefs", "premise", "causeMap", "sources", "tradeoff", "chain", "power", "why"].map((k) => [k, true]));
@@ -97,6 +100,23 @@ test("근거: 학생 개인 칸은 uid 또는 별명으로 찾고, 비어 있으
   assert.equal(A.evidenceEmpty(A.evidenceFor("c61", ctxG)), false);
   const e62 = A.evidenceFor("c62", ctxS);
   assert.match(e62[0].text, /이 학생이 쓴 항목 \d+건/);
+});
+
+test("근거: 개인 칸(c22·c31·c41)은 내가 쓴 항목만 근거로 삼고, 모둠이 쓴 것은 참고로만 보여 준다", () => {
+  const e22 = A.evidenceFor("c22", ctxS);
+  assert.ok(e22.some((e) => e.label.startsWith("내가 쓴 원인 추측") && e.text.includes("불안")));
+  assert.ok(!e22.some((e) => e.text.includes("심사 제도가 낯설다")), "다른 모둠원이 쓴 원인은 내 근거가 아니다");
+  assert.ok(e22.some((e) => e.label === "내가 쓴 확인 질문"));
+  assert.match(e22.find((e) => e.label.startsWith("(모둠 참고)")).text, /원인 추측 2개 중 내가 쓴 것 1개/);
+  // 다른 모둠원(다라)에게는 그 사람이 쓴 것이 보인다
+  const dara = A.evidenceFor("c22", { ...ctxS, student: { uid: "U2", nick: "다라", chat: [] } });
+  assert.ok(dara.some((e) => e.text.includes("심사 제도가 낯설다")) && !dara.some((e) => e.text.includes("불안")));
+  // 하나도 안 썼으면(참고만 있으면) 근거가 비어 있다 → 미제출만 선택
+  assert.equal(A.evidenceEmpty(A.evidenceFor("c41", ctxS)), true);
+  assert.equal(A.evidenceEmpty(A.evidenceFor("c31", { ...ctxS, student: { uid: "U9", nick: "마바", chat: [] } })), true);
+  assert.equal(A.evidenceEmpty(A.evidenceFor("c31", ctxS)), false);
+  const w = { ...WORK, s5: { predictions: { r1: { stakeholder: "주민", text: "불안이 커질 것이다", nick: "가나", t: 1 } } } };
+  assert.equal(A.evidenceEmpty(A.evidenceFor("c41", { ...ctxS, work: w })), false);
 });
 
 test("근거: 심화 활동을 끄면 심화 칸은 근거에서 빠진다", () => {
@@ -184,38 +204,10 @@ test("재채점 표본: 같은 열쇠는 늘 같은 결과, 대략 1/5", () => {
   assert.ok(picked.length > 40 && picked.length < 120);
 });
 
-// ---------- 세특 ----------
-test("세특: NEIS 바이트 수, 명사형 종결, 금지 표현 검사", () => {
-  assert.equal(A.byteLen("가a1\n"), 3 + 1 + 1 + 2);
-  assert.equal(A.nounEnding("해결책을 제안함."), true);
-  assert.equal(A.nounEnding("해결책을 제안했다."), false);
-  assert.equal(A.nounEnding("모둠의 의견을 정리하는 데 기여했음."), true);
-  const ok = A.checkSeteuk("사건 자료를 비교해 원인을 분석함. 모둠 토의에서 근거를 제시함.", { nick: "가나", maxBytes: 1500 });
-  assert.deepEqual([ok.errors, ok.warnings], [[], []]);
-  assert.match(A.checkSeteuk("가나는 열심히 했다.", { nick: "가나" }).warnings.join(" "), /별명/);
-  assert.match(A.checkSeteuk("상위 10% 성적임.", {}).warnings.join(" "), /점수·등급·석차/);
-  assert.match(A.checkSeteuk("창원고등학교 대회에서 수상함.", {}).warnings.join(" "), /학교·기관|대회/);
-  assert.match(A.checkSeteuk("가".repeat(600) + "함.", { maxBytes: 1500 }).errors[0], /한도/);
-  assert.ok(A.checkSeteuk("", {}).errors.length);
-});
-
-test("세특 초안 해석: 근거가 연결되지 않은 문장과 별명이 든 문장은 빼고, 한도를 넘으면 뒤에서부터 뺀다", () => {
-  const p = A.parseSeteuk({ sentences: [
-    { text: "인물 인터뷰에서 일자리 어려움을 파악함.", evidence: ["e1"] },
-    { text: "리더십이 뛰어남.", evidence: [] },
-    { text: "가나가 자료를 분석함.", evidence: ["e2"] },
-    { text: "근거가 모르는 id 임.", evidence: ["e99"] },
-    { text: "원인과 제도의 관계를 설명함.", evidence: ["e2"] },
-  ] }, { validIds: ["e1", "e2"], maxBytes: 1500, nick: "가나" });
-  assert.equal(p.sentences.length, 2);
-  assert.equal(p.dropped.length, 3);
-  const long = A.parseSeteuk({ sentences: Array.from({ length: 30 }, (_, i) => ({ text: `자료를 비교하고 사례 ${i}를 분석하여 결론을 내림.`, evidence: ["e1"] })) }, { validIds: ["e1"], maxBytes: 300 });
-  assert.ok(A.byteLen(long.text) <= 300);
-  assert.ok(long.dropped.some((d) => /한도/.test(d.why)));
-});
-
 // ---------- 통합: 채점 → AI → 공개 → 학생 보기 ----------
 let aiMode = "normal"; // normal | bad (인용문 지어냄)
+let levelMode = "normal", fill = 0, withBad = false; // 세특 가짜 AI: 수준 판정 종류, 승 부분을 채우는 글자 수, 근거 없는 문장 포함 여부
+const draftMsgs = [];
 let fetchCount = 0;
 global.fetch = async (url, init) => {
   const body = JSON.parse(init.body);
@@ -225,12 +217,26 @@ global.fetch = async (url, init) => {
   if (sys.includes("제2 채점자")) {
     const ids = [...body.messages[1].content.matchAll(/^## (c\d\d) /gm)].map((m) => m[1]);
     content = JSON.stringify({ items: ids.map((id) => ({ id, level: 1, quote: aiMode === "bad" ? "학생이 쓰지 않은 문장입니다 정말로" : "모두 안전을 바란다", reason: "수준 설명 일부 충족" })) });
+  } else if (sys.includes("질적 수준을 판정하는 평가자")) {
+    const poor = levelMode === "poor";
+    content = JSON.stringify({ criteria: ["depth", "logic", "agency", "connect", "reflect"].map((id) => ({ id, grade: poor ? "C" : "A", ai_suspicion: "낮음", reason: "근거 기준 충족" })),
+      quality: { has_content: poor ? "partial" : "yes", on_topic: "yes", sincere: "yes", has_specifics: poor ? "no" : "yes" }, factInsufficient: poor });
   } else if (sys.includes("세특")) {
-    content = JSON.stringify({ sentences: [
-      { text: "인물 인터뷰에서 일자리를 구하기 어려운 처지를 파악함.", evidence: ["e1"] },
-      { text: "뛰어난 리더십을 발휘함.", evidence: [] },
-      { text: "제도 이해 부족을 가장 큰 원인으로 짚고 설명회를 제안함.", evidence: ["e2", "e3"] },
-    ] });
+    const user = body.messages.at(-1).content;
+    draftMsgs.push(body.messages.map((m) => m.content).join("\n"));
+    const over = user.match(/현재 \d+바이트로 (\d+)바이트 초과/), under = user.match(/현재 \d+바이트로 (\d+)바이트 이상 모자란다/);
+    if (over) fill -= Math.ceil(Number(over[1]) / 3);
+    if (under) fill += Math.ceil(Number(under[1]) / 3);
+    const ids = [...new Set([...user.matchAll(/\[(e\d+)\]/g)].map((m) => m[1]))];
+    const pick = (i) => [ids[Math.min(i, ids.length - 1)]];
+    const pad = "가".repeat(Math.max(0, fill));
+    const parts = [
+      { part: "기", sentences: [{ text: "제주 사건의 인물을 만나 일자리를 구하기 어려운 처지에 의문을 품고 처음 생각을 점검함.", evidence: pick(0) }, ...(withBad ? [{ text: "리더십이 매우 뛰어남.", evidence: [] }] : [])] },
+      { part: "승", sentences: [{ text: `이를 바탕으로 원인을 제도와 인식으로 나누어 따져 보며 확인할 질문을 세우고 자료를 비교함${pad}.`, evidence: pick(1) }] },
+      { part: "전", sentences: [{ text: "그러나 허가 통계를 확인하는 과정에서 예상과 달리 대부분 불허되었음을 알게 되어 생각이 바뀜.", evidence: pick(2) }] },
+      { part: "결", sentences: [{ text: "이러한 발견을 근거로 제도 이해 부족을 가장 큰 원인으로 짚고 설명회를 제안하며 이후 과제를 성찰함.", evidence: pick(3) }] },
+    ];
+    content = JSON.stringify({ parts });
   } else content = "{}";
   return { ok: true, json: async () => ({ choices: [{ message: { content } }] }) };
 };
@@ -268,7 +274,7 @@ test("통합: 처음 열면 척도표·대상·진행률이 오고, 다른 교�
 test("통합: 독립 채점 — AI 제안은 교사가 그 기준을 저장하기 전에는 내려가지 않는다", async () => {
   await seed();
   const sc = await api.assessAi(as({ action: "score", kind: "group", id: "g1" }));
-  assert.ok(sc.ok >= 6);
+  assert.ok(sc.ok >= 5);
   let sub = await api.assess(as({ action: "subject", kind: "group", id: "g1" }));
   assert.deepEqual(sub.ai, {}, "교사가 채점하기 전에는 AI 제안이 없다");
   assert.equal(sub.hasAi.c12, true);
@@ -427,23 +433,84 @@ test("통합: 세특 저장은 글자 수 한도를 넘으면 거절하고, 문�
   assert.equal(cleared.bytes, 0);
 });
 
-test("통합: 세특 초안 — 근거 없는 문장은 빼고, 다른 학생 정보는 보내지 않는다", async () => {
-  await seed();
-  const sent = [];
-  const prev = global.fetch;
-  global.fetch = async (u, init) => { sent.push(JSON.parse(init.body).messages.map((m) => m.content).join("\n")); return prev(u, init); };
-  const d = await api.assessAi(as({ action: "seteuk", kind: "student", id: K1 }));
-  global.fetch = prev;
-  assert.equal(d.dropped.length, 1);
-  assert.match(d.dropped[0].why, /근거/);
-  assert.equal(d.sentences.length, 2);
-  assert.ok(Object.keys(d.evidence).length >= 3);
-  assert.ok(d.bytes <= 1500);
-  const prompt = sent.join("\n");
-  assert.ok(prompt.includes("일자리를 구하기 어려움"));
-  assert.ok(!prompt.includes("다라"), "같은 모둠의 다른 학생 별명이 들어가지 않는다");
-  assert.ok(!prompt.includes("가나"), "이 학생의 별명도 보내지 않는다");
-  await assert.rejects(() => api.assessAi(as({ action: "seteuk", kind: "group", id: "g1" })), /학생마다/);
+const prep = (id = K1) => api.assessAi(as({ action: "seteukPrep", kind: "student", id }));
+const gen = (extra = {}) => api.assessAi(as({ action: "seteukGenerate", kind: "student", id: K1, ...extra }));
+
+test("통합 세특: 수준 판정(5개 기준·AI 의심·빈약도)을 하고 결과를 저장한다. 판정 없이는 초안을 만들지 않는다", async () => {
+  await seed({ seteukMax: 600 });
+  levelMode = "normal";
+  await assert.rejects(() => gen(), /먼저 수준 판정/);
+  const p = await prep();
+  assert.equal(p.grade, "A");
+  assert.equal(p.criteria.length, 5);
+  assert.deepEqual([p.suspicion.level, p.needsAdjustment, p.richness.isPoor], ["낮음", false, false]);
+  assert.ok(p.inputBytes > 100 && p.evidenceCount >= 8);
+  assert.equal(store.get(`sessions/${CODE}/assess/s_${K1}`).seteuk.prep.grade, "A");
+  // 글자 수 한도를 바꾸면 이전 판정은 쓸 수 없다
+  await api.assess(as({ action: "config", seteukMax: 1000 }));
+  await assert.rejects(() => gen(), /다시 판정/);
+  // 활동 기록이 하나도 없는 학생은 만들지 않는다(주제만 보고 쓰지 않는다)
+  store.set(`sessions/${CODE}/members/U3`, { groupId: "g2", nickname: "라마", credKey: credKey(2, "라마"), chatCount: 0, coachCount: 0 });
+  await assert.rejects(() => prep(credKey(2, "라마")), /활동 기록이 없어/);
+});
+
+test("통합 세특: 기승전결 4부분으로 쓰고, 근거 없는 문장은 빼며, NAIS 바이트 목표 범위에 들 때까지 보정한다", async () => {
+  await seed({ seteukMax: 600 });
+  levelMode = "normal"; fill = 150; withBad = true; draftMsgs.length = 0; // 처음엔 크게 초과하게 쓴다
+  await prep();
+  const r = await gen({ emphasis: "growth" });
+  assert.deepEqual(r.parts.map((x) => x.part), ["기", "승", "전", "결"]);
+  assert.ok(r.parts.every((x) => x.sentences.length >= 1 && x.sentences.every((s) => s.evidence.length)));
+  assert.ok(r.dropped.some((d) => /근거가 연결되지 않아/.test(d.why) && d.part === "기"));
+  assert.ok(!r.text.includes("리더십"));
+  assert.ok(r.bytes >= 570 && r.bytes <= 600, `목표 범위: ${r.bytes}`);
+  assert.equal(r.reason, "범위 내");
+  assert.ok(r.tries >= 2 && r.log[0].bytes > 600, "첫 초안은 초과였고 압축 보정을 거쳤다");
+  assert.equal(A.byteLen(r.text), r.bytes);
+  // 앞 부분을 받는 말로 이어지고(승·전·결의 첫 문장), 문체 린트에 걸리지 않는다
+  assert.deepEqual(r.warnings, []);
+  assert.ok(/^이를 바탕으로/.test(r.parts[1].sentences[0].text) && /^그러나/.test(r.parts[2].sentences[0].text) && /^이러한/.test(r.parts[3].sentences[0].text));
+  // 프롬프트: 기승전결 규칙, 수준 표현(등급 이름은 본문 금지), 강조 관점, 분량 범위
+  const first = draftMsgs[0];
+  assert.match(first, /구조: 기승전결/); assert.match(first, /체계적 수행/); assert.match(first, /회복탄력/); assert.match(first, /570~600바이트/);
+  assert.match(first, /권장 배치: 기·승/);
+  // 근거주의: 다른 학생의 별명과 이 학생의 별명은 AI 에 보내지 않는다
+  assert.ok(!first.includes("다라") && !first.includes("가나"));
+  // 저장하면 그 글이 확정본이 된다(저장 시점에 바이트를 다시 센다)
+  const sv = await api.assess(as({ action: "seteukSave", id: K1, text: r.text }));
+  assert.equal(sv.bytes, r.bytes);
+  assert.deepEqual(sv.warnings, []);
+  assert.equal(store.get(`sessions/${CODE}/assess/s_${K1}`).seteuk.gen.grade, "A");
+  fill = 0; withBad = false;
+});
+
+test("통합 세특: 근거가 빈약하면 하향·유지·취소를 먼저 고르게 하고, 하향하면 미달이어도 그대로 확정한다", async () => {
+  await seed({ seteukMax: 1500 });
+  levelMode = "poor"; fill = 0; draftMsgs.length = 0;
+  const p = await prep();
+  assert.equal(p.grade, "C");
+  assert.equal(p.needsAdjustment, true);
+  assert.ok(p.suggestedMax <= 900 && p.suggestedMax >= 300);
+  assert.ok(p.richness.issues.some((x) => /구체적 근거 전무/.test(x)));
+  await assert.rejects(() => gen(), /분량을 낮출지 유지할지/);
+  assert.deepEqual(await gen({ decision: "cancel" }), { cancelled: true });
+  const low = await gen({ decision: "lower" });
+  assert.equal(low.target, p.suggestedMax);
+  assert.equal(low.reason, "내용충실-미달확정", "하향 모드는 없는 내용을 채우지 않고 미달을 확정한다");
+  assert.ok(low.bytes < low.target - 30);
+  assert.match(draftMsgs.at(-1), /창작 금지|C|형식적 참여/);
+  assert.ok(!/분량 우선 모드/.test(draftMsgs.at(-1)));
+  // 등급은 교사가 조정할 수 있다
+  const adj = await gen({ decision: "lower", grade: "B" });
+  assert.equal(adj.grade, "B");
+  assert.match(draftMsgs.at(-1), /기본 절차 이해/);
+  levelMode = "normal";
+});
+
+test("통합 세특: 수준 판정·초안에도 평가용 AI 호출 한도가 적용된다", async () => {
+  await seed({ seteukMax: 600, assessAiCount: 1499 });
+  levelMode = "normal";
+  await assert.rejects(() => prep(), /한도/);
 });
 
 test("통합: 모둠 이동 시 평가 기록도 새 별명 열쇠로 옮겨진다", async () => {

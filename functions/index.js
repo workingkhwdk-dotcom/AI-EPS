@@ -1427,6 +1427,28 @@ exports.assess = onCall(opts, async (req) => {
   throw new HttpsError("invalid-argument", "알 수 없는 요청입니다.");
 });
 
+const SK = require("./seteuk");
+// 세특의 근거: 이 학생의 개인 활동 + 모둠이 함께 한 활동(다른 학생의 개인 글과 별명은 넣지 않는다). 기승전결 어느 부분에 어울리는지 힌트(role)를 단다.
+async function seteukEvidence(code, sess, id, stu, members) {
+  const mine = await loadEvidence(code, sess, "student", id, members);
+  const grp = await loadEvidence(code, sess, "group", stu.groupId, members);
+  const picks = [["c11", mine], ["c21", mine], ["c22", mine], ["c31", mine], ["c41", mine], ["c52", mine], ["c12", grp], ["c23", grp], ["c32", grp], ["c42", grp], ["c51", grp]];
+  const items = [];
+  for (const [cid, src] of picks) for (const e of src.evidence[cid] || []) {
+    if (A.isRefLabel(e.label)) continue; // 참고용 기록(건수·점검표 등)은 세특 근거가 아니다
+    items.push({ id: `e${items.length + 1}`, label: `${src === mine ? "내 활동" : "모둠 활동"} · ${e.label}`, text: A.clip(e.text, 320), role: SK.ROLE_OF[cid] });
+  }
+  let size = 0;
+  return items.filter((e) => (size += e.text.length + e.label.length) <= 6000);
+}
+async function seteukScoreLines(code, sess, id, stu) {
+  const rubric = rubricOfSession(sess);
+  const docs = await Promise.all([assessRef(code, `s_${id}`).get(), assessRef(code, stu.groupId).get()]);
+  const out = [];
+  docs.forEach((d) => { for (const [cid, v] of Object.entries(d.data()?.scores || {})) { const c = rubric.criteria.find((x) => x.id === cid); if (c) out.push({ name: c.name, levelLabel: v.level === -1 ? "미제출" : c.levels[v.level]?.label, note: v.note }); } });
+  return out;
+}
+
 // AI 제2평정자와 세특 초안(교사 전용). 학생 글은 근거로만 쓰고 지시로 따르지 않는다.
 exports.assessAi = onCall(assessAiOpts, async (req) => {
   const { code, sess } = await ownSession(req);
@@ -1462,39 +1484,91 @@ exports.assessAi = onCall(assessAiOpts, async (req) => {
     return { ok, auto: crits.length - items.length, failedRuns: failed };
   }
 
-  if (action === "seteuk") {
+  // ---- 세특 ①② 근거 확인과 수준 판정(경량 모델). 결과는 교사에게 보여 주고, 빈약하면 하향·유지·취소를 고르게 한다. ----
+  if (action === "seteukPrep" || action === "seteukGenerate") {
     if (kind !== "student") throw new HttpsError("invalid-argument", "세특은 학생마다 만들어요.");
-    const maxBytes = sess.seteukMax || A.SETEUK_MAX.def;
+    const target = sess.seteukMax || SK.SETEUK_MAX.def;
     const stu = members.find((m) => m.key === id);
-    const mine = await loadEvidence(code, sess, "student", id, members);
-    const grp = await loadEvidence(code, sess, "group", stu.groupId, members);
-    // 이 학생의 개인 활동 + 모둠이 함께 한 활동. 다른 학생의 개인 글과 별명은 넣지 않는다.
-    const picks = [["c11", mine], ["c21", mine], ["c52", mine], ["c12", grp], ["c23", grp], ["c32", grp], ["c42", grp], ["c51", grp]];
-    const items = [];
-    for (const [cid, src] of picks) for (const e of src.evidence[cid] || []) {
-      if (A.evidenceEmpty([e]) && /^(점검표|계획 유형)/.test(e.label)) continue;
-      items.push({ id: `e${items.length + 1}`, label: `${cid === "c11" || cid === "c21" || cid === "c52" ? "내 활동" : "모둠 활동"} · ${e.label}`, text: A.clip(e.text, 320) });
+    const items = await seteukEvidence(code, sess, id, stu, members);
+    if (!items.length) throw new HttpsError("failed-precondition", "아직 학생이 쓴 활동 기록이 없어 세특을 만들 수 없어요. (주제만 보고 쓰지 않아요)");
+    const ref = assessRef(code, `s_${id}`);
+    const doc = (await ref.get()).data() || {};
+
+    if (action === "seteukPrep") {
+      if (used + 2 > ASSESS_AI_CAP) throw new HttpsError("resource-exhausted", `이 수업의 평가용 AI 호출 한도(${ASSESS_AI_CAP}회)에 가까워 더 받을 수 없어요.`);
+      const inputBytes = SK.naisBytes(items.map((e) => e.text).join(" "));
+      let lv, last;
+      for (let i = 0; i < 2 && !lv; i++) {
+        await bump(1);
+        try { lv = SK.parseLevel(extractJson(await callModel({ apiKey, model: OPENAI_MODEL.value(), messages: SK.levelMessages({ level, items, targetBytes: target }), json: true, maxTokens: 1500, efforts: [effort === "minimal" ? "low" : effort, "low"] }))); }
+        catch (e) { last = e; console.error("수준 판정 실패:", e.message); }
+      }
+      if (!lv) throw new HttpsError("unavailable", "AI 응답을 받지 못했어요. 잠시 뒤에 다시 시도하세요.");
+      const rich = SK.richnessFromQuality(lv.quality, lv.factInsufficient);
+      const safe = SK.computeSafeTarget(inputBytes, target, lv.grade);
+      const suggestedMax = Math.min(safe.safeMaxBytes, rich.cap ?? Infinity);
+      const prep = { grade: lv.grade, gradeScore: lv.gradeScore, criteria: lv.criteria, suspicion: lv.suspicion, quality: lv.quality, factInsufficient: lv.factInsufficient,
+        richness: rich, inputBytes, ratio: safe.ratio, target, suggestedMax, needsAdjustment: suggestedMax < target || rich.isPoor, evidenceCount: items.length, t: Date.now() };
+      await patchAssess(ref, { "seteuk.prep": prep, kind: "student", name: stu.nick });
+      return prep;
     }
-    let size = 0;
-    const capped = items.filter((e) => (size += e.text.length + e.label.length) <= 5500);
-    if (!capped.length) throw new HttpsError("failed-precondition", "아직 학생이 쓴 활동 기록이 없어 초안을 만들 수 없어요.");
-    if (used + 1 > ASSESS_AI_CAP) throw new HttpsError("resource-exhausted", `이 수업의 평가용 AI 호출 한도(${ASSESS_AI_CAP}회)에 가까워 더 받을 수 없어요.`);
-    const aDocs = await Promise.all([assessRef(code, `s_${id}`).get(), assessRef(code, stu.groupId).get()]);
-    const scoreLines = [];
-    aDocs.forEach((s, i) => { for (const [cid, v] of Object.entries(s.data()?.scores || {})) { const c = mine.rubric.criteria.find((x) => x.id === cid); if (c) scoreLines.push({ name: c.name, levelLabel: v.level === -1 ? "미제출" : c.levels[v.level]?.label, note: v.note }); } });
-    await bump(1);
-    const messages = A.seteukMessages({ level, items: capped, scores: scoreLines, maxBytes });
-    let parsed;
+
+    // ---- ④⑤ 초안(기승전결 4부분) + NAIS 바이트 수렴 ----
+    const prep = doc.seteuk?.prep;
+    if (!prep || prep.target !== target) throw new HttpsError("failed-precondition", "먼저 수준 판정을 해 주세요. (글자 수 한도를 바꿨다면 다시 판정해야 해요)");
+    const grade = SK.GRADES.includes(req.data?.grade) ? req.data.grade : prep.grade;
+    const emphasis = SK.EMPHASIS[req.data?.emphasis] ? req.data.emphasis : "balance";
+    let decision = String(req.data?.decision || "");
+    if (prep.needsAdjustment && !["lower", "keep", "cancel"].includes(decision)) throw new HttpsError("failed-precondition", "근거가 목표 분량에 비해 적어요. 분량을 낮출지 유지할지 먼저 골라 주세요.");
+    if (decision === "cancel") return { cancelled: true };
+    if (!prep.needsAdjustment) decision = "keep";
+    const dec = SK.resolveDecision(decision, target, prep.suggestedMax);
+    const effTarget = prep.needsAdjustment ? dec.effectiveTargetBytes : target;
+    const allowCreation = prep.needsAdjustment && dec.allowCreation;
+    const contentFirst = prep.needsAdjustment && decision === "lower";
+    const scoreLines = await seteukScoreLines(code, sess, id, stu);
+    const params = { level, items, scores: scoreLines, grade, emphasis, effectiveTarget: effTarget, targetBytes: target, allowCreation, filledCount: items.length };
+    const base = SK.draftMessages(params);
+    const validIds = items.map((e) => e.id);
+    const budget = ASSESS_AI_CAP - used;
+    if (budget < 2) throw new HttpsError("resource-exhausted", `이 수업의 평가용 AI 호출 한도(${ASSESS_AI_CAP}회)에 가까워 더 받을 수 없어요.`);
+    let calls = 0, lastParts = null;
+    const made = new Map(), log = [];
+    const ask = async (messages) => {
+      calls++;
+      await bump(1);
+      return extractJson(await callModel({ apiKey, model: SETEUK_MODEL.value(), messages, json: true, maxTokens: SK.maxTokens(effTarget) + 600, efforts: [effort === "minimal" ? "low" : effort, "low"] }));
+    };
+    const generate = async (direction, prevText, bytes) => {
+      let messages = direction === "init" ? base : SK.fixMessages({ base, parts: lastParts, direction, bytes, effectiveTarget: effTarget, items });
+      let parsed, flow;
+      for (let k = 0; k < 2; k++) {
+        parsed = SK.parseDraft(await ask(messages), { validIds, nick: stu.nick });
+        flow = SK.checkFlow(parsed.parts);
+        if (!flow.errors.length) break;
+        if (k === 0 && calls + 1 < budget) { lastParts = parsed.parts.filter((p) => p.sentences.length); messages = SK.fixMessages({ base, parts: parsed.parts, direction: "fix", bytes, effectiveTarget: effTarget, items, feedback: `${flow.errors.join(", ")}. 기승전결 네 부분이 모두 있도록 근거가 있는 문장으로 채운다.` }); }
+      }
+      lastParts = parsed.parts;
+      const text = SK.assemble(parsed.parts);
+      made.set(text, { parts: parsed.parts, dropped: parsed.dropped, flow });
+      return text;
+    };
+    let conv;
     try {
-      const text = await callModel({ apiKey, model: SETEUK_MODEL.value(), messages, json: true, maxTokens: 1600, efforts: [effort === "minimal" ? "low" : effort, "low"] });
-      parsed = A.parseSeteuk(extractJson(text), { validIds: capped.map((e) => e.id), maxBytes, nick: stu.nick });
+      conv = await SK.convergeLength(generate, { target: effTarget, contentFirst, maxAdjust: Math.max(1, Math.min(SK.PRESET.maxAdjust, budget - 3)), deadline: Date.now() + 200 * 1000, onTry: (t) => log.push(t) });
     } catch (e) {
+      if (e instanceof HttpsError) throw e;
       console.error("세특 초안 실패:", e.message);
       throw new HttpsError("unavailable", "AI 응답을 받지 못했어요. 잠시 뒤에 다시 시도하세요.");
     }
-    if (!parsed.text) throw new HttpsError("unavailable", "쓸 만한 초안을 만들지 못했어요. 다시 시도하세요.");
-    const check = A.checkSeteuk(parsed.text, { nick: stu.nick, maxBytes });
-    return { text: parsed.text, sentences: parsed.sentences, dropped: parsed.dropped, warnings: check.warnings, bytes: check.bytes, max: maxBytes, evidence: Object.fromEntries(capped.map((e) => [e.id, { label: e.label, text: e.text }])) };
+    const got = made.get(conv.text);
+    if (!conv.text || !got) throw new HttpsError("unavailable", "쓸 만한 초안을 만들지 못했어요. 다시 시도하세요.");
+    const lint = SK.lintStyle(conv.text, { nick: stu.nick });
+    const warnings = [...got.flow.errors, ...got.flow.warnings, ...lint];
+    if (conv.bytes > target) warnings.unshift(`글자 수가 ${conv.bytes}바이트로 한도(${target}바이트)를 넘어요. 줄여서 저장하세요.`);
+    await patchAssess(ref, { "seteuk.gen": { t: Date.now(), grade, emphasis, decision, target: effTarget, bytes: conv.bytes, reason: conv.reason, tries: conv.tries } });
+    return { text: conv.text, parts: got.parts, dropped: got.dropped, warnings, bytes: conv.bytes, max: target, target: effTarget, reason: conv.reason, tries: conv.tries, log, calls, grade, emphasis, decision,
+      evidence: Object.fromEntries(items.map((e) => [e.id, { label: e.label, text: e.text }])) };
   }
 
   throw new HttpsError("invalid-argument", "알 수 없는 요청입니다.");

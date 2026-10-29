@@ -1093,3 +1093,35 @@ input[type=email]{ font:inherit; font-size:16px; width:100%; padding:11px 13px; 
 .res-seteuk{ white-space:pre-wrap; background:var(--paper); border:1px solid var(--paper-line); border-radius:12px; padding:12px 14px; line-height:1.85; }
 .res-link{ margin:10px 0 0; }
 .btn-out.has-new{ background:#fff; color:var(--navy); border-color:#fff; }
+
+/* ---------- 세특 만들기(Seteuk-design 토큰: 인디고 브랜드, 성공·주의·위험, S등급 보라, 편집 하늘색) ---------- */
+.sk-root{ --sk-text:#1e293b; --sk-sub:#475569; --sk-muted:#94a3b8; --sk-card:#f8fafc; --sk-border:#e2e8f0; --sk-brand:#6366f1; --sk-brand2:#4f46e5; --sk-brand-b:#c7d2fe; --sk-brand-bg:#eef2ff; }
+.sk-msg{ font-size:13px; color:var(--sk-brand2); font-weight:700; }
+.sk-prep, .sk-struct{ margin-top:12px; background:var(--sk-card,#f8fafc); border:1.5px solid #e2e8f0; border-radius:12px; padding:12px 14px; }
+.sk-prep-h{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.sk-badge{ display:inline-block; font-size:13px; font-weight:800; padding:3px 12px; border-radius:20px; border:1.5px solid; }
+.sk-pill{ display:inline-block; font-size:11px; font-weight:700; padding:2px 9px; border-radius:20px; border:1px solid; margin:6px 6px 0 0; }
+.g-s{ background:#f5f3ff; border-color:#c4b5fd; color:#7c3aed; }
+.g-a{ background:#f0fdf4; border-color:#86efac; color:#166534; }
+.g-b{ background:#fffbeb; border-color:#fde68a; color:#92400e; }
+.g-c{ background:#fef2f2; border-color:#fca5a5; color:#dc2626; }
+.sk-warn{ margin-top:8px; font-size:13px; background:#fffbeb; border:1px solid #fde68a; color:#92400e; border-radius:8px; padding:8px 12px; line-height:1.6; }
+.sk-struct-h{ font-weight:800; font-size:14px; margin-bottom:6px; }
+.sk-part{ display:grid; grid-template-columns:92px 1fr; gap:8px; padding:7px 10px; border-left:4px solid #6366f1; margin-bottom:6px; background:#fff; border-radius:0 8px 8px 0; font-size:13.5px; line-height:1.75; white-space:pre-wrap; word-break:keep-all; }
+.sk-part b{ font-size:12px; color:#4f46e5; }
+.sk-part.p-승{ border-color:#0284c7; } .sk-part.p-승 b{ color:#0284c7; }
+.sk-part.p-전{ border-color:#f59e0b; } .sk-part.p-전 b{ color:#92400e; }
+.sk-part.p-결{ border-color:#10b981; } .sk-part.p-결 b{ color:#166534; }
+.sk-head{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:14px; }
+.sk-count{ font-size:17px; font-weight:800; }
+.sk-count small{ font-size:12px; font-weight:600; color:#94a3b8; margin-left:2px; }
+.sk-count.ok b{ color:#4f46e5; } .sk-count.warn b{ color:#f59e0b; } .sk-count.over b{ color:#ef4444; }
+.sk-sw{ margin-left:auto; display:inline-flex; align-items:center; gap:8px; font-size:13px; font-weight:700; color:#475569; cursor:pointer; position:relative; }
+.sk-sw input{ position:absolute; opacity:0; width:36px; height:20px; margin:0; cursor:pointer; }
+.sk-track{ width:36px; height:20px; border-radius:20px; background:#e2e8f0; position:relative; transition:background .2s; flex:none; }
+.sk-thumb{ position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.3); transition:left .2s; }
+.sk-sw input:checked + .sk-track{ background:#0284c7; } .sk-sw input:checked + .sk-track .sk-thumb{ left:18px; }
+.sk-hint{ margin-top:8px; font-size:12.5px; background:#e0f2fe; color:#0284c7; border-radius:8px; padding:6px 12px; font-weight:700; }
+.sk-text{ margin-top:8px; border:1.5px solid #c7d2fe; background:#f0f4ff; cursor:default; line-height:1.85; white-space:pre-wrap; word-break:keep-all; }
+.sk-text.on{ border:2px solid #0284c7; background:#f0f9ff; cursor:text; }
+.sk-saved{ font-size:13px; color:#166534; font-weight:700; }

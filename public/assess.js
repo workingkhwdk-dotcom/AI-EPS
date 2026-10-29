@@ -5,14 +5,14 @@
 //  - 익명 채점: 학생을 별명 대신 코드(S-1A2B)로, 모둠과 상관없는 순서로 보여 준다.
 import { call, esc, toast, errMsg } from "./fb.js";
 import { waitHtml, STEPS } from "./wait.js";
-import { confirmModal } from "./modal.js";
+import { confirmModal, showModal } from "./modal.js";
 
 const $ = (s) => document.querySelector(s);
 const root = () => $("#as-root");
-const st = { code: null, data: null, view: "score", kind: "group", id: null, sub: null, blind: true, draft: {}, recheck: null, rel: null, busy: false, rubricOpen: false };
+const st = { code: null, data: null, view: "score", kind: "group", id: null, sub: null, blind: true, sk: {}, emphasis: "balance", recheck: null, rel: null, busy: false, rubricOpen: false };
 
-// 서버와 같은 NEIS 바이트 계산(한글 3, 영문·숫자 1, 줄바꿈 2)
-export const byteLen = (s) => { let n = 0; for (const ch of String(s ?? "")) n += ch === "\n" ? 2 : ch.codePointAt(0) < 128 ? 1 : 3; return n; };
+// 서버(functions/seteuk.js)와 같은 NAIS 바이트: 한글 3, 그 밖 1
+export const byteLen = (str) => { let n = 0; for (let i = 0; i < String(str ?? "").length; i++) { const c = String(str).charCodeAt(i); n += (c >= 0xac00 && c <= 0xd7a3) || (c >= 0x1100 && c <= 0x11ff) || (c >= 0x3130 && c <= 0x318f) ? 3 : 1; } return n; };
 const crit = (cid) => st.data.rubric.criteria.find((c) => c.id === cid);
 const critsOf = (kind) => st.data.rubric.criteria.filter((c) => c.scope === (kind === "student" ? "student" : "group"));
 const lvlLabel = (c, level) => (level === -1 ? "미제출" : c.levels[level]?.label || "");
@@ -23,7 +23,7 @@ const subjName = (x) => (st.kind === "group" ? x.name : st.blind ? x.code : `${x
 const busy = (html) => `<div class="card">${html || waitHtml({ steps: STEPS.load })}</div>`;
 
 export async function openAssess(code) {
-  if (st.code !== code) Object.assign(st, { code, data: null, view: "score", kind: "group", id: null, sub: null, draft: {}, recheck: null, rel: null });
+  if (st.code !== code) Object.assign(st, { code, data: null, view: "score", kind: "group", id: null, sub: null, sk: {}, recheck: null, rel: null });
   if (!st.data) root().innerHTML = busy();
   try { await refresh(); } catch (e) { root().innerHTML = `<div class="notice">${esc(errMsg(e))}</div>`; return; }
   if (!st.id) { const first = subjList()[0]; st.id = first ? subjId(first) : null; if (st.id) await loadSubject(); }
@@ -122,31 +122,105 @@ function aiHtml(c, sc, ai, rv, has) {
 const rank = (c, level) => (level === -1 ? c.levels.length : level);
 
 // ---------- 세특 ----------
+// 순서: ① 근거 확인 → ② 수준 판정(빈약하면 하향·유지·취소) → ④ 기승전결 초안 → ⑤ 분량 보정 → ⑥ 검토·직접 수정·저장.
+const GRADE_CLS = { S: "s", A: "a", B: "b", C: "c" };
+const EMP = [["balance", "균형"], ["academic", "학업역량"], ["leader", "리더십"], ["character", "인성"], ["growth", "성장잠재력"]];
+const PART_NAME = { 기: "기 · 문제의식", 승: "승 · 과정", 전: "전 · 발견", 결: "결 · 성찰" };
+const skOf = (id) => (st.sk[id] = st.sk[id] || { prep: null, gen: null, text: null, editing: false, saved: null, msg: "" });
+const byteCls = (n, max) => (n > max ? "over" : n > max * 0.9 ? "warn" : "ok");
+
 function seteukHtml() {
   const d = st.data, list = d.students;
   if (st.kind !== "student") { st.kind = "student"; st.id = list[0]?.key || null; st.sub = null; if (st.id) loadSubject(); }
   const cur = list.find((x) => x.key === st.id);
-  const dr = st.draft[st.id] || {};
-  const text = dr.text ?? st.sub?.seteuk?.text ?? "";
-  const bytes = byteLen(text);
-  return `<div class="card"><div class="row" style="justify-content:space-between"><h3 style="margin:0">세특 초안</h3>
-      <label class="meta-line">글자 수 한도 <select id="as-max">${[1000, 1500, 2000].map((n) => `<option value="${n}" ${d.seteukMax === n ? "selected" : ""}>${n}바이트(약 ${Math.round(n / 3)}자)</option>`).join("")}</select></label></div>
-    <div class="meta-line">학생이 쓴 활동과 내가 매긴 평가를 바탕으로 AI가 초안을 만들어요. 근거가 연결되지 않은 문장은 자동으로 빼요. 초안은 참고용이니 꼭 읽고 고쳐 주세요.</div>
+  return `<div class="card sk-root"><div class="row" style="justify-content:space-between"><h3 style="margin:0">세특 만들기</h3>
+      <div class="row"><label class="meta-line">강조 관점 <select id="as-emp">${EMP.map(([k, n]) => `<option value="${k}" ${st.emphasis === k ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+      <label class="meta-line">글자 수 한도 <select id="as-max">${[1000, 1500, 2000].map((n) => `<option value="${n}" ${d.seteukMax === n ? "selected" : ""}>${n}바이트(약 ${Math.round(n / 3)}자)</option>`).join("")}</select></label></div></div>
+    <div class="meta-line">학생이 쓴 활동만 근거로 쓰고, 기승전결로 이어지는 한 문단을 만들어요. 순서는 <b>근거 확인 → 수준 판정 → 초안 → 분량 보정(NAIS 바이트) → 검토·저장</b>이에요. 초안은 참고용이니 꼭 읽고 고치세요.</div>
     <div class="chipbar as-pick" style="margin-top:10px">${list.map((x) => `<button class="chip sm ${x.key === st.id ? "on" : ""}" data-asid="${esc(x.key)}">${esc(`${x.groupId.slice(1)}모둠 ${x.nick}`)} ${x.hasSeteuk ? "✓" : ""}</button>`).join("") || `<span class="meta-line">학생이 없어요.</span>`}</div></div>
-    ${cur ? `<div class="card"><h4 style="margin:0 0 6px">${esc(`${cur.groupId.slice(1)}모둠 ${cur.nick}`)}</h4>
-      <div class="row"><button class="btn btn-tinted btn-sm" data-asdraft type="button" ${st.busy ? "disabled" : ""}>AI 초안 만들기</button></div>
-      <label class="lbl" for="as-seteuk">세특 <span class="meta-line">('~함.', '~임.'으로 끝내고, 이름·점수·기관명은 쓰지 않아요)</span></label>
-      <textarea id="as-seteuk" rows="9" placeholder="AI 초안을 만들거나 직접 써요">${esc(text)}</textarea>
-      <div class="row" style="justify-content:space-between;margin-top:6px"><span id="as-bytes" class="${bytes > d.seteukMax ? "as-over" : "meta-line"}">${bytes} / ${d.seteukMax}바이트</span><button class="btn btn-primary btn-sm" data-asseteuk type="button">저장</button></div>
-      <div id="as-sw">${warnHtml(dr)}</div>${draftNotes(dr)}</div>` : ""}`;
+    ${cur ? studentSeteukHtml(cur) : ""}`;
 }
-const warnHtml = (dr) => (dr.warnings || []).map((w) => `<div class="notice yellow" style="margin:8px 0 0">${esc(w)}</div>`).join("");
-function draftNotes(dr) {
-  if (!dr.sentences) return "";
-  const ev = dr.evidence || {};
-  return `<details class="as-ev" style="margin-top:10px"><summary>이 초안의 근거 보기</summary>${dr.sentences.map((s) => `<div class="logline"><div class="q">${esc(s.text)}</div>
-      <div class="a">${s.evidence.map((id) => `· ${esc(ev[id]?.label || id)}: ${esc(ev[id]?.text || "")}`).join("\n")}</div></div>`).join("")}
-  </details>${(dr.dropped || []).length ? `<div class="meta-line" style="margin-top:6px">뺀 문장: ${dr.dropped.map((x) => `“${esc(x.text)}”(${esc(x.why)})`).join(", ")}</div>` : ""}`;
+function studentSeteukHtml(cur) {
+  const d = st.data, k = skOf(st.id);
+  const saved = st.sub?.seteuk?.text || "";
+  if (k.text === null) k.text = saved;
+  const bytes = byteLen(k.text), max = d.seteukMax;
+  return `<div class="card sk-root"><h4 style="margin:0 0 6px">${esc(`${cur.groupId.slice(1)}모둠 ${cur.nick}`)}</h4>
+    <div class="row"><button class="btn btn-primary btn-sm" data-asmake type="button" ${st.busy ? "disabled" : ""}>${k.gen || k.prep ? "✨ 다시 만들기" : "✨ 세특 만들기"}</button>
+      ${st.busy && k.msg ? `<span class="sk-msg" role="status">${esc(k.msg)}</span>` : ""}</div>
+    ${k.prep ? prepHtml(k.prep) : ""}
+    ${k.gen ? structureHtml(k.gen) : ""}
+    <div class="sk-head"><label class="lbl" for="as-seteuk" style="margin:0">세특 본문</label>
+      <span class="sk-count ${byteCls(bytes, max)}" id="as-bytes"><b>${bytes.toLocaleString()}</b><small> / ${max.toLocaleString()} byte</small></span>
+      <label class="sk-sw"><input type="checkbox" id="sk-edit" ${k.editing ? "checked" : ""}><span class="sk-track"><span class="sk-thumb"></span></span><span>✏️ 직접 수정</span></label></div>
+    ${k.editing ? `<div class="sk-hint">수정 중이에요. 저장하면 이 글이 확정본이 돼요.</div>` : ""}
+    <textarea id="as-seteuk" class="sk-text ${k.editing ? "on" : ""}" rows="9" ${k.editing ? "" : "readonly"} placeholder="✨ 세특 만들기를 누르거나, 수정 스위치를 켜고 직접 써요">${esc(k.text)}</textarea>
+    <div class="row" style="justify-content:space-between;margin-top:8px"><span id="as-sw">${warnHtml(k)}</span>
+      <div class="row">${k.saved ? `<span class="sk-saved">✅ 서버에 저장됨 (${k.saved.toLocaleString()} byte)</span>` : saved && k.text === saved ? `<span class="sk-saved">✅ 저장된 확정본</span>` : ""}<button class="btn btn-primary btn-sm" data-asseteuk type="button">💾 저장</button></div></div></div>`;
+}
+const warnHtml = (k) => (k.warnings || []).map((w) => `<div class="sk-warn">⚠️ ${esc(w)}</div>`).join("");
+
+function prepHtml(p) {
+  const susp = p.suspicion.level;
+  return `<div class="sk-prep"><div class="sk-prep-h"><span class="sk-badge g-${GRADE_CLS[p.grade]}">수준 ${p.grade}</span>
+      <span class="meta-line">5개 기준 가중 평균 ${p.gradeScore} / 4 · 근거 ${p.evidenceCount}개(${p.inputBytes.toLocaleString()} byte) · 본문에는 등급 이름을 쓰지 않고 표현의 밀도로만 반영해요</span>
+      <label class="meta-line">등급 조정 <select id="sk-grade">${["S", "A", "B", "C"].map((g) => `<option ${(p.useGrade || p.grade) === g ? "selected" : ""}>${g}</option>`).join("")}</select></label></div>
+    <div class="sk-crit">${p.criteria.map((c) => `<span class="sk-pill g-${GRADE_CLS[c.grade]}" title="${esc(c.reason)}">${esc(c.label)} ${c.grade}${c.ai_suspicion !== "낮음" ? ` 🤖${c.ai_suspicion}` : ""}</span>`).join("")}</div>
+    ${susp !== "낮음" ? `<div class="sk-warn">🤖 AI 작성 의심 ${susp}: 내용이 추상적이거나 기계적인 문체가 보여요. 학생 원자료를 직접 확인해 보세요. 이 판정만으로 학생에게 불이익을 주지 마세요.</div>` : ""}
+    ${p.richness.isPoor ? `<div class="sk-warn">⚠️ 근거가 빈약해요: ${p.richness.issues.map(esc).join(", ") || "목표 분량에 비해 적음"}</div>` : ""}
+    ${p.needsAdjustment ? `<div class="meta-line">목표 ${p.target.toLocaleString()}바이트 대신 재료에 맞는 분량은 약 ${p.suggestedMax.toLocaleString()}바이트예요.</div>` : ""}</div>`;
+}
+function structureHtml(g) {
+  return `<div class="sk-struct"><div class="sk-struct-h">기승전결 구조 <span class="meta-line">(초안 기준 · 직접 고치면 맞지 않을 수 있어요)</span></div>
+    ${g.parts.map((p) => `<div class="sk-part p-${p.part}"><b>${PART_NAME[p.part]}</b><span>${p.sentences.length ? p.sentences.map((x) => esc(x.text)).join(" ") : `<i>비어 있음</i>`}</span></div>`).join("")}
+    <div class="meta-line">📏 분량 보정: ${g.log.map((t) => t.bytes).join(" → ")} byte · ${esc(g.reason)} · 목표 ${g.target.toLocaleString()} byte · AI ${g.calls}회${g.dropped.length ? ` · 뺀 문장 ${g.dropped.length}개(${g.dropped.map((x) => esc(x.why)).join(", ")})` : ""}</div>
+    <details class="as-ev"><summary>문장별 근거 보기</summary>${g.parts.flatMap((p) => p.sentences).map((x) => `<div class="logline"><div class="q">${esc(x.text)}</div><div class="a">${x.evidence.map((id) => `· ${esc(g.evidence[id]?.label || id)}: ${esc(g.evidence[id]?.text || "")}`).join("\n")}</div></div>`).join("")}</details></div>`;
+}
+
+const SK_STEPS = ["📄 학생이 쓴 근거를 확인하는 중…", "🔍 수준을 판정하는 중…", "✨ 기승전결로 기록을 쓰는 중…", "📏 분량(NAIS 바이트)을 맞추는 중…", "📏 목표 범위에 맞게 다듬는 중…"];
+async function makeSeteuk() {
+  const k = skOf(st.id), id = st.id;
+  await guard(async () => {
+    let timer = null;
+    const say = (m) => { k.msg = m; const el = root().querySelector(".sk-msg"); if (el) el.textContent = m; else render(); };
+    try {
+      k.editing = false; k.saved = null; // 다시 만들면 이전 저장 배지와 편집 상태를 초기화한다
+      render(); say(SK_STEPS[0]);
+      say(SK_STEPS[1]);
+      k.prep = (await call("assessAi")({ code: st.code, action: "seteukPrep", kind: "student", id })).data;
+      k.prep.useGrade = k.prep.grade;
+      render();
+      let decision;
+      if (k.prep.needsAdjustment) {
+        decision = await showModal({
+          title: "근거가 목표 분량에 비해 적어요",
+          body: `<p>학생이 쓴 활동 기록이 목표 <b>${k.prep.target.toLocaleString()}바이트</b>를 사실대로 채우기엔 부족해요.</p><ul>${k.prep.richness.issues.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+            <p><b>낮추기</b>는 학생이 쓴 내용만으로 약 ${k.prep.suggestedMax.toLocaleString()}바이트까지 쓰고, 모자라도 채우지 않아요.<br><b>유지</b>는 분량을 맞추려 자연스러운 보완을 허용해요(학생이 쓴 주제와 방향을 벗어나는 창작은 막지만, 내용을 부풀릴 수 있어요).</p>`,
+          actions: [{ label: `낮추기 (약 ${k.prep.suggestedMax.toLocaleString()}B) · 권장`, value: "lower", kind: "btn-primary" }, { label: "원래 목표 유지", value: "keep" }, { label: "취소", value: "cancel" }], grid: true,
+        });
+        if (!decision || decision === "cancel") { toast("취소했어요. 판정 결과는 남아 있어요."); return; }
+      }
+      let n = 2; say(SK_STEPS[2]);
+      timer = setInterval(() => say(SK_STEPS[Math.min(n++, SK_STEPS.length - 1)]), 9000);
+      const grade = k.prep.useGrade;
+      const r = (await call("assessAi")({ code: st.code, action: "seteukGenerate", kind: "student", id, decision, emphasis: st.emphasis, grade })).data;
+      if (r.cancelled) return;
+      k.gen = r; k.text = r.text; k.warnings = r.warnings;
+      toast(`세특 초안을 만들었어요 (${r.bytes} byte · ${r.reason})`);
+    } finally { clearInterval(timer); k.msg = ""; render(); }
+  });
+}
+
+async function saveSeteuk() {
+  const k = skOf(st.id), id = st.id, text = $("#as-seteuk").value;
+  await guard(async () => {
+    const r = (await call("assess")({ code: st.code, action: "seteukSave", id, text })).data;
+    k.text = r.text; k.warnings = r.warnings; k.editing = false; k.saved = r.bytes; // 저장하면 읽기 전용으로 돌아간다
+    if (st.sub) st.sub.seteuk = { text: r.text, t: Date.now() };
+    const x = st.data.students.find((y) => y.key === id); if (x) x.hasSeteuk = !!r.text;
+    toast(r.text ? "저장했어요" : "비웠어요");
+    render();
+  });
 }
 
 // ---------- 신뢰도 점검 ----------
@@ -215,7 +289,8 @@ function rubricHtml() {
 async function guard(fn) {
   if (st.busy) return;
   st.busy = true;
-  try { await fn(); } catch (e) { toast(errMsg(e), true); } finally { st.busy = false; }
+  try { await fn(); } catch (e) { toast(errMsg(e), true); }
+  finally { st.busy = false; root()?.querySelectorAll("[data-asai],[data-asmake]").forEach((b) => { b.disabled = false; }); } // 일하는 동안 막았던 단추를 푼다(안에서 다시 그렸어도)
 }
 
 async function toggleRelease(k) {
@@ -268,28 +343,6 @@ async function askAi() {
   });
 }
 
-async function makeDraft() {
-  await guard(async () => {
-    const b = root().querySelector("[data-asdraft]"); if (b) { b.disabled = true; b.textContent = "AI가 쓰는 중…"; }
-    try {
-      const r = (await call("assessAi")({ code: st.code, action: "seteuk", kind: "student", id: st.id })).data;
-      st.draft[st.id] = { text: r.text, sentences: r.sentences, dropped: r.dropped, warnings: r.warnings, evidence: r.evidence };
-    } finally { render(); }
-  });
-}
-
-async function saveSeteuk() {
-  const text = $("#as-seteuk").value;
-  await guard(async () => {
-    const r = (await call("assess")({ code: st.code, action: "seteukSave", id: st.id, text })).data;
-    st.draft[st.id] = { ...(st.draft[st.id] || {}), text: r.text, warnings: r.warnings };
-    if (st.sub) st.sub.seteuk = { text: r.text, t: Date.now() };
-    const x = st.data.students.find((y) => y.key === st.id); if (x) x.hasSeteuk = !!r.text;
-    toast(r.text ? "저장했어요" : "비웠어요");
-    render();
-  });
-}
-
 // ---------- 이벤트 ----------
 document.addEventListener("click", async (e) => {
   if (!e.target.closest("#as-root")) return;
@@ -301,7 +354,7 @@ document.addEventListener("click", async (e) => {
   else if ((b = t("[data-asid]"))) { st.id = b.dataset.asid; if (st.view === "seteuk") st.kind = "student"; await loadSubject(); render(); }
   else if ((b = t("[data-assave]"))) saveCriterion(b.dataset.assave);
   else if (t("[data-asai]")) askAi();
-  else if (t("[data-asdraft]")) makeDraft();
+  else if (t("[data-asmake]")) makeSeteuk();
   else if (t("[data-asseteuk]")) saveSeteuk();
   else if ((b = t("[data-rcv]"))) {
     const box = b.closest("[data-rc]");
@@ -316,14 +369,17 @@ document.addEventListener("change", async (e) => {
   if (!e.target.closest("#as-root")) return;
   if (e.target.id === "as-blind") { st.blind = e.target.checked; render(); }
   else if (e.target.id === "as-max") {
-    await guard(async () => { const r = await call("assess")({ code: st.code, action: "config", seteukMax: Number(e.target.value) }); st.data.seteukMax = r.data.seteukMax; toast("글자 수 한도를 바꿨어요"); render(); });
+    await guard(async () => { const r = await call("assess")({ code: st.code, action: "config", seteukMax: Number(e.target.value) }); st.data.seteukMax = r.data.seteukMax; for (const k of Object.values(st.sk)) { k.prep = null; k.gen = null; } toast("글자 수 한도를 바꿨어요. 수준 판정을 다시 해요"); render(); });
   }
+  else if (e.target.id === "as-emp") st.emphasis = e.target.value;
+  else if (e.target.id === "sk-grade" && st.id) skOf(st.id).prep.useGrade = e.target.value;
+  else if (e.target.id === "sk-edit" && st.id) { const k = skOf(st.id); k.editing = e.target.checked; render(); if (k.editing) $("#as-seteuk")?.focus(); }
 });
 document.addEventListener("input", (e) => {
-  if (e.target.id !== "as-seteuk") return;
-  const n = byteLen(e.target.value), el = $("#as-bytes");
-  st.draft[st.id] = { ...(st.draft[st.id] || {}), text: e.target.value };
-  if (el) { el.textContent = `${n} / ${st.data.seteukMax}바이트`; el.className = n > st.data.seteukMax ? "as-over" : "meta-line"; }
+  if (e.target.id !== "as-seteuk" || !st.id) return;
+  const k = skOf(st.id), n = byteLen(e.target.value), el = $("#as-bytes");
+  k.text = e.target.value; k.saved = null; // 고치면 저장 배지를 지운다
+  if (el) { el.className = `sk-count ${byteCls(n, st.data.seteukMax)}`; el.innerHTML = `<b>${n.toLocaleString()}</b><small> / ${st.data.seteukMax.toLocaleString()} byte</small>`; }
 });
 // 수준을 고르면 선택한 칸이 강조되도록 한다(저장 전 미리보기)
 document.addEventListener("change", (e) => {
