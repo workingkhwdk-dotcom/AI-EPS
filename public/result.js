@@ -8,12 +8,12 @@ const seenKey = (code) => `eps_res_${code}`;
 export const seenAt = (code) => { try { return Number(localStorage.getItem(seenKey(code))) || 0; } catch { return 0; } };
 export const markSeen = (code, t) => { try { localStorage.setItem(seenKey(code), String(t || Date.now())); } catch {} };
 
-// 이의 제기: 확정된 칸마다 한 번. 선생님의 예외 큐로 가고, 처리되면 답이 여기에 보인다.
+// 이의 신청: 확정된 항목마다 한 번. 선생님 화면의 ② 확인으로 가고, 처리되면 답이 여기에 보인다.
 function appealHtml(it) {
   if (!it.scored) return "";
   const ap = it.appeal;
   if (!ap) return `<div class="res-ap"><button class="link" type="button" data-appeal="${esc(it.id)}">이 점수에 이의가 있어요</button></div>`;
-  return `<div class="res-ap"><span class="tag ${ap.status === "open" ? "y" : ""}">이의 제기 ${ap.status === "open" ? "· 선생님이 확인하는 중" : "· 처리됨"}</span> <span class="meta-line">“${esc(ap.text)}”</span>${ap.reply ? `<div class="res-note">선생님 답: ${esc(ap.reply)}</div>` : ""}</div>`;
+  return `<div class="res-ap"><span class="tag ${ap.status === "open" ? "y" : ""}">이의 신청 ${ap.status === "open" ? "· 선생님이 확인하는 중" : "· 처리됨"}</span> <span class="meta-line">“${esc(ap.text)}”</span>${ap.reply ? `<div class="res-note">선생님 답: ${esc(ap.reply)}</div>` : ""}</div>`;
 }
 function scoreHtml(sc) {
   const rows = [];
@@ -36,7 +36,7 @@ export function resultHtml(r) {
 }
 
 // args: { code } (수업 중) 또는 { code, groupNo, nickname, password } (수업이 끝난 뒤)
-let cur = null; // 열려 있는 결과 창의 호출 정보(이의 제기를 같은 방식으로 보내려고)
+let cur = null; // 열려 있는 결과 창의 호출 정보(이의 신청을 같은 방식으로 보내려고)
 const bodyHtml = (r) => `<div class="meta-line" style="margin-bottom:6px">${esc(r.title || "")}</div>${resultHtml(r)}`;
 export async function openResult(args) {
   let r;

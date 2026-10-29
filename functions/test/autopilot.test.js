@@ -29,17 +29,17 @@ test("확정 후보 판정: 3번 일치·인용 확인·애매하지 않음·이
   assert.deepEqual(AP.triage({ c, ai: good }), { pass: true, reasons: [] });
   assert.equal(AP.triage({ c, ai: { ...good, level: -1, auto: true } }).pass, true, "근거가 비어 미제출로 본 칸");
   const why = (ai, flags = []) => AP.triage({ c, ai: { ...good, ...ai }, flags }).reasons.join("|");
-  assert.match(why({ spread: 1 }), /갈렸어요/);
-  assert.match(why({ quoteOk: false }), /인용한 문장을 근거에서 찾지 못했어요/);
-  assert.match(why({ borderline: true }), /애매하다고 표시/);
+  assert.match(why({ spread: 1 }), /세 번 채점했는데 결과가 달랐어요/);
+  assert.match(why({ quoteOk: false }), /근거로 든 문장이 학생 글에 없어요/);
+  assert.match(why({ borderline: true }), /애매하다고 했어요/);
   assert.match(why({}, ["지시문 의심"]), /점수를 요구하는 듯한/);
   assert.match(why({}, ["근거가 너무 짧음"]), /너무 짧아/);
-  assert.match(why({ esc: true, fastLevel: 2, level: 1 }), /고성능 재판정이 빠른 모델과 달랐어요/);
-  assert.match(why({ escFailed: true }), /재판정을 받지 못했어요/);
+  assert.match(why({ esc: true, fastLevel: 2, level: 1 }), /정밀 모델로 다시 보니 판단이 달라졌어요/);
+  assert.match(why({ escFailed: true }), /정밀 모델로 다시 보지 못했어요/);
   assert.equal(AP.triage({ c, ai: null }).pass, false);
   // 최상(0)·최하(3) 수준: 재판정 없이는 불통, 재판정이 같으면 통과, 다르면 불통
-  assert.match(why({ level: 0 }), /가장 높은·낮은 수준/);
-  assert.match(why({ level: 3 }), /가장 높은·낮은 수준/);
+  assert.match(why({ level: 0 }), /가장 높거나 낮은 수준/);
+  assert.match(why({ level: 3 }), /가장 높거나 낮은 수준/);
   assert.equal(AP.triage({ c, ai: { ...good, level: 0, esc: true, fastLevel: 0 } }).pass, true);
   assert.equal(AP.triage({ c, ai: { ...good, level: 0, esc: true, fastLevel: 1 } }).pass, false);
 });
@@ -47,9 +47,9 @@ test("확정 후보 판정: 3번 일치·인용 확인·애매하지 않음·이
 test("운영 게이트: 감사로 멈췄거나 교정을 안 거쳤거나 그 기준이 교정을 못 넘었으면 통과해도 예외로 보낸다", () => {
   const tri = { pass: true, reasons: [] };
   assert.equal(AP.gate({ tri, cid: "c12", calibOn: false, calibPass: null, paused: false }).pass, true, "교정을 끄면 규칙만 본다");
-  assert.match(AP.gate({ tri, cid: "c12", calibOn: false, calibPass: null, paused: true }).reasons[0], /감사에서 AI와 안 맞아/);
-  assert.match(AP.gate({ tri, cid: "c12", calibOn: true, calibPass: null, paused: false }).reasons[0], /교정이 아직 없어/);
-  assert.match(AP.gate({ tri, cid: "c12", calibOn: true, calibPass: { c12: false }, paused: false }).reasons[0], /교정을 통과하지 못했어요/);
+  assert.match(AP.gate({ tri, cid: "c12", calibOn: false, calibPass: null, paused: true }).reasons[0], /AI 자동 확정을 멈췄어요/);
+  assert.match(AP.gate({ tri, cid: "c12", calibOn: true, calibPass: null, paused: false }).reasons[0], /아직 맞춰 보지 않았어요/);
+  assert.match(AP.gate({ tri, cid: "c12", calibOn: true, calibPass: { c12: false }, paused: false }).reasons[0], /맞춰 보기를 통과하지 못했어요/);
   assert.equal(AP.gate({ tri, cid: "c12", calibOn: true, calibPass: { c12: true }, paused: false }).pass, true);
   assert.equal(AP.gate({ tri: { pass: false, reasons: ["x"] }, cid: "c12", calibOn: true, calibPass: { c12: true }, paused: false }).pass, false);
 });

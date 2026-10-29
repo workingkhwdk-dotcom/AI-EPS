@@ -2485,7 +2485,7 @@ function assessFixture() {
           progress: { done: Object.keys(S.scores).length, total: 2 * grp.length + 8, reviewCount: 0, unreviewed: Object.values(S.scores).filter((x) => x.src === "ai" && x.reviewed === false).length }, release: S.release, seteukMax: S.seteukMax, seteukRange: [300, 3000], aiUsed: 0, aiCap: 1500, aiRuns: 3, thresholds: A_THRESH };
         case "subject": {
           const cs = data.kind === "group" ? grp : rubric.criteria.filter((c) => c.scope === "student");
-          return { kind: data.kind, id: data.id, mode: S.mode, evidence: Object.fromEntries(cs.map((c) => [c.id, ev[c.id] || []])), empty: Object.fromEntries(cs.map((c) => [c.id, !(ev[c.id] || []).length])), scores: S.scores,
+          return { kind: data.kind, id: data.id, mode: S.mode, calibSample: S.sampleOn && data.id === "k1", evidence: Object.fromEntries(cs.map((c) => [c.id, ev[c.id] || []])), empty: Object.fromEntries(cs.map((c) => [c.id, !(ev[c.id] || []).length])), scores: S.scores,
             ai: S.mode === "ai_first" ? (S.aiDone ? { c12: AIC12 } : {}) : S.scores.c12 ? { c12: AIC12 } : {}, hasAi: S.aiAsked || S.aiDone ? { c12: true } : {}, review: {}, seteuk: { text: S.seteukText, t: 0 } };
         }
         case "save": {
@@ -2534,189 +2534,243 @@ function assessFixture() {
   return st;
 }
 
-test("교사 평가: 척도표 점수가 보이고, 근거가 있어야 채점하며, AI 제안은 내가 저장한 뒤에만 보인다", async () => {
+// 화면 바깥 틀(머리·AI 채점 카드·할 일 줄)에는 개발 용어를 쓰지 않는다(척도표·학생 글 속 '칸'은 학습지 칸이라 따로 본다)
+const JARGON = ["예외 큐", "확정 후보", "교정", "제2평정", "칸", "byte", "감사", "고성능", "재판정", "독립 채점", "수렴"];
+async function noJargon(pg, sel = "#as-root .as-head, #as-root .as-batch, #as-root .as-todos") {
+  const txt = (await pg.locator(sel).allInnerTexts()).join("\n");
+  for (const w of JARGON) assert.ok(!txt.includes(w), `개발 용어 '${w}'가 화면에 있다: ${txt}`);
+}
+
+test("교사 평가: 네 단계 막대가 곧 메뉴이고, 학생 글이 있어야 채점하며, '내가 먼저 채점'이면 AI 의견은 저장한 뒤에만 보인다", async () => {
   const st = assessFixture(), { pg, errors } = await openTeacher(st);
   await pg.click('[data-ctab="assess"]');
   await pg.waitForSelector("#as-root .as-crit");
-  assert.match(await pg.locator("#as-root .as-head").innerText(), /고등학교 척도[\s\S]*만점 100점\(개인 60 \+ 모둠 40\)/);
+  assert.match(await pg.locator("#as-root .as-head").innerText(), /고등학교 척도표 · 100점 만점\(개인 60 \+ 모둠 40\)/);
+  assert.match(await pg.locator("#as-root .as-head").innerText(), /채점 0 \/ 20항목/, "학생이 없는 2모둠(6항목)은 세지 않는다");
+  // 단계 막대: ① 채점(지금) ② 확인 ③ 세특 쓰기 ④ 학생에게 공개. 가끔 쓰는 것은 오른쪽 위 도구로
+  assert.match(await pg.locator("#as-views").innerText(), /채점[\s\S]*확인[\s\S]*세특 쓰기[\s\S]*학생에게 공개/);
+  assert.equal(await pg.locator("#as-views .as-step.now").getAttribute("data-asv"), "score", "아직 안 끝난 첫 단계를 '지금'으로 짚는다");
+  assert.equal(await pg.locator("#as-views .as-step.on").getAttribute("data-asv"), "score");
+  assert.equal(await pg.locator("#as-views .as-step.on").getAttribute("aria-current"), "step");
+  assert.deepEqual(await pg.locator(".as-tools [data-asv]").allInnerTexts(), ["척도표", "채점 점검", "채점 방식"]);
+  assert.match(await pg.locator(".as-batch").innerText(), /선생님이 먼저 채점해요/);
+  await noJargon(pg);
   const crit = pg.locator('[data-cid="c12"]');
-  // 학생이 쓴 근거를 그대로 보여 주고, 수준마다 점수가 붙어 있다
-  assert.match(await crit.innerText(), /모두 안전을 바란다/);
+  // 학생이 쓴 글을 그대로 보여 주고, 수준마다 점수가 붙어 있다
+  assert.match(await crit.innerText(), /학생이 쓴 글[\s\S]*모두 안전을 바란다/);
   assert.deepEqual(await crit.locator(".lvopt .tag.b").allInnerTexts(), ["10점", "8점", "6점", "4점", "0점"]);
-  // 근거가 없는 칸(c23)은 미제출만 고를 수 있다
+  // 쓴 글이 없는 항목(c23)은 미제출만 고를 수 있다
   const empty = pg.locator('[data-cid="c23"]');
+  assert.match(await empty.innerText(), /쓴 글 없음 → 미제출/);
   assert.ok(await empty.locator('input[value="1"]').isDisabled());
   assert.ok(await empty.locator('input[value="-1"]').isEnabled());
-  // AI 제안이 준비됐어도 저장 전에는 잠겨 있다
+  // AI 의견이 준비됐어도 저장 전에는 잠겨 있다
   await pg.click("[data-asai]");
-  await pg.waitForFunction(() => /AI 제안을 받았어요/.test(document.querySelector(".toast")?.textContent || ""));
-  assert.match(await crit.innerText(), /AI 제안이 준비돼 있어요/);
+  await pg.waitForFunction(() => /AI 의견을 받았어요/.test(document.querySelector(".toast")?.textContent || ""));
+  assert.match(await crit.innerText(), /AI 의견이 준비돼 있어요/);
   assert.equal(await crit.locator(".as-ai").count(), 0);
   // 가장 높은 수준은 평가 근거가 필요하다(서버 메시지를 그대로 보여 준다)
   await crit.locator('input[value="0"]').check();
   await crit.locator("[data-assave]").click();
   await pg.waitForFunction(() => /평가 근거를 8자/.test(document.querySelector(".toast.err")?.textContent || ""));
-  // 한 수준 낮추어 저장하면 그 기준의 AI 제안이 열린다
+  // 한 수준 낮추어 저장하면 그 항목의 AI 의견이 열린다(모델 이름 같은 속사정 없이 결과·이유·근거 문장만)
   await crit.locator('input[value="1"]').check();
   await crit.locator("[data-assave]").click();
   await pg.waitForSelector('[data-cid="c12"] .as-ai');
   const ai = await pg.locator('[data-cid="c12"] .as-ai').innerText();
-  assert.match(ai, /AI 제2평정 잘함 8점/); assert.match(ai, /3회 일치/); assert.match(ai, /인용 확인됨/); assert.match(ai, /내 채점과 같음/); assert.match(ai, /최종 판단은 교사/);
+  assert.match(ai, /AI 의견 잘함 8점/); assert.match(ai, /세 번 모두 같음/); assert.match(ai, /근거 문장 확인/); assert.match(ai, /내 채점과 같음/); assert.match(ai, /최종 판단은 선생님/);
+  assert.ok(!/제2평정|고성능|인용 확인/.test(ai));
+  assert.match(await pg.locator('[data-cid="c12"] .tag').filter({ hasText: "선생님 채점" }).first().innerText(), /잘함 8점 · 선생님 채점/);
   assert.equal(st.calls.filter(([n, d]) => n === "assess" && d.action === "save").length, 2);
   if (process.env.UI_SHOT) await pg.screenshot({ path: `${process.env.UI_SHOT}/assess-pc.png`, fullPage: true });
   assert.deepEqual(errors, []);
 });
 
-test("교사 평가: AI가 먼저 채점 — 전체 일괄 채점, AI 점수 미리 선택, 확인·수정, 채점 방식 바꾸기, 사용 순서 안내", async () => {
+test("교사 평가: 'AI 점수를 하나씩 확인' — AI 채점 단추 하나, 끝나면 ②로 안내, AI 수준 미리 선택·확인, ② 확인에서 남은 곳 바로 열기, 채점 방식 바꾸기", async () => {
   const st = assessFixture();
   st.assess.mode = "ai_first";
   const { pg, errors } = await openTeacher(st);
   await pg.click('[data-ctab="assess"]');
   await pg.waitForSelector("#as-root .as-batch");
-  // 사용 순서(처음 쓰는 교사를 위한 안내)와 채점 방식 선택
-  await pg.locator(".as-batch summary").click();
-  const guide = await pg.locator(".as-batch").innerText();
-  assert.match(guide, /AI로 전체 채점[\s\S]*검토 전[\s\S]*세특.*탭/); assert.match(guide, /자동 캐시로 입력 요금이 줄어요/);
-  assert.equal(await pg.locator("#as-mode").inputValue(), "ai_first");
-  // AI 채점 전: 일괄 채점 단추와 안내
-  assert.match(await pg.locator("[data-asbatch]").innerText(), /AI로 전체 채점 \(모둠 1 · 학생 2명\)/);
-  assert.ok(await pg.locator("#as-apply").isChecked());
-  assert.match(await pg.locator('[data-cid="c12"]').innerText(), /아직 AI 채점 전이에요/);
+  // AI 채점 전: 할 일 하나(단추)만, 첫 모둠을 저절로 열지 않는다
+  assert.match(await pg.locator("#as-views .as-step.now").innerText(), /AI 채점[\s\S]*아직 안 했어요/);
+  assert.match(await pg.locator("[data-asbatch]").innerText(), /AI 채점 시작 \(모둠 1 · 학생 2명\)/);
+  assert.equal(await pg.locator(".as-crit").count(), 0);
+  assert.match(await pg.locator("#as-root").innerText(), /AI 채점이 끝나면 여기서 모둠·학생별 점수를 보고 고칠 수 있어요/);
+  await noJargon(pg);
+  // ② 확인을 먼저 누르면 ①로 돌려보낸다
+  await pg.click('#as-views [data-asv="queue"]');
+  await pg.waitForFunction(() => /먼저 ① AI 채점을 해 주세요/.test(document.querySelector("#as-body")?.innerText || ""));
+  await pg.click('#as-body [data-asv="score"]');
+  await pg.waitForSelector("[data-asbatch]");
   await pg.click("[data-asbatch]");
-  assert.match(await pg.locator(".modal").innerText(), /모둠 1개와 학생 2명[\s\S]*약 10번/);
+  assert.match(await pg.locator(".modal").innerText(), /모둠 1개와 학생 2명[\s\S]*확인 전[\s\S]*약 10번/);
   await pg.click(".modal .btn-primary");
-  await pg.waitForFunction(() => /완료/.test(document.querySelector(".toast")?.textContent || ""));
+  await pg.waitForFunction(() => /AI 채점 3곳 끝/.test(document.querySelector(".toast")?.textContent || ""));
   assert.deepEqual(st.calls.filter(([n, d]) => n === "assessAi").map(([, d]) => [d.kind, d.id]), [["group", "g1"], ["student", "k1"], ["student", "k2"]]);
-  assert.ok(st.calls.some(([n, d]) => n === "assess" && d.action === "applyAi" && d.all === true));
-  // 적용된 AI 점수: 검토 전 표시, 상단에 검토 전 수
-  await pg.waitForSelector('[data-cid="c12"] .tag:has-text("AI 점수 · 검토 전")');
+  assert.ok(st.calls.some(([n, d]) => n === "assess" && d.action === "applyAi" && d.all === true), "AI가 먼저 채점하는 방식이면 끝나고 바로 채운다");
+  // 끝나면 ① 완료 표시와 ② 확인으로 가는 단추
+  await pg.waitForSelector(".as-batch .notice.green");
+  assert.match(await pg.locator(".as-batch").innerText(), /AI 채점을 마쳤어요[\s\S]*② 확인하러 가기/);
+  assert.match(await pg.locator('#as-views [data-asv="score"]').innerText(), /끝났어요/);
+  // 모둠을 열면 AI 수준이 미리 골라져 있고, 맞으면 ✓ 확인·저장
+  await pg.click('.as-pick [data-asid="g1"]');
+  await pg.waitForSelector('[data-cid="c12"] .tag:has-text("AI 점수 · 확정 전")');
   assert.match(await pg.locator('[data-cid="c12"] textarea').inputValue(), /^AI 제안: 두 바람을/);
   assert.match(await pg.locator('[data-cid="c12"] [data-assave]').innerText(), /확인·저장/);
-  assert.match(await pg.locator('[data-cid="c12"] .as-ai').innerText(), /AI 제안/);
-  // 교사가 맞다고 확인(같은 수준 저장) → 검토 완료로 바뀐다
+  assert.match(await pg.locator('[data-cid="c12"] .as-ai').innerText(), /AI 의견 잘함 8점/);
   await pg.locator('[data-cid="c12"] [data-assave]').click();
-  await pg.waitForSelector('[data-cid="c12"] .tag:has-text("교사 채점")');
-  // 채점 방식을 독립 채점으로 바꾸면 AI 점수가 다시 가려진다
-  await pg.selectOption("#as-mode", "independent");
-  await pg.waitForFunction(() => document.querySelector("#as-mode")?.value === "independent");
-  assert.equal(st.assess.mode, "independent");
+  await pg.waitForSelector('[data-cid="c12"] .tag:has-text("선생님 채점")');
+  // ② 확인: 아직 확인·채점할 곳을 눌러 바로 연다
+  await pg.click('#as-views [data-asv="queue"]');
+  await pg.waitForSelector(".as-todos");
+  assert.match(await pg.locator(".as-todos").innerText(), /AI 점수 확인 \d+개 남음/);
+  await noJargon(pg);
+  await pg.click('[data-asgo="student|k1"]');
+  await pg.waitForSelector('#as-views .as-step.on[data-asv="score"]');
+  await pg.waitForFunction(() => /가람|S-AB12/.test(document.querySelector(".as-sub h3")?.textContent || ""));
+  // 채점 방식: 세 가지 중 하나(서버의 두 설정으로 나눠 저장)
+  await pg.click('.as-tools [data-asv="settings"]');
+  assert.equal(await pg.locator('input[name="as-how"][value="manual"]').isChecked(), true);
+  await pg.locator('input[name="as-how"][value="independent"]').check();
+  await pg.waitForFunction(() => /먼저 채점하는 방식/.test(document.querySelector(".toast")?.textContent || ""));
+  assert.equal(st.assess.mode, "independent"); assert.equal(st.assess.auto.on, false);
   assert.deepEqual(errors, []);
 });
 
 const R_C12 = RUBRIC.rubricFor("high", {}).criteria.find((c) => c.id === "c12");
-const QITEM = (over) => ({ type: "exception", kind: "group", id: "g1", via: null, cid: "c12", name: R_C12.name, el: "문제 이해와 정의", code: "1모둠", nick: null, groupId: "g1", reasons: ["AI 3번이 서로 다른 수준으로 갈렸어요", "AI가 인용한 문장을 근거에서 찾지 못했어요"], appeal: null,
+const QITEM = (over) => ({ type: "exception", kind: "group", id: "g1", via: null, cid: "c12", name: R_C12.name, el: "문제 이해와 정의", code: "1모둠", nick: null, groupId: "g1", reasons: ["AI가 세 번 채점했는데 결과가 달랐어요", "AI가 근거로 든 문장이 학생 글에 없어요"], appeal: null,
   evidence: [{ id: "e1", label: "같은 점", text: "모두 안전을 바란다" }], empty: false, ai: { level: 1, levels: [0, 1, 2], spread: 2, quote: "안전을 바란다", quoteOk: false, reason: "두 바람을 담았으나 근거가 부족", n: 3, esc: true }, score: null, levels: R_C12.levels, max: 10, ...over });
 
-test("교사 평가: 예외만 검토 — 예외 큐(이유·근거·AI 제안), 정하기, 협력 칸 일괄 적용, 확정 후보 일괄 확정(교사가 누름)", async () => {
+test("교사 평가: '애매한 것만 확인' — ② 확인이 먼저 열리고 할 일 세 줄(직접 정할 점수·협력 점수·AI 점수 확정), 정하기, 이의 신청 처리, 한꺼번에 매기기·확정(선생님이 누름)", async () => {
   const st = assessFixture();
   st.assess.auto = { on: true, calib: false }; st.assess.mode = "ai_first"; st.assess.aiDone = true;
   st.assess.scores.c12 = { level: 1, pts: 8, note: "AI 제안: x", t: 1, by: "ai", src: "ai", reviewed: false, auto: true };
-  st.assess.queueItems = [QITEM({ type: "appeal", id: "g1", via: "k1", appeal: { status: "open", text: "점검표를 다 확인했어요", t: 1 }, reasons: [], score: { level: 1, pts: 8, note: "점검표 근거가 부족함" } }), QITEM({})]; // 서버가 이의 제기를 먼저 정렬한다
+  st.assess.queueItems = [QITEM({ type: "appeal", id: "g1", via: "k1", appeal: { status: "open", text: "점검표를 다 확인했어요", t: 1 }, reasons: [], score: { level: 1, pts: 8, note: "점검표 근거가 부족함" } }), QITEM({})]; // 서버가 이의 신청을 먼저 정렬한다
   const { pg, errors } = await openTeacher(st);
   await pg.click('[data-ctab="assess"]');
   await pg.waitForSelector("#as-root .q-card");
-  // 할 일이 있으면 예외 큐가 먼저 열리고, 탭에 건수가 보인다
-  assert.match(await pg.locator("#as-views").innerText(), /예외 큐 \(2\)/);
-  const head = await pg.locator(".as-batch").innerText();
-  assert.match(head, /예외 1/); assert.match(head, /확정 후보 1/); assert.match(head, /이의 제기 1/); assert.match(head, /협력 칸 미채점 1명/);
-  assert.equal(await pg.locator("#as-auto-on").isChecked(), true);
-  // 이의 제기가 먼저, 예외는 이유 칩과 근거·AI 제안(미리 골라진 수준)이 보인다
+  // AI 채점이 끝났으니 '지금' 단계인 ② 확인이 먼저 열리고, 막대에 남은 일이 보인다
+  assert.equal(await pg.locator("#as-views .as-step.on").getAttribute("data-asv"), "queue");
+  assert.match(await pg.locator("#as-views .as-step.on").innerText(), /확인[\s\S]*직접 정할 것 2개/);
+  assert.match(await pg.locator('#as-views [data-asv="score"]').innerText(), /끝났어요/);
+  const todo = await pg.locator(".as-todos").innerText();
+  assert.match(todo, /직접 정할 점수 2개 남음 \(이의 신청 1건 포함\)/); assert.match(todo, /협력 태도\(관찰\) 점수 1명 남음/); assert.match(todo, /AI가 정한 점수 확정 1개/);
+  await noJargon(pg);
+  // 이의 신청이 먼저, 확인 필요는 까닭과 학생 글·AI 의견(미리 골라진 수준)이 보인다
   const cards = pg.locator(".q-card");
   assert.equal(await cards.count(), 2);
-  assert.match(await cards.nth(0).innerText(), /이의 제기[\s\S]*학생의 이의: “점검표를 다 확인했어요”/);
+  assert.match(await cards.nth(0).innerText(), /이의 신청[\s\S]*학생 의견: “점검표를 다 확인했어요”/);
   const ex = cards.nth(1);
-  assert.match(await ex.innerText(), /AI 3번이 서로 다른 수준으로 갈렸어요/); assert.match(await ex.innerText(), /모두 안전을 바란다/); assert.match(await ex.innerText(), /AI 매우 잘함·잘함 ?|AI 잘함 · 3번 채점/);
+  const exT = await ex.innerText();
+  assert.match(exT, /확인 필요/); assert.match(exT, /AI가 정하지 못한 까닭[\s\S]*세 번 채점했는데 결과가 달랐어요/); assert.match(exT, /모두 안전을 바란다/); assert.match(exT, /AI 의견 잘함[\s\S]*세 번 채점: 매우 잘함 \/ 잘함 \/ 보통/);
   assert.equal(await ex.locator('input[value="1"]').isChecked(), true);
   assert.match(await ex.locator(".q-note").inputValue(), /^AI 제안: 두 바람을/);
-  // 정하기 → 저장 호출(예외 칸은 모둠 점수 칸으로)
+  // 이 점수로 정하기 → 저장 호출(모둠 점수로)
   await ex.locator('input[value="2"]').check();
   await ex.locator("[data-qsave]").click();
   await pg.waitForFunction(() => /저장했어요/.test(document.querySelector(".toast")?.textContent || ""));
   const saved = st.calls.filter(([n, d]) => n === "assess" && d.action === "save").at(-1)[1];
   assert.deepEqual([saved.kind, saved.id, saved.criterion, saved.level], ["group", "g1", "c12", 2]);
-  // 이의 처리 완료(학생에게 보낼 답)
+  // 이의 신청 처리(학생에게 보낼 답)
   await cards.nth(0).locator(".q-reply").fill("다시 보니 맞아요");
   await cards.nth(0).locator("[data-qresolve]").click();
-  await pg.waitForFunction(() => /이의 제기를 처리했어요/.test(document.querySelector(".toast")?.textContent || ""));
+  await pg.waitForFunction(() => /이의 신청을 처리했어요/.test(document.querySelector(".toast")?.textContent || ""));
   const rs = st.calls.filter(([n, d]) => n === "assess" && d.action === "resolveAppeal").at(-1)[1];
   assert.deepEqual([rs.id, rs.criterion, rs.reply], ["k1", "c12", "다시 보니 맞아요"]);
-  // (정하기에서 c12 는 교사가 정했으니 확정 후보는 다른 칸 하나만 남게 한다)
+  // (정하기에서 c12 는 선생님이 정했으니 확정할 AI 점수는 다른 항목 하나만 남게 한다)
   st.assess.scores.c23 = { level: 1, pts: 8, note: "AI 제안: y", t: 1, by: "ai", src: "ai", reviewed: false, auto: true };
-  // 협력 칸 일괄 적용
+  // 협력 태도 점수 한꺼번에 매기기
   await pg.waitForSelector(".as-bulk");
   await pg.selectOption("#as-bulk-lv", "1");
   await pg.fill("#as-bulk-note", "모둠 활동에 고르게 참여함");
   await pg.click("[data-asbulk]");
-  await pg.waitForFunction(() => /협력 칸 5명에게 적용/.test(document.querySelector(".toast")?.textContent || ""));
+  await pg.waitForFunction(() => /협력 태도 점수를 5명에게 매겼어요/.test(document.querySelector(".toast")?.textContent || ""));
   assert.deepEqual(st.calls.filter(([n, d]) => n === "assess" && d.action === "bulkLevel").at(-1)[1], { code: "ABC234", action: "bulkLevel", criterion: "c62", level: 1, note: "모둠 활동에 고르게 참여함" });
-  // 확정 후보 일괄 확정: 교사가 직접 눌러야 하고 확인 창을 거친다
+  assert.match(await pg.locator(".as-todos").innerText(), /협력 태도\(관찰\) 점수 다 매겼어요/);
+  // AI가 정한 점수 확정: 선생님이 직접 눌러야 하고 확인 창을 거친다
   assert.equal(st.calls.filter(([n, d]) => n === "assess" && d.action === "confirmAll").length, 0);
   await pg.click("[data-asconfirmall]");
-  assert.match(await pg.locator(".modal").innerText(), /확정 후보 1칸을 확정할까요[\s\S]*공개는 따로 눌러요/);
+  assert.match(await pg.locator(".modal").innerText(), /AI가 정한 점수 1개를 확정할까요[\s\S]*공개는 ④에서 따로/);
   await pg.click(".modal .btn-primary");
-  await pg.waitForFunction(() => /1칸을 확정했어요/.test(document.querySelector(".toast")?.textContent || ""));
+  await pg.waitForFunction(() => /1개를 확정했어요/.test(document.querySelector(".toast")?.textContent || ""));
   assert.equal(st.calls.filter(([n, d]) => n === "assess" && d.action === "confirmAll").length, 1);
   assert.deepEqual(errors, []);
 });
 
-test("교사 평가: 교정 켜기·끄기 — 교정 전 안내, 교정 시작(표본 표시), 완료 후 재사용 표시, 감사 정지 알림과 다시 켜기", async () => {
+test("교사 평가: 채점 방식 — AI 자동 확정 멈춤 알림과 다시 켜기, AI를 내 기준에 맞춰 보기(시작·🎯 샘플로 바로 가기·재사용 표시), 다른 방식으로 바꾸면 사라진다", async () => {
   const st = assessFixture();
-  st.assess.auto = { on: true, calib: false }; st.assess.paused = true;
+  st.assess.auto = { on: true, calib: false }; st.assess.mode = "ai_first"; st.assess.paused = true;
   const { pg, errors } = await openTeacher(st);
   await pg.click('[data-ctab="assess"]');
   await pg.waitForSelector("#as-root .as-batch");
-  assert.equal(await pg.locator("#as-calib-on").isChecked(), false);
-  assert.match(await pg.locator(".as-batch").innerText(), /자동 통과를 멈췄어요/);
+  assert.match(await pg.locator(".as-batch").innerText(), /AI 자동 확정을 멈췄어요/);
   await pg.click("[data-asresume]");
-  await pg.waitForFunction(() => !/자동 통과를 멈췄어요/.test(document.querySelector(".as-batch")?.innerText || ""));
-  // 교정 사용을 켜면 설정이 서버에 저장된다
+  await pg.waitForFunction(() => !/자동 확정을 멈췄어요/.test(document.querySelector(".as-batch")?.innerText || ""));
+  // 채점 방식 화면: 애매한 것만 확인(권장)이 골라져 있고, 맞춰 보기는 선택
+  await pg.click('.as-tools [data-asv="settings"]');
+  assert.equal(await pg.locator('input[name="as-how"][value="auto"]').isChecked(), true);
+  assert.match(await pg.locator("#as-body").innerText(), /애매한 것만 확인 권장[\s\S]*AI 점수를 하나씩 확인[\s\S]*내가 먼저 채점[\s\S]*AI를 내 기준에 맞춰 보기/);
+  assert.equal(await pg.locator("#as-calib-on").isChecked(), false);
+  // 사용하기를 켜면 설정이 서버에 저장된다
   st.assess.calib = { key: "k", state: "none", reused: false, sampleSize: 0 };
   await pg.locator("#as-calib-on").check();
-  await pg.waitForFunction(() => /교정이 아직 없어요/.test(document.querySelector(".as-batch")?.innerText || ""));
+  await pg.waitForFunction(() => /아직 맞춰 보지 않았어요/.test(document.querySelector("#as-body")?.innerText || ""));
   assert.deepEqual(st.calls.filter(([n, d]) => n === "assess" && d.action === "config" && d.assessAuto).at(-1)[1].assessAuto, { on: true, calib: true });
-  // 교정 시작: 확인 창 → 표본이 표시되고 AI 점수가 가려진다는 안내
+  // 시작: 확인 창 → 🎯 샘플 학생이 바로 열리고 AI 점수를 가린다는 안내
   await pg.click("[data-ascalib]");
-  assert.match(await pg.locator(".modal").innerText(), /AI 점수는 가려지니[\s\S]*다른 수업에서도 다시 쓰여요/);
+  assert.match(await pg.locator(".modal").innerText(), /샘플의 AI 점수는 가려지니[\s\S]*다른 수업에서도 다시 쓰여요/);
   await pg.click(".modal .btn-primary");
-  await pg.waitForSelector(".as-calib:has-text('교정 중')");
+  await pg.waitForSelector('#as-views .as-step.on[data-asv="score"]');
+  await pg.waitForSelector(".as-sub");
   assert.ok(await pg.locator('.as-pick .chip:has-text("🎯")').count() >= 1);
-  assert.match(await pg.locator(".as-sub").innerText(), /교정 표본이에요|AI/);
-  // 완료 후(다른 수업에서 한 교정을 재사용) 표시
+  assert.match(await pg.locator(".as-sub").innerText(), /AI를 내 기준에 맞춰 보는 샘플/);
+  assert.match(await pg.locator(".as-batch").innerText(), /AI를 내 기준에 맞춰 보는 중/);
+  // 끝난 뒤(다른 수업에서 맞춘 결과를 재사용) 표시
   st.assess.calib = { key: "k", state: "ready", reused: true, from: "OLD123", t: Date.UTC(2026, 9, 20), passed: 8, total: 12, overall: { n: 40, exact: 85, kappa: 0.71 }, perCriterion: { c11: { n: 6, exact: 100, adjacent: 100, pass: true }, c12: { n: 1, exact: 100, adjacent: 100, pass: false } }, sampleSize: 0 };
-  await pg.click('[data-asv="rubric"]'); await pg.click('[data-asv="score"]');
   await pg.reload(); await pg.waitForSelector("#sessions button[data-code]"); await pg.click("#sessions button[data-code]"); await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector(".as-tools");
+  await pg.click('.as-tools [data-asv="settings"]');
   await pg.waitForSelector(".as-calib.ok");
   const cal = await pg.locator(".as-calib").innerText();
-  assert.match(cal, /교정 완료[\s\S]*OLD123[\s\S]*재사용/); assert.match(cal, /8 \/ 12/); assert.match(cal, /표본 40칸 · 일치율 85%/);
-  // 예외만 검토를 끄면 채점 방식 선택이 다시 나온다
-  await pg.locator("#as-auto-on").uncheck();
-  await pg.waitForSelector("#as-mode");
+  assert.match(cal, /맞춰 봤어요[\s\S]*OLD123[\s\S]*그대로 쓰는 중/); assert.match(cal, /8 \/ 12/); assert.match(cal, /샘플 40개 · 같은 수준 85%/);
+  // 하나씩 확인하는 방식으로 바꾸면 맞춰 보기 카드가 사라지고 서버 설정이 함께 바뀐다
+  await pg.locator('input[name="as-how"][value="manual"]').check();
+  await pg.waitForFunction(() => !document.querySelector("#as-calib-on"));
+  assert.equal(st.assess.auto.on, false); assert.equal(st.assess.mode, "ai_first");
   assert.deepEqual(errors, []);
 });
 
-test("교사 평가: AI 점수를 아직 검토하지 않았으면 점수 공개 확인 창에서 알려 준다", async () => {
+test("교사 평가: ④ 공개 — 확정하지 않은 AI 점수가 있으면 화면과 확인 창에서 알려 준다", async () => {
   const st = assessFixture();
   st.assess.mode = "ai_first"; st.assess.aiDone = true;
   st.assess.scores.c12 = { level: 1, pts: 8, note: "AI 제안: x", t: 1, by: "ai", src: "ai", reviewed: false };
   const { pg, errors } = await openTeacher(st);
   await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-views");
+  await pg.click('#as-views [data-asv="release"]');
   await pg.waitForSelector("#as-root .as-rel");
+  assert.match(await pg.locator(".as-rel").innerText(), /확정 전 AI 점수 1개/);
   await pg.click('[data-asrel="score"]');
-  assert.match(await pg.locator(".modal").innerText(), /AI 점수를 아직 검토하지 않은 칸이 1개/);
+  assert.match(await pg.locator(".modal").innerText(), /확정하지 않은 AI 점수가 1개[\s\S]*학생에게 보이지 않아요/);
   await pg.click(".modal .btn:has-text('취소')");
   assert.deepEqual(errors, []);
 });
 
-test("교사 평가: 점수 공개와 세특 공개는 서로 독립이고, 공개 전에 확인 창을 거치며, 끄면 바로 꺼진다", async () => {
+test("교사 평가: ④ 공개 — 점수와 세특은 따로 공개하고, 공개 전에 확인 창을 거치며, 끄면 바로 꺼진다", async () => {
   const st = assessFixture(), { pg, errors } = await openTeacher(st);
   await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-views");
+  await pg.click('#as-views [data-asv="release"]');
   await pg.waitForSelector("#as-root .as-rel");
   assert.match(await pg.locator(".as-rel").innerText(), /점수 비공개[\s\S]*세특 비공개/);
+  assert.match(await pg.locator(".as-rel").innerText(), /세특을 저장하지 않은 학생 2명/);
   await pg.click('[data-asrel="score"]');
-  assert.match(await pg.locator(".modal").innerText(), /내 결과[\s\S]*채점하지 않은 칸이/);
+  assert.match(await pg.locator(".modal").innerText(), /내 결과[\s\S]*채점하지 않은 항목이/);
   await pg.click(".modal .btn-primary");
   await pg.waitForFunction(() => /점수 공개 중/.test(document.querySelector(".as-rel")?.innerText || ""));
   assert.match(await pg.locator(".as-rel").innerText(), /세특 비공개/, "점수만 공개되고 세특은 그대로");
+  assert.match(await pg.locator('#as-views [data-asv="release"]').innerText(), /점수만 공개 중/);
   assert.deepEqual(st.calls.filter(([n, d]) => n === "assess" && d.action === "release").map(([, d]) => ({ score: d.score, seteuk: d.seteuk })), [{ score: true, seteuk: undefined }]);
   await pg.click('[data-asrel="seteuk"]');
   await pg.click(".modal .btn-primary");
@@ -2729,30 +2783,37 @@ test("교사 평가: 점수 공개와 세특 공개는 서로 독립이고, 공�
   assert.deepEqual(errors, []);
 });
 
-test("교사 평가: 세특 — 수준 판정 → 기승전결 초안 → 분량 보정 기록, 수정 스위치·바이트 카운터·저장 배지", async () => {
+test("교사 평가: ③ 세특 — 초안 만들기(글 수준·초안·만든 과정은 접어 둠), 직접 고치기 스위치·바이트 카운터·저장 표시, 다음 학생", async () => {
   const st = assessFixture(), { pg, errors } = await openTeacher(st);
   await pg.click('[data-ctab="assess"]');
   await pg.waitForSelector("#as-root .as-crit");
-  await pg.click('[data-asv="seteuk"]');
+  await pg.click('#as-views [data-asv="seteuk"]');
   await pg.waitForSelector("#as-seteuk");
+  assert.match(await pg.locator("#as-body").innerText(), /세특 쓰기[\s\S]*저장 0 \/ 2명/);
   assert.equal(await pg.locator("#as-seteuk").getAttribute("readonly"), "", "처음에는 읽기 전용");
   await pg.selectOption("#as-emp", "growth");
   await pg.click("[data-asmake]");
   await pg.waitForSelector(".sk-struct");
-  // 수준 판정(5개 기준)과 구조
-  const prep = await pg.locator(".sk-prep").innerText();
-  assert.match(prep, /수준 A/); assert.match(prep, /탐구 깊이 A/); assert.match(prep, /성찰과 확장 A/); assert.match(prep, /등급 이름을 쓰지 않고/);
+  // 글 수준(5가지 기준은 접어 둔다)
+  const prep = pg.locator(".sk-prep");
+  assert.match(await prep.innerText(), /학생 글 수준 A · 우수[\s\S]*활동 기록 9개/);
+  const prepAll = await prep.textContent();
+  assert.match(prepAll, /탐구 깊이 A/); assert.match(prepAll, /성찰과 확장 A/); assert.match(prepAll, /세특에 등급을 쓰지는 않아요/);
+  // 초안을 만든 과정: 기승전결·문장마다 근거·분량 맞추기(접힘)
+  assert.equal(await pg.locator(".sk-struct").getAttribute("open"), null, "만든 과정은 접혀 있다");
   assert.equal(await pg.locator(".sk-part").count(), 4);
-  const struct = await pg.locator(".sk-struct").innerText();
+  const struct = await pg.locator(".sk-struct").textContent();
   assert.match(struct, /기 · 문제의식[\s\S]*승 · 과정[\s\S]*전 · 발견[\s\S]*결 · 성찰/);
-  assert.match(struct, /1650 → 1480 byte · 범위 내 · 목표 1,500 byte · AI 2회\(고성능 1·빠른 모델 1\)/); assert.match(struct, /뺀 문장 1개/);
+  assert.match(struct, /근거: 내 활동 · 힘든 것/);
+  assert.match(struct, /1,480바이트로 맞췄어요\(목표 1,500바이트 · 2번 다듬음\)/); assert.match(struct, /뺀 문장 1개/);
+  assert.ok(!/고성능|빠른 모델|byte/.test(struct));
   assert.match(await pg.locator("#as-sw").innerText(), /잇는 말이 적어/);
   const calls = st.calls.filter(([n]) => n === "assessAi").map(([, d]) => d);
   assert.deepEqual(calls.map((d) => d.action), ["seteukPrep", "seteukGenerate"]);
   assert.deepEqual([calls[1].emphasis, calls[1].grade, calls[1].decision], ["growth", "A", undefined]);
   assert.match(await pg.locator("#as-seteuk").inputValue(), /^제주 사건의 인물을 만나/);
-  assert.match(await pg.locator("#as-bytes").innerText(), /\d+ \/ 1,500 byte/);
-  // 수정 스위치: 켜면 편집 가능, 바이트 카운터 3단계 색, 저장하면 배지와 함께 읽기 전용으로 돌아간다
+  assert.match(await pg.locator("#as-bytes").innerText(), /\d+ \/ 1,500바이트/);
+  // 직접 고치기 스위치: 켜면 편집 가능, 바이트 카운터 3단계 색, 저장하면 표시와 함께 읽기 전용으로 돌아간다
   await pg.locator(".sk-sw").click();
   assert.equal(await pg.locator("#as-seteuk").getAttribute("readonly"), null);
   assert.ok(await pg.locator(".sk-hint").isVisible());
@@ -2764,54 +2825,79 @@ test("교사 평가: 세특 — 수준 판정 → 기승전결 초안 → 분량
   assert.equal(await pg.locator("#as-bytes").getAttribute("class"), "sk-count ok");
   await pg.click("[data-asseteuk]");
   await pg.waitForSelector(".sk-saved");
-  assert.match(await pg.locator(".sk-saved").innerText(), /서버에 저장됨/);
+  assert.match(await pg.locator(".sk-saved").innerText(), /저장했어요/);
   assert.equal(st.assess.seteukText, "자료를 비교해 원인을 분석함.");
   assert.equal(await pg.locator("#as-seteuk").getAttribute("readonly"), "", "저장하면 읽기 전용으로 돌아간다");
-  // 다시 만들면 저장 배지와 편집 상태를 초기화한다
+  // 다시 만들면 저장 표시와 편집 상태를 초기화한다
   await pg.click("[data-asmake]");
-  await pg.waitForFunction(() => /저장됨/.test(document.querySelector(".sk-saved")?.innerText || "") === false || !document.querySelector(".sk-saved"));
-  assert.ok(await pg.locator(".sk-struct").isVisible());
-  // 글자 수 한도를 바꾸면 이전 판정을 지운다
+  await pg.waitForFunction(() => !/저장했어요/.test(document.querySelector(".sk-saved")?.innerText || ""));
+  assert.ok(await pg.locator(".sk-struct").count());
+  // 분량을 바꾸면 이전 판정을 지운다
   await pg.selectOption("#as-max", "1000");
   await pg.waitForFunction(() => !document.querySelector(".sk-prep"));
+  // 다음 학생으로 넘어간다
+  await pg.click("[data-asnext]");
+  await pg.waitForFunction(() => /1모둠 나래/.test(document.querySelectorAll(".sk-root")[1]?.querySelector("h4")?.textContent || ""));
+  assert.equal(await pg.locator("[data-asnext]").count(), 0, "마지막 학생에게는 다음 단추가 없다");
   assert.deepEqual(errors, []);
 });
 
-test("교사 평가: 세특 — 근거가 빈약하면 하향·유지·취소를 고르게 하고, 하향을 고르면 그 선택으로 만든다", async () => {
+test("교사 평가: ③ 세특 — 이미 저장한 세특은 학생을 열면 그대로 보이고, 저장 수가 단계 막대에 보인다", async () => {
+  const st = assessFixture();
+  st.assess.seteukText = "이미 저장한 세특 글임.";
+  const { pg, errors } = await openTeacher(st);
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-views");
+  assert.match(await pg.locator('#as-views [data-asv="seteuk"]').innerText(), /1 \/ 2명/);
+  await pg.click('#as-views [data-asv="seteuk"]');
+  await pg.waitForSelector("#as-seteuk");
+  assert.equal(await pg.locator("#as-seteuk").inputValue(), "이미 저장한 세특 글임.");
+  assert.match(await pg.locator(".sk-saved").innerText(), /저장된 세특/);
+  assert.deepEqual(errors, []);
+});
+
+test("교사 평가: ③ 세특 — 학생 글이 적으면 짧게 쓰기·분량 맞추기·취소를 고르고, 바꾼 글 수준은 다시 만들 때 그대로 쓴다", async () => {
   const st = assessFixture(), { pg, errors } = await openTeacher(st);
   st.assess.poor = true;
   await pg.click('[data-ctab="assess"]');
   await pg.waitForSelector("#as-root .as-crit");
-  await pg.click('[data-asv="seteuk"]');
+  await pg.click('#as-views [data-asv="seteuk"]');
   await pg.waitForSelector("#as-seteuk");
   await pg.click("[data-asmake]");
   await pg.waitForSelector(".modal");
   const m = await pg.locator(".modal").innerText();
-  assert.match(m, /근거가 목표 분량에 비해 적어요/); assert.match(m, /1,500바이트/); assert.match(m, /구체적 근거 전무/); assert.match(m, /낮추기 \(약 600B\) · 권장/); assert.match(m, /원래 목표 유지/);
-  assert.match(await pg.locator(".sk-prep").innerText(), /수준 C[\s\S]*AI 작성 의심 중간[\s\S]*학생에게 불이익을 주지 마세요/);
-  // 취소: 생성하지 않는다
+  assert.match(m, /학생 글이 분량에 비해 적어요/); assert.match(m, /1,500바이트/); assert.match(m, /구체적 근거 전무/); assert.match(m, /짧게 쓰기 \(약 600바이트\) · 권장/); assert.match(m, /분량 맞추기/);
+  assert.match(await pg.locator(".sk-prep").innerText(), /학생 글 수준 C[\s\S]*AI가 대신 쓴 글일 수 있어요\(중간\)[\s\S]*학생에게 불이익을 주지 마세요/);
+  // 취소: 만들지 않는다
   await pg.click(".modal .btn:has-text('취소')");
   await pg.waitForFunction(() => !document.querySelector(".modal"));
   assert.ok(!st.calls.some(([n, d]) => n === "assessAi" && d.action === "seteukGenerate"));
-  // 다시: 낮추기
+  // 글 수준을 B로 바꾸고 다시: 짧게 쓰기
   await pg.selectOption("#sk-grade", "B");
   await pg.click("[data-asmake]");
   await pg.waitForSelector(".modal");
   await pg.click(".modal .btn-primary");
   await pg.waitForSelector(".sk-struct");
   const gen = st.calls.filter(([n, d]) => n === "assessAi" && d.action === "seteukGenerate").map(([, d]) => d);
-  assert.deepEqual(gen.map((d) => d.decision), ["lower"]);
-  assert.match(await pg.locator(".sk-struct").innerText(), /목표 600 byte/);
+  assert.deepEqual(gen.map((d) => [d.decision, d.grade]), [["lower", "B"]], "선생님이 바꾼 글 수준이 다시 판정해도 그대로 간다");
+  assert.equal(await pg.locator("#sk-grade").inputValue(), "B");
+  assert.match(await pg.locator(".sk-struct").textContent(), /목표 600바이트/);
   assert.deepEqual(errors, []);
 });
 
-test("교사 평가(휴대폰): 아래 메뉴에 평가가 있고 열면 가로로 넘치지 않는다", async () => {
+test("교사 평가(휴대폰): 아래 메뉴에 평가가 있고, 단계 막대가 한 줄에 들어가며, 채점·척도표 모두 가로로 넘치지 않는다", async () => {
   const st = assessFixture(), { pg, errors } = await openTeacher(st, { page: "m-teacher.html", ctxOpts: { userAgent: IPHONE, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true } });
   await pg.click('[data-ctab="assess"]');
   await pg.waitForSelector("#as-root .as-crit");
   assert.equal(await pg.locator("#ctabs button").count(), 5);
+  const tops = await pg.locator("#as-views .as-step").evaluateAll((bs) => bs.map((b) => Math.round(b.getBoundingClientRect().top)));
+  assert.equal(new Set(tops).size, 1, "네 단계가 한 줄에 있다");
   assert.ok(await pg.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), "가로로 넘치지 않는다");
   if (process.env.UI_SHOT) await pg.screenshot({ path: `${process.env.UI_SHOT}/assess-m.png` });
+  await pg.click('.as-tools [data-asv="rubric"]');
+  await pg.waitForSelector(".as-rubric");
+  assert.ok(await pg.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), "척도표도 가로로 넘치지 않는다");
+  assert.equal(await pg.locator(".as-rubric tbody tr:nth-child(2) td:nth-child(2)").evaluate((td) => getComputedStyle(td, "::before").content), '"매우 잘함"', "칸마다 수준 이름이 붙는다");
   assert.deepEqual(errors, []);
 });
 
