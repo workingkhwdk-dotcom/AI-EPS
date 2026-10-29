@@ -135,7 +135,7 @@ firestore.rules    학생은 자기 모둠의 work만 수정, AI 로그는 서�
 | 평가 근거 필수 | 신뢰도·설명 책임 | 가장 높은·낮은 수준, AI 제안과 두 수준 이상 다른 선택은 평가 근거 8자 이상. 이 근거는 점수 공개 때 학생에게 보임 |
 | 독립 채점 | 신뢰도 | AI 제안은 교사가 그 기준의 수준을 **저장한 뒤에만** 서버가 내보냄(저장 전에는 화면이 못 봄) |
 | 익명 채점 | 타당도(구인 무관 요인) | 학생을 별명 대신 코드(S-1A2B)로, 모둠과 상관없는 순서로 보여 줌 |
-| AI 제2평정자 | 신뢰도 | 같은 근거를 3번 채점(`ASSESS_RUNS`)해 가운데 값과 흔들림을 구하고, 인용문이 근거에 실제로 있는지 확인(`quoteOk`). 학생 글의 지시문은 따르지 않도록 프롬프트에서 막음 |
+| AI 제2평정자(하이브리드) | 신뢰도·비용 | 빠른 모델(`ASSESS_FAST_MODEL`, 기본 luna)이 같은 근거를 2번 채점하고, **갈리거나 인용을 못 찾은 기준만** 고성능 모델(`ASSESS_MODEL`, 기본 terra)이 한 번 더 판정해 가운데 값과 흔들림을 구하고, 인용문이 근거에 실제로 있는지 확인(`quoteOk`). 학생 글의 지시문은 따르지 않도록 프롬프트에서 막음 |
 | 일치도 지표 | 신뢰도 | 교사–AI 일치율·한 수준 이내·이차 가중 카파·후함/엄격함 방향, AI 3회 일치율. 기준(일치율 70%, 카파 0.6, 편향 0.4수준 등)에서 벗어나면 경고. 비교 10칸 미만이면 해석 경고 |
 | 재채점 표본 | 신뢰도(평정자 내) | 이미 채점한 칸의 약 1/5(해시로 고정)을 첫 수준을 가린 채 다시 채점해 자기 일관성을 잼 |
 | 분포·공정성 | 타당도 | 기준별 평균·표준편차(학생을 가르지 못하는 기준 찾기), 모둠별 합계 |
@@ -158,7 +158,7 @@ firestore.rules    학생은 자기 모둠의 work만 수정, AI 로그는 서�
 
 **저장**: `sessions/{code}/assess/{g1 | s_<별명 열쇠>}` — 교사 점수·평가 근거·AI 제안·재채점·세특. 규칙으로 클라이언트 읽기·쓰기를 모두 막고(교사도 `assess` 함수를 거침) 서버만 씁니다. 학생 열쇠는 uid 가 아니라 별명 열쇠(`credKey`)라서 로그아웃 후 다시 들어와도 이어지고, 교사가 모둠을 옮기면 기록도 함께 옮겨집니다. 수업을 삭제하면 함께 지워집니다.
 
-**함수와 설정**: `assess`(채점·공개·신뢰도·세특 저장), `assessAi`(AI 채점·세특 초안), `myResult`(학생). 모델 `ASSESS_MODEL`·`SETEUK_MODEL`(기본 gpt-5.6-terra), 수업당 평가용 AI 호출 한도 1500회. 배포: `firebase deploy --only functions:assess,functions:assessAi,functions:myResult,functions:moveStudent,functions:joinSession,hosting,firestore:rules`.
+**함수와 설정**: `assess`(채점·공개·신뢰도·세특 저장), `assessAi`(AI 채점·세특 초안), `myResult`(학생). **하이브리드 모델 구성**(비용과 성능을 나눔): 채점 제안은 빠른 모델 2번 + 어려운 기준만 `ASSESS_MODEL` 재판정, 세특 수준 판정은 `OPENAI_MODEL`(빠른 모델), 첫 초안은 `SETEUK_MODEL`(고성능), 분량 보정 반복은 `SETEUK_FIX_MODEL`(기본 luna)이며 보정이 구조를 깨거나 3번 넘게 걸리면 고성능으로 올립니다. 쓴 모델 횟수는 화면과 기록(`seteuk.gen.models`, `ai.<기준>.esc`)에 남습니다. 수업당 평가용 AI 호출 한도 1500회. 배포: `firebase deploy --only functions:assess,functions:assessAi,functions:myResult,functions:moveStudent,functions:joinSession,hosting,firestore:rules`.
 
 ### 체험하기(demo) — 서버 없이 학생 화면을 혼자 해 보기
 - 주소: `/demo.html`. 11개 주제(원문 대조를 마친 기본 주제 다섯 개와 새 주제 여섯 개) 중 하나를 골라 학생 화면을 처음부터 끝까지 혼자 체험한다. 입장·로그인 없이 바로 열린다.

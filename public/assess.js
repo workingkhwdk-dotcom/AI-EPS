@@ -81,7 +81,7 @@ function scoreHtml() {
   return head + `<div class="card as-sub">
     <div class="row" style="justify-content:space-between"><div><h3 style="margin:0">${esc(subjLabel())}</h3><div class="meta-line">채점 ${done}/${cs.length}칸 · 지금까지 ${total} / ${maxT}점</div></div>
       <div class="row"><button class="btn btn-tinted btn-sm" data-asai type="button" ${st.busy ? "disabled" : ""}>${gotAi ? "AI 제안 다시 받기" : "AI 제안 받기"}</button></div></div>
-    <div class="meta-line" style="margin:6px 0 2px">AI 제안은 <b>내가 그 기준의 수준을 저장한 뒤에만</b> 보여요(먼저 보면 AI 의견에 끌려요). 같은 근거를 ${d.aiRuns}번 채점해 흔들림도 알려 줘요. 이 수업의 AI 사용 ${d.aiUsed} / ${d.aiCap}회</div></div>`
+    <div class="meta-line" style="margin:6px 0 2px">AI 제안은 <b>내가 그 기준의 수준을 저장한 뒤에만</b> 보여요(먼저 보면 AI 의견에 끌려요). 빠른 모델이 같은 근거를 ${d.aiRuns}번 채점하고, 갈리거나 인용을 확인하지 못한 기준만 고성능 모델이 한 번 더 판정해요(비용을 아끼면서 어려운 곳은 정확하게). 이 수업의 AI 사용 ${d.aiUsed} / ${d.aiCap}회</div></div>`
     + cs.map((c) => criterionHtml(c, s)).join("");
 }
 function subjLabel() {
@@ -109,10 +109,11 @@ function aiHtml(c, sc, ai, rv, has) {
   if (!c.ai) return `<div class="meta-line" style="margin-top:8px">이 기준은 교사 관찰로만 채점해요(AI 제안 없음).</div>`;
   if (!sc) return has ? `<div class="meta-line" style="margin-top:8px">🔒 AI 제안이 준비돼 있어요. 수준을 저장하면 보여요.</div>` : "";
   if (!ai) return "";
+  if (ai.auto) return `<div class="meta-line" style="margin-top:8px">AI 제2평정: 학생이 쓴 근거가 비어 있어 미제출로 봤어요.</div>`;
   const same = ai.level === sc.level, near = Math.abs(rank(c, ai.level) - rank(c, sc.level)) === 1;
   return `<div class="as-ai ${same ? "same" : rv ? "dev" : near ? "near" : "dev"}">
     <div><b>AI 제2평정</b> ${esc(lvlLabel(c, ai.level))} ${ptsOf(c, ai.level)}점 · ${ai.n}번 채점: ${ai.levels.map((l) => esc(lvlLabel(c, l))).join(" / ")}
-      ${ai.spread ? `<span class="tag y">AI도 갈렸어요</span>` : `<span class="tag">3회 일치</span>`}
+      ${ai.esc ? `<span class="tag b">고성능 재판정</span>` : ""}${ai.spread ? `<span class="tag y">AI도 갈렸어요</span>` : `<span class="tag">${ai.n}회 일치</span>`}
       ${ai.auto ? "" : ai.quoteOk ? `<span class="tag b">인용 확인됨</span>` : `<span class="tag r">인용문을 근거에서 못 찾음</span>`}
       <span class="tag ${same ? "" : "y"}">${same ? "내 채점과 같음" : near ? "한 수준 차이" : "두 수준 이상 차이"}</span></div>
     ${ai.reason ? `<div class="meta-line">${esc(ai.reason)}</div>` : ""}${ai.quote ? `<div class="meta-line">인용: “${esc(ai.quote)}”</div>` : ""}
@@ -173,7 +174,7 @@ function prepHtml(p) {
 function structureHtml(g) {
   return `<div class="sk-struct"><div class="sk-struct-h">기승전결 구조 <span class="meta-line">(초안 기준 · 직접 고치면 맞지 않을 수 있어요)</span></div>
     ${g.parts.map((p) => `<div class="sk-part p-${p.part}"><b>${PART_NAME[p.part]}</b><span>${p.sentences.length ? p.sentences.map((x) => esc(x.text)).join(" ") : `<i>비어 있음</i>`}</span></div>`).join("")}
-    <div class="meta-line">📏 분량 보정: ${g.log.map((t) => t.bytes).join(" → ")} byte · ${esc(g.reason)} · 목표 ${g.target.toLocaleString()} byte · AI ${g.calls}회${g.dropped.length ? ` · 뺀 문장 ${g.dropped.length}개(${g.dropped.map((x) => esc(x.why)).join(", ")})` : ""}</div>
+    <div class="meta-line">📏 분량 보정: ${g.log.map((t) => t.bytes).join(" → ")} byte · ${esc(g.reason)} · 목표 ${g.target.toLocaleString()} byte · AI ${g.calls}회${g.models ? `(고성능 ${g.models.strong}·빠른 모델 ${g.models.fast})` : ""}${g.dropped.length ? ` · 뺀 문장 ${g.dropped.length}개(${g.dropped.map((x) => esc(x.why)).join(", ")})` : ""}</div>
     <details class="as-ev"><summary>문장별 근거 보기</summary>${g.parts.flatMap((p) => p.sentences).map((x) => `<div class="logline"><div class="q">${esc(x.text)}</div><div class="a">${x.evidence.map((id) => `· ${esc(g.evidence[id]?.label || id)}: ${esc(g.evidence[id]?.text || "")}`).join("\n")}</div></div>`).join("")}</details></div>`;
 }
 
@@ -247,7 +248,7 @@ function reliHtml() {
       ${card("한 수준 이내", fmtN(o.adjacent, "%"), `기준 ${T.adjacent}% 이상`, okEnough ? o.adjacent >= T.adjacent : undefined)}
       ${card("가중 카파", fmtN(o.kappa), `기준 ${T.kappa} 이상(우연 일치를 뺀 값)`, okEnough && o.kappa !== null ? o.kappa >= T.kappa : undefined)}
       ${card("내 채점 경향", o.bias === null ? "—" : o.bias > 0.1 ? "후한 편" : o.bias < -0.1 ? "엄격한 편" : "비슷함", `AI보다 평균 ${fmtN(o.bias)}수준`, okEnough && o.bias !== null ? Math.abs(o.bias) < T.bias : undefined)}
-      ${card("AI 3회 일치", fmtN(r.self.same, "%"), `${r.self.n}칸 · 기준 ${T.selfConsistency}% 이상`, r.self.n >= T.minPairs ? r.self.same >= T.selfConsistency : undefined)}
+      ${card("AI 반복 일치", fmtN(r.self.same, "%"), `${r.self.n}칸 · 기준 ${T.selfConsistency}% 이상`, r.self.n >= T.minPairs ? r.self.same >= T.selfConsistency : undefined)}
       ${card("내 재채점 일치", fmtN(r.recheck.exact, "%"), `${r.recheck.n}칸 · 기준 ${T.recheckExact}% 이상`, r.recheck.n >= 5 ? r.recheck.exact >= T.recheckExact : undefined)}
     </div></div>
     ${rechecksHtml()}

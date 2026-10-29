@@ -2513,7 +2513,7 @@ function assessFixture() {
         const sent = (text, ev) => ({ text, evidence: [ev] });
         return { text: "제주 사건의 인물을 만나 처음 생각을 점검함. 이를 바탕으로 원인을 따져 봄. 그러나 통계를 확인하며 생각이 바뀜. 이러한 발견을 성찰함.",
           parts: [{ part: "기", sentences: [sent("제주 사건의 인물을 만나 처음 생각을 점검함.", "e1")] }, { part: "승", sentences: [sent("이를 바탕으로 원인을 따져 봄.", "e2")] }, { part: "전", sentences: [sent("그러나 통계를 확인하며 생각이 바뀜.", "e3")] }, { part: "결", sentences: [sent("이러한 발견을 성찰함.", "e1")] }],
-          dropped: [{ part: "기", text: "리더십이 뛰어남.", why: "근거가 연결되지 않아 뺐어요" }], warnings: ["부분과 부분을 잇는 말이 적어 앞뒤가 끊겨 읽힐 수 있음(승·전·결의 첫 문장)"], bytes: 1480, max: 1500, target: data.decision === "lower" ? 600 : 1500, reason: "범위 내", tries: 2, log: [{ n: 1, bytes: 1650 }, { n: 2, bytes: 1480 }], calls: 2, grade: data.grade, emphasis: data.emphasis, decision: data.decision || "keep",
+          dropped: [{ part: "기", text: "리더십이 뛰어남.", why: "근거가 연결되지 않아 뺐어요" }], warnings: ["부분과 부분을 잇는 말이 적어 앞뒤가 끊겨 읽힐 수 있음(승·전·결의 첫 문장)"], bytes: 1480, max: 1500, target: data.decision === "lower" ? 600 : 1500, reason: "범위 내", tries: 2, log: [{ n: 1, bytes: 1650 }, { n: 2, bytes: 1480 }], calls: 2, models: { strong: 1, fast: 1 }, grade: data.grade, emphasis: data.emphasis, decision: data.decision || "keep",
           evidence: { e1: { label: "내 활동 · 힘든 것", text: "일자리를 구하기 어려움" }, e2: { label: "내 활동 · 내가 쓴 원인 추측(법·제도)", text: "제도가 낯설다" }, e3: { label: "모둠 활동 · 확인된 사실", text: "허가율 약 2%" } } };
       }
       S.aiAsked = true;
@@ -2595,7 +2595,7 @@ test("교사 평가: 세특 — 수준 판정 → 기승전결 초안 → 분량
   assert.equal(await pg.locator(".sk-part").count(), 4);
   const struct = await pg.locator(".sk-struct").innerText();
   assert.match(struct, /기 · 문제의식[\s\S]*승 · 과정[\s\S]*전 · 발견[\s\S]*결 · 성찰/);
-  assert.match(struct, /1650 → 1480 byte · 범위 내 · 목표 1,500 byte · AI 2회/); assert.match(struct, /뺀 문장 1개/);
+  assert.match(struct, /1650 → 1480 byte · 범위 내 · 목표 1,500 byte · AI 2회\(고성능 1·빠른 모델 1\)/); assert.match(struct, /뺀 문장 1개/);
   assert.match(await pg.locator("#as-sw").innerText(), /잇는 말이 적어/);
   const calls = st.calls.filter(([n]) => n === "assessAi").map(([, d]) => d);
   assert.deepEqual(calls.map((d) => d.action), ["seteukPrep", "seteukGenerate"]);

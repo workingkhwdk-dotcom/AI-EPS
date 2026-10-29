@@ -191,7 +191,7 @@ test("신뢰도 보고서: 표본이 적으면 해석 경고, 일치율이 낮�
   assert.ok(rep.warnings.some((w) => /일치율/.test(w)));
   assert.equal(rep.recheck.exact, 100);
   assert.equal(rep.self.same, 50);
-  assert.ok(rep.warnings.some((w) => /3회 채점/.test(w)));
+  assert.ok(rep.warnings.some((w) => /반복 채점/.test(w)));
   const few = A.reliabilityReport(r, docs.slice(0, 3));
   assert.ok(few.warnings.some((w) => /이릅니다/.test(w)));
   assert.ok(few.distribution.find((d) => d.id === "c12").n === 3);
@@ -208,6 +208,8 @@ test("재채점 표본: 같은 열쇠는 늘 같은 결과, 대략 1/5", () => {
 let aiMode = "normal"; // normal | bad (인용문 지어냄)
 let levelMode = "normal", fill = 0, withBad = false; // 세특 가짜 AI: 수준 판정 종류, 승 부분을 채우는 글자 수, 근거 없는 문장 포함 여부
 const draftMsgs = [];
+const draftModels = [];
+const scoreModels = []; let scoreSplit = false; // 채점 가짜 AI: 호출한 모델 기록, 빠른 모델(luna)이 갈리는지
 let fetchCount = 0;
 global.fetch = async (url, init) => {
   const body = JSON.parse(init.body);
@@ -216,7 +218,12 @@ global.fetch = async (url, init) => {
   let content;
   if (sys.includes("제2 채점자")) {
     const ids = [...body.messages[1].content.matchAll(/^## (c\d\d) /gm)].map((m) => m[1]);
-    content = JSON.stringify({ items: ids.map((id) => ({ id, level: 1, quote: aiMode === "bad" ? "학생이 쓰지 않은 문장입니다 정말로" : "모두 안전을 바란다", reason: "수준 설명 일부 충족" })) });
+    scoreModels.push(body.model);
+    const lunaCalls = scoreModels.filter((m) => /luna/.test(m)).length;
+    const level = (id) => (scoreSplit && /luna/.test(body.model) && id === "c12" ? (lunaCalls % 2 ? 0 : 2) : 1);
+    // 인용문: 그 기준의 근거 첫 항목에서 그대로 가져온다(근거가 비면 빈 문자열)
+    const firstText = (id) => { const sec = body.messages[1].content.split("## ").find((x) => x.startsWith(id + " ")) || ""; const m = sec.match(/\[e1\] ([^\n]+)/); return m ? m[1].slice(-8) : ""; };
+    content = JSON.stringify({ items: ids.map((id) => ({ id, level: level(id), quote: aiMode === "bad" ? "학생이 쓰지 않은 문장입니다 정말로" : firstText(id), reason: "수준 설명 일부 충족" })) });
   } else if (sys.includes("질적 수준을 판정하는 평가자")) {
     const poor = levelMode === "poor";
     content = JSON.stringify({ criteria: ["depth", "logic", "agency", "connect", "reflect"].map((id) => ({ id, grade: poor ? "C" : "A", ai_suspicion: "낮음", reason: "근거 기준 충족" })),
@@ -224,6 +231,7 @@ global.fetch = async (url, init) => {
   } else if (sys.includes("세특")) {
     const user = body.messages.at(-1).content;
     draftMsgs.push(body.messages.map((m) => m.content).join("\n"));
+    draftModels.push(body.model);
     const over = user.match(/현재 \d+바이트로 (\d+)바이트 초과/), under = user.match(/현재 \d+바이트로 (\d+)바이트 이상 모자란다/);
     if (over) fill -= Math.ceil(Number(over[1]) / 3);
     if (under) fill += Math.ceil(Number(under[1]) / 3);
@@ -288,6 +296,33 @@ test("통합: 독립 채점 — AI 제안은 교사가 그 기준을 저장하�
   assert.deepEqual(Object.keys(sub.ai), ["c12"]);
   assert.equal(sub.ai.c12.quoteOk, true);
   assert.equal(sub.ai.c12.spread, 0);
+});
+
+test("통합 하이브리드: 빠른 모델 2번이 같으면 고성능은 부르지 않고, 갈리거나 인용을 못 찾은 기준만 고성능이 한 번 더 판정한다", async () => {
+  await seed();
+  scoreModels.length = 0; scoreSplit = false;
+  let r = await api.assessAi(as({ action: "score", kind: "group", id: "g1" }));
+  assert.deepEqual([scoreModels.length, scoreModels.every((m) => /luna/.test(m)), r.escalated], [2, true, 0], "일치하면 빠른 모델 2번뿐");
+  let d = store.get(`sessions/${CODE}/assess/g1`).ai;
+  assert.deepEqual([d.c12.n, d.c12.spread, !!d.c12.esc], [2, 0, false]);
+  const used = store.get(`sessions/${CODE}`).assessAiCount;
+  assert.equal(used, 2);
+  // 빠른 모델이 c12 에서 갈리면 그 기준만 고성능이 재판정(다른 기준은 그대로)
+  scoreModels.length = 0; scoreSplit = true;
+  r = await api.assessAi(as({ action: "score", kind: "group", id: "g1" }));
+  assert.equal(scoreModels.length, 3);
+  assert.deepEqual(scoreModels.map((m) => /luna/.test(m)), [true, true, false]);
+  assert.equal(r.escalated, 1);
+  d = store.get(`sessions/${CODE}/assess/g1`).ai;
+  assert.deepEqual([d.c12.esc, d.c12.n, d.c12.levels.length], [true, 3, 3]);
+  assert.equal(d.c12.level, 1, "가운데 값(빠른 0·2, 고성능 1)");
+  assert.equal(!!d.c23.esc, false);
+  // 인용문을 근거에서 못 찾는 경우도 고성능이 다시 판정한다
+  scoreModels.length = 0; scoreSplit = false; aiMode = "bad";
+  r = await api.assessAi(as({ action: "score", kind: "group", id: "g1" }));
+  aiMode = "normal";
+  assert.ok(r.escalated >= 1 && scoreModels.some((m) => !/luna/.test(m)));
+  scoreSplit = false;
 });
 
 test("통합: 둘째 저장부터 AI 제안과 두 수준 이상 다르면 평가 근거 필수, 변경 이력이 남는다", async () => {
@@ -456,7 +491,7 @@ test("통합 세특: 수준 판정(5개 기준·AI 의심·빈약도)을 하고 
 
 test("통합 세특: 기승전결 4부분으로 쓰고, 근거 없는 문장은 빼며, NEIS 바이트 목표 범위에 들 때까지 보정한다", async () => {
   await seed({ seteukMax: 600 });
-  levelMode = "normal"; fill = 150; withBad = true; draftMsgs.length = 0; // 처음엔 크게 초과하게 쓴다
+  levelMode = "normal"; fill = 150; withBad = true; draftMsgs.length = 0; draftModels.length = 0; // 처음엔 크게 초과하게 쓴다
   await prep();
   const r = await gen({ emphasis: "growth" });
   assert.deepEqual(r.parts.map((x) => x.part), ["기", "승", "전", "결"]);
@@ -466,6 +501,10 @@ test("통합 세특: 기승전결 4부분으로 쓰고, 근거 없는 문장은 
   assert.ok(r.bytes >= 570 && r.bytes <= 600, `목표 범위: ${r.bytes}`);
   assert.equal(r.reason, "범위 내");
   assert.ok(r.tries >= 2 && r.log[0].bytes > 600, "첫 초안은 초과였고 압축 보정을 거쳤다");
+  // 하이브리드: 첫 초안은 고성능, 분량만 맞추는 압축 보정은 빠른 모델
+  assert.deepEqual(draftModels.map((m) => (/terra/.test(m) ? "strong" : /luna/.test(m) ? "fast" : m)), ["strong", "fast"]);
+  assert.deepEqual(r.models, { strong: 1, fast: 1 });
+  assert.deepEqual(store.get(`sessions/${CODE}/assess/s_${K1}`).seteuk.gen.models, { strong: 1, fast: 1 });
   assert.equal(A.byteLen(r.text), r.bytes);
   // 앞 부분을 받는 말로 이어지고(승·전·결의 첫 문장), 문체 린트에 걸리지 않는다
   assert.deepEqual(r.warnings, []);

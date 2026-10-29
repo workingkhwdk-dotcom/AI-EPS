@@ -213,6 +213,9 @@ function combineRuns(runs, items) {
   return out;
 }
 
+// 빠른 모델 두 번의 결과가 갈렸거나(spread), 인용문이 근거에 없거나, 합쳐지지 못한 기준은 고성능 모델이 한 번 더 판정한다.
+const needsEscalation = (r) => !r || r.spread > 0 || (r.level !== -1 && !r.quoteOk);
+
 // ---------- 신뢰도 통계 ----------
 const rankOf = (level, n) => (level === -1 ? n : level);
 
@@ -276,7 +279,7 @@ function reliabilityReport(rubric, docs) {
     if (overall.kappa !== null && overall.kappa < T.kappa) warns.push(`가중 카파 ${overall.kappa}가 기준(${T.kappa})보다 낮습니다. 척도 해석이 평정마다 다를 수 있습니다.`);
     if (Math.abs(overall.bias) >= T.bias) warns.push(`교사 점수가 AI보다 평균 ${Math.abs(overall.bias)}수준 ${overall.bias > 0 ? "후한" : "엄격한"} 편입니다.`);
   }
-  if (self.n >= T.minPairs && self.same < T.selfConsistency) warns.push(`AI의 3회 채점이 같은 수준으로 나온 비율이 ${self.same}%로 낮습니다. AI 제안은 참고만 하세요.`);
+  if (self.n >= T.minPairs && self.same < T.selfConsistency) warns.push(`AI의 반복 채점이 같은 수준으로 나온 비율이 ${self.same}%로 낮습니다. AI 제안은 참고만 하세요.`);
   if (recheck.n >= 5 && recheck.exact < T.recheckExact) warns.push(`재채점 일치율이 ${recheck.exact}%입니다. 척도 기준을 다시 읽고 채점 기준을 맞춰 보세요.`);
   return { overall, byCriterion, recheck, self, distribution: stat, warnings: warns, thresholds: T };
 }
@@ -311,7 +314,7 @@ const isRefLabel = (label) => REF_LABELS.test(label);
 
 module.exports = {
   clip, listOf, evidenceFor, evidenceEmpty, evidenceText,
-  scorerMessages, parseScorer, combineRuns, normQuote,
+  scorerMessages, parseScorer, combineRuns, normQuote, needsEscalation,
   weightedKappa, agreementStats, reliabilityReport, inRecheckSample, THRESHOLDS,
   checkScoreInput, NOTE_MIN, rankOf,
   byteLen, SETEUK_MAX, checkSeteuk, isRefLabel,
