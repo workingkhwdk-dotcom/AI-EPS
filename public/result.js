@@ -8,29 +8,34 @@ const seenKey = (code) => `eps_res_${code}`;
 export const seenAt = (code) => { try { return Number(localStorage.getItem(seenKey(code))) || 0; } catch { return 0; } };
 export const markSeen = (code, t) => { try { localStorage.setItem(seenKey(code), String(t || Date.now())); } catch {} };
 
-// 이의 신청: 확정된 항목마다 한 번. 선생님 화면의 ② 확인으로 가고, 처리되면 답이 여기에 보인다.
-function appealHtml(it) {
+// 이의 신청: 확정된 항목마다 한 번, 마감 전까지. 선생님 화면의 ② 확인으로 가고, 처리되면 답이 여기에 보인다.
+// r.preview 는 선생님의 미리보기라 단추를 누를 수 없게 글로만 보여 준다.
+const fmtUntil = (t) => new Date(t).toLocaleString("ko-KR", { month: "long", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" });
+function appealHtml(it, r) {
   if (!it.scored) return "";
-  const ap = it.appeal;
-  if (!ap) return `<div class="res-ap"><button class="link" type="button" data-appeal="${esc(it.id)}">이 점수에 이의가 있어요</button></div>`;
+  const ap = it.appeal, closed = r.appealUntil && Date.now() > r.appealUntil;
+  if (!ap) return closed ? "" : r.preview ? `<div class="res-ap meta-line">(학생 화면에는 '이 점수에 이의가 있어요' 단추가 있어요)</div>` : `<div class="res-ap"><button class="link" type="button" data-appeal="${esc(it.id)}">이 점수에 이의가 있어요</button></div>`;
   return `<div class="res-ap"><span class="tag ${ap.status === "open" ? "y" : ""}">이의 신청 ${ap.status === "open" ? "· 선생님이 확인하는 중" : "· 처리됨"}</span> <span class="meta-line">“${esc(ap.text)}”</span>${ap.reply ? `<div class="res-note">선생님 답: ${esc(ap.reply)}</div>` : ""}</div>`;
 }
-function scoreHtml(sc) {
+const areaOf = (it) => (it.scope === "student" ? (it.area === "group" ? "모둠 활동 속 내 기여" : "내 활동") : "우리 모둠 활동");
+function scoreHtml(sc, r) {
   const rows = [];
   let last = "";
   for (const it of sc.items) {
     if (it.element !== last) { rows.push(`<h4 style="margin:14px 0 2px;color:var(--ink-2)">${esc(it.element)}</h4>`); last = it.element; }
     rows.push(`<div class="res-item"><div class="rh"><b>${esc(it.name)}</b><span>${it.scored ? `<b>${it.pts}</b> / ${it.max}점` : `<span class="tag x">채점 전</span>`}</span></div>
-      <div class="meta-line">${it.scope === "student" ? "내 활동" : "우리 모둠 활동"}${it.scored ? ` · <span class="tag ${it.level === "미제출" ? "r" : "b"}">${esc(it.level)}</span>` : ""}</div>
-      ${it.desc ? `<div class="meta-line">${esc(it.desc)}</div>` : ""}${it.note ? `<div class="res-note">${esc(it.note)}</div>` : ""}${appealHtml(it)}</div>`);
+      <div class="meta-line">${areaOf(it)}${it.scored ? ` · <span class="tag ${it.level === "미제출" ? "r" : "b"}">${esc(it.level)}</span>` : ""}</div>
+      ${it.desc ? `<div class="meta-line">${esc(it.desc)}</div>` : ""}${it.note ? `<div class="res-note">${esc(it.note)}</div>` : ""}${appealHtml(it, r)}</div>`);
   }
+  const until = r.appealUntil ? `<div class="meta-line" style="margin-top:4px">${Date.now() > r.appealUntil ? "이의 신청 기간이 끝났어요." : `점수에 이의가 있으면 ${esc(fmtUntil(r.appealUntil))}까지 항목마다 한 번 신청할 수 있어요.`}</div>` : "";
   return `<div class="res-total">${sc.total}<small> / ${sc.max}점</small></div>
-    <div class="meta-line">내 활동 ${sc.indiv} / ${sc.indivMax}점 + 우리 모둠 활동 ${sc.group} / ${sc.groupMax}점${sc.complete ? "" : ` · 아직 ${sc.count - sc.done}칸은 채점 전이에요`}</div>${rows.join("")}`;
+    <div class="meta-line">내 활동 ${sc.indiv} / ${sc.indivMax}점 + 우리 모둠 활동 ${sc.group} / ${sc.groupMax}점${sc.items.some((it) => it.area === "group" && it.scope === "student") ? "(모둠 활동 속 내 기여 포함)" : ""}${sc.complete ? "" : ` · 아직 ${sc.count - sc.done}칸은 채점 전이에요`}</div>${until}${rows.join("")}`;
 }
 
 export function resultHtml(r) {
   const parts = [];
-  if (r.released.score && r.score) parts.push(`<h3 style="margin-top:6px">내 점수</h3>${scoreHtml(r.score)}`);
+  if (r.excluded && r.released.score) parts.push(`<h3 style="margin-top:6px">내 점수</h3><div class="notice muted">이번 수행평가에서는 '${esc(r.excluded.label)}'(으)로 평가에서 빠졌어요. 대체 평가나 점수는 선생님께 여쭤보세요.</div>`);
+  if (r.released.score && r.score) parts.push(`<h3 style="margin-top:6px">내 점수</h3>${scoreHtml(r.score, r)}`);
   if (r.released.seteuk) parts.push(`<h3 style="margin-top:16px">내 세특</h3>${r.seteuk?.text ? `<div class="res-seteuk">${esc(r.seteuk.text)}</div>` : `<div class="meta-line">아직 선생님이 쓰는 중이에요.</div>`}`);
   return parts.join("") || `<p>선생님이 아직 공개하지 않았어요. 공개하면 여기서 볼 수 있어요.</p>`;
 }

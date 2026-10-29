@@ -37,6 +37,8 @@ service cloud.firestore {
     match /topicUsage/{uid} { allow read, write: if false; }
     // 수행평가 교정 결과(교사별, 같은 척도표·사건이면 다른 수업에서 재사용): 서버(assess 함수)만 읽고 쓴다
     match /teacherAssess/{uid}/{doc=**} { allow read, write: if false; }
+    // 평가 작업(AI로 전체 채점·세특 초안 모두 만들기)의 할 일 목록: 서버 함수만 읽고 쓴다
+    match /assessJobs/{code} { allow read, write: if false; }
 
     match /sessions/{code} {
       // 교사는 자기 수업 목록 조회(쿼리)도 가능해야 하므로 resource 기준으로 판정

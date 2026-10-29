@@ -304,6 +304,7 @@ exports.createSession = onCall(opts, async (req) => {
     started: false, // 교사가 '수업 시작'을 누르기 전까지는 대기실. 이 값이 없는 예전 수업은 시작된 것으로 본다.
     aiLimit: MAX_AI_CALLS_PER_GROUP, chatLimit: CHAT_LIMIT, webSearch: true, coach: true, autoCloseHours: 0,
     level, deep: defaultDeep(level), // 심화 활동을 따로 보내지 않으면 학교급의 기본값
+    contrib: true, // 수행평가에 모둠 기여도(학생마다 다른 모둠 영역 점수)를 넣는다. 평가 탭 '채점 방식'에서 끌 수 있다
     ...settings,
     createdAt: FieldValue().serverTimestamp(),
   });
@@ -764,7 +765,7 @@ exports.cloneSession = onCall(opts, async (req) => {
   batch.set(db.doc(`sessions/${newCodeStr}`), {
     teacherUid: auth.uid, title, eventId: sess.eventId, ...(sess.topicId ? { topicId: sess.topicId } : {}), groupCount: sess.groupCount, closed: false, started: false,
     aiLimit: sess.aiLimit || MAX_AI_CALLS_PER_GROUP, chatLimit: sess.chatLimit || CHAT_LIMIT, webSearch: sess.webSearch !== false, coach: sess.coach !== false, autoCloseHours: sess.autoCloseHours || 0,
-    ...(sess.level ? { level: sess.level } : {}), ...(sess.deep ? { deep: deepOf(sess) } : {}),
+    ...(sess.level ? { level: sess.level } : {}), ...(sess.deep ? { deep: deepOf(sess) } : {}), contrib: sess.contrib !== false,
     createdAt: FieldValue().serverTimestamp(),
   });
   for (let i = 1; i <= sess.groupCount; i++) batch.set(db.doc(`sessions/${newCodeStr}/groups/g${i}`), { name: `${i}모둠`, aiCount: 0, memberCount: 0, guardCount: 0, work: {} });
@@ -785,6 +786,7 @@ exports.cloneSession = onCall(opts, async (req) => {
 exports.deleteSession = onCall(opts, async (req) => {
   const { code } = await ownSession(req);
   await db.recursiveDelete(db.doc(`sessions/${code}`));
+  await jobRef(code).delete().catch(() => {});
   return { ok: true };
 });
 
@@ -1230,7 +1232,22 @@ const assessRef = (code, key) => db.doc(`sessions/${code}/assess/${key}`);
 const subjKey = (kind, id) => (kind === "group" ? id : `s_${id}`);
 const studentKeyOf = (m) => m.credKey || credKey(parseInt(String(m.groupId).slice(1), 10), m.nickname);
 const blindCode = (key) => `S-${crypto.createHash("sha1").update(String(key)).digest("hex").slice(0, 4).toUpperCase()}`;
-const rubricOfSession = (sess) => rubricFor(levelOf(sess), deepOf(sess));
+// 모둠 기여도(c63)는 이 값이 true 인 수업에만 있다. 새 수업은 켜고(createSession), 이 값이 없는 예전 수업은 꺼진 채로 둔다(이미 매긴 점수가 그대로 맞게).
+const contribOf = (sess) => sess.contrib === true;
+const rubricOfSession = (sess) => rubricFor(levelOf(sess), deepOf(sess), { contrib: contribOf(sess) });
+// 척도표의 배점이 바뀌면(모둠 기여도를 켜고 끌 때 c12·c23 이 10점↔5점) 이미 매긴 점수의 점수(pts)를 수준(level)에 맞춰 다시 계산한다
+async function rescaleScores(code, rubric) {
+  for (const d of (await db.collection(`sessions/${code}/assess`).get()).docs) {
+    const patch = {};
+    for (const [cid, sc] of Object.entries(d.data().scores || {})) {
+      const c = rubric.criteria.find((x) => x.id === cid);
+      if (!c || !Number.isInteger(sc?.level)) continue;
+      const pts = sc.level === -1 ? 0 : c.levels[sc.level]?.pts;
+      if (pts !== undefined && pts !== sc.pts) patch[`scores.${cid}.pts`] = pts;
+    }
+    if (Object.keys(patch).length) await assessRef(code, d.id).update(patch);
+  }
+}
 
 async function patchAssess(ref, patch) {
   if (!(await ref.get()).exists) await ref.set({});
@@ -1352,7 +1369,44 @@ function gateCell(ctx, doc, c) {
 const countExceptions = (ctx, rubric, doc, kind, key) => (!ctx.auto.on || ctx.sample.has(key) ? 0
   : rubric.criteria.filter((c) => c.scope === scopeOf(kind) && c.ai && doc?.ai?.[c.id] && !doc?.scores?.[c.id] && !gateCell(ctx, doc, c).pass).length);
 const appealsOf = (doc) => Object.entries(doc?.appeals || {}).filter(([, a]) => a.status === "open");
+// 평가에서 뺀 학생(결석·전학 등): 진행률·확인할 것·AI 작업·학생 결과에서 빠진다. 이미 매긴 점수는 지우지 않는다(다시 넣으면 그대로).
+const EXCLUDE_REASONS = { absent: "결석", transfer: "전학", other: "기타" };
+const excludedOf = (doc) => (doc?.excluded && EXCLUDE_REASONS[doc.excluded.reason] ? doc.excluded : null);
 function releaseOf(sess) { return { score: sess.release?.score === true, seteuk: sess.release?.seteuk === true }; }
+
+// AI 제안을 점수로 적용한다(교사가 아직 채점하지 않은 칸만). 적용한 점수는 '검토 전'이고, 교사가 저장·확인하면 검토 완료가 된다.
+// 화면의 'AI 점수 모두 적용'과 서버 작업(AI 채점)의 마무리가 함께 쓴다. 평가에서 뺀 학생은 건너뛴다.
+async function applyAiFor(code, sess, uid, targets, members) {
+  const rubric = rubricOfSession(sess);
+  const ctx = await autoContext(code, sess, uid, rubric);
+  let applied = 0, skipped = 0, subjects = 0, exceptions = 0;
+  for (const t of targets) {
+    const key = subjKey(t.kind, t.id);
+    if (ctx.sample.has(key)) continue; // 교정 표본은 교사가 AI를 가린 채 직접 채점한다
+    const doc = ctx.docs[key] || {};
+    if (excludedOf(doc)) continue;
+    const cands = Object.entries(doc.ai || {}).filter(([cid]) => !doc.scores?.[cid]);
+    if (!cands.length) continue;
+    const { empty } = await loadEvidence(code, sess, t.kind, t.id, members);
+    const patch = {};
+    for (const [cid, a] of cands) {
+      const c = rubric.criteria.find((x) => x.id === cid && x.scope === scopeOf(t.kind));
+      if (!c || !Number.isInteger(a.level)) continue;
+      // 예외만 검토: AI가 통과시킨 칸만 '확정 후보'로 적용하고, 어려운 칸은 점수를 정하지 않고 예외 큐로 보낸다
+      if (ctx.auto.on && !gateCell(ctx, doc, c).pass) { exceptions++; continue; }
+      const note = A.clip(`AI 제안: ${a.reason || "수준 설명에 비추어 판단"}`, 500);
+      if (A.checkScoreInput({ c, level: a.level, note, evidenceIsEmpty: empty[cid] })) { skipped++; continue; }
+      patch[`scores.${cid}`] = { level: a.level, pts: a.level === -1 ? 0 : c.levels[a.level].pts, note, t: Date.now(), by: "ai", src: "ai", reviewed: false, ...(ctx.auto.on ? { auto: true } : {}) };
+      applied++;
+    }
+    if (Object.keys(patch).length) { subjects++; await patchAssess(assessRef(code, key), { ...patch, kind: t.kind, name: t.kind === "group" ? `${t.id.slice(1)}모둠` : members.find((m) => m.key === t.id)?.nick || "" }); }
+  }
+  return { applied, skipped, subjects, exceptions };
+}
+async function applyAiAll(code, sess, uid, members) {
+  members = members || (await membersOf(code));
+  return applyAiFor(code, sess, uid, [...Array.from({ length: sess.groupCount }, (_, i) => ({ kind: "group", id: `g${i + 1}` })), ...members.map((m) => ({ kind: "student", id: m.key }))], members);
+}
 
 exports.assess = onCall(opts, async (req) => {
   const { auth, code, sess } = await ownSession(req);
@@ -1368,16 +1422,22 @@ exports.assess = onCall(opts, async (req) => {
     const cntUnrev = (doc) => Object.values(doc?.scores || {}).filter((x) => x.src === "ai" && x.reviewed === false).length;
     const nG = rubric.criteria.filter((c) => c.scope === "group").length, nS = rubric.criteria.filter((c) => c.scope === "student").length;
     const groups = Array.from({ length: sess.groupCount }, (_, i) => `g${i + 1}`).map((id) => ({ id, name: `${id.slice(1)}모둠`, members: members.filter((m) => m.groupId === id).length, scored: cnt(docs[id], "group"), total: nG, ai: cntAi(docs[id], "group"), unreviewed: cntUnrev(docs[id]), exc: countExceptions(ctx, rubric, docs[id], "group", id), calibSample: ctx.sample.has(id) }));
-    const students = members.map((m) => ({ key: m.key, nick: m.nick, code: blindCode(m.key), groupId: m.groupId, scored: cnt(docs[`s_${m.key}`], "student"), total: nS, ai: cntAi(docs[`s_${m.key}`], "student"), unreviewed: cntUnrev(docs[`s_${m.key}`]), exc: countExceptions(ctx, rubric, docs[`s_${m.key}`], "student", `s_${m.key}`), calibSample: ctx.sample.has(`s_${m.key}`), appeals: appealsOf(docs[`s_${m.key}`]).length, hasSeteuk: !!docs[`s_${m.key}`]?.seteuk?.text }))
-      .sort((a, b) => a.groupId.localeCompare(b.groupId, "en", { numeric: true }) || a.code.localeCompare(b.code));
-    const done = groups.reduce((s, g) => s + g.scored, 0) + students.reduce((s, x) => s + x.scored, 0);
-    const total = groups.reduce((s, g) => s + g.total, 0) + students.reduce((s, x) => s + x.total, 0);
-    const unreviewed = Object.values(docs).reduce((n, d) => n + cntUnrev(d), 0);
-    const queue = { exceptions: groups.reduce((n, g) => n + g.exc, 0) + students.reduce((n, x) => n + x.exc, 0), appeals: students.reduce((n, x) => n + x.appeals, 0),
-      observation: students.filter((x) => !docs[`s_${x.key}`]?.scores?.c62).length };
-    const reviewCount = Object.values(docs).reduce((n, d) => n + Object.keys(reviewFlags(rubric, d)).length, 0);
+    const students = members.map((m) => {
+      const doc = docs[`s_${m.key}`], ex = excludedOf(doc);
+      return { key: m.key, nick: m.nick, code: blindCode(m.key), groupId: m.groupId, scored: cnt(doc, "student"), total: nS, ai: cntAi(doc, "student"), unreviewed: ex ? 0 : cntUnrev(doc), exc: ex ? 0 : countExceptions(ctx, rubric, doc, "student", `s_${m.key}`), calibSample: ctx.sample.has(`s_${m.key}`), appeals: ex ? 0 : appealsOf(doc).length,
+        hasSeteuk: !!doc?.seteuk?.text, hasDraft: !!doc?.seteuk?.draft?.text, excluded: ex ? { reason: ex.reason, label: EXCLUDE_REASONS[ex.reason], note: ex.note || "" } : null };
+    }).sort((a, b) => a.groupId.localeCompare(b.groupId, "en", { numeric: true }) || a.code.localeCompare(b.code));
+    // 진행률·확인할 것은 평가에서 뺀 학생과 학생이 없는 모둠을 세지 않는다
+    const liveG = groups.filter((g) => g.members > 0), liveS = students.filter((x) => !x.excluded);
+    const done = liveG.reduce((s, g) => s + g.scored, 0) + liveS.reduce((s, x) => s + x.scored, 0);
+    const total = liveG.reduce((s, g) => s + g.total, 0) + liveS.reduce((s, x) => s + x.total, 0);
+    const unreviewed = liveG.reduce((n, g) => n + g.unreviewed, 0) + liveS.reduce((n, x) => n + x.unreviewed, 0);
+    const queue = { exceptions: liveG.reduce((n, g) => n + g.exc, 0) + liveS.reduce((n, x) => n + x.exc, 0), appeals: liveS.reduce((n, x) => n + x.appeals, 0),
+      observation: liveS.filter((x) => !docs[`s_${x.key}`]?.scores?.c62).length };
+    const reviewCount = [...liveG.map((g) => docs[g.id]), ...liveS.map((x) => docs[`s_${x.key}`])].reduce((n, d) => n + (d ? Object.keys(reviewFlags(rubric, d)).length : 0), 0);
     return {
       rubric, groups, students, progress: { done, total, reviewCount, unreviewed }, mode: modeOf(sess), auto: ctx.auto, autoPaused: ctx.paused, audit: ctx.audit, queue,
+      contrib: contribOf(sess), appealUntil: sess.appealUntil || null, job: jobView((await jobRef(code).get()).data()),
       calib: ctx.calib ? { key: ctx.calib.key, state: ctx.calib.state, reused: ctx.calib.reused, from: ctx.calib.from || null, t: ctx.calib.t || null, passed: ctx.calib.report?.passed ?? null, total: ctx.calib.report?.total ?? null, overall: ctx.calib.report?.overall || null, perCriterion: ctx.calib.report?.perCriterion || null, sampleSize: ctx.calib.sample.length } : null, aiTotal: { group: rubric.criteria.filter((c) => c.scope === "group" && c.ai).length, student: rubric.criteria.filter((c) => c.scope === "student" && c.ai).length }, release: releaseOf(sess), seteukMax: sess.seteukMax || A.SETEUK_MAX.def, seteukRange: [A.SETEUK_MAX.min, A.SETEUK_MAX.max],
       aiUsed: sess.assessAiCount || 0, aiCap: ASSESS_AI_CAP, aiRuns: ASSESS_RUNS, thresholds: A.THRESHOLDS,
     };
@@ -1392,8 +1452,88 @@ exports.assess = onCall(opts, async (req) => {
     const aiFirst = modeOf(sess) === "ai_first" && !cs; // 교정 표본은 AI를 가린 채 채점한다
     return {
       kind, id, mode: aiFirst ? "ai_first" : "independent", calibSample: cs, evidence, empty, scores: doc.scores || {}, ai: aiFirst ? doc.ai || {} : aiRevealed(doc), hasAi: Object.fromEntries(Object.keys(doc.ai || {}).map((c) => [c, true])),
-      review: reviewFlags(rubric, doc), seteuk: kind === "student" ? { text: doc.seteuk?.text || "", t: doc.seteuk?.t || 0 } : null,
+      review: reviewFlags(rubric, doc), seteuk: kind === "student" ? { text: doc.seteuk?.text || "", t: doc.seteuk?.t || 0, draft: doc.seteuk?.draft || null } : null,
+      excluded: kind === "student" && excludedOf(doc) ? { ...excludedOf(doc), label: EXCLUDE_REASONS[doc.excluded.reason] } : null,
     };
+  }
+
+  // 평가에서 빼기(결석·전학·기타)와 되돌리기. 매긴 점수는 지우지 않는다.
+  if (action === "exclude") {
+    const members = await membersOf(code);
+    const m = members.find((x) => x.key === String(req.data?.id));
+    if (!m) throw new HttpsError("not-found", "학생을 찾을 수 없습니다.");
+    const reason = req.data?.reason;
+    if (reason === null || reason === "") { await patchAssess(assessRef(code, `s_${m.key}`), { excluded: FieldValue().delete() }); return { excluded: null }; }
+    if (!EXCLUDE_REASONS[reason]) throw new HttpsError("invalid-argument", "평가에서 빼는 까닭을 고르세요.");
+    const ex = { reason, note: A.clip(req.data?.note, 200), t: Date.now(), by: auth.uid };
+    await patchAssess(assessRef(code, `s_${m.key}`), { excluded: ex, kind: "student", name: m.nick });
+    return { excluded: { ...ex, label: EXCLUDE_REASONS[reason] } };
+  }
+
+  // 오래 걸리는 작업(AI로 전체 채점·세특 초안 모두 만들기)을 서버에 맡긴다. 처리는 jobStep(화면)과 assessWorker(1분마다)가 한다.
+  if (action === "jobStart") {
+    const type = req.data?.type === "seteuk" ? "seteuk" : "score";
+    const cur = (await jobRef(code).get()).data();
+    if (cur?.status === "running") throw new HttpsError("failed-precondition", "이미 하고 있는 작업이 있어요. 끝나거나 멈춘 뒤에 다시 시작하세요.");
+    // 멈춘 작업의 마지막 대상을 아직 처리하는 중이면 기다린다(그 결과가 새 작업 목록에 섞이지 않게)
+    if (cur?.items?.some((x) => x.st === "doing" && x.lease > Date.now())) throw new HttpsError("failed-precondition", "앞 작업을 마무리하는 중이에요. 1~2분 뒤에 다시 시작하세요.");
+    const members = await membersOf(code);
+    const docs = Object.fromEntries((await db.collection(`sessions/${code}/assess`).get()).docs.map((d) => [d.id, d.data()]));
+    const live = members.filter((m) => !excludedOf(docs[`s_${m.key}`]));
+    const redo = req.data?.redo === true;
+    let items;
+    if (type === "score") {
+      const need = (t) => rubric.criteria.some((c) => c.scope === scopeOf(t.kind) && c.ai && !docs[subjKey(t.kind, t.id)]?.ai?.[c.id]);
+      const gids = Array.from({ length: sess.groupCount }, (_, i) => `g${i + 1}`).filter((g) => members.some((m) => m.groupId === g));
+      const all = [...gids.map((g) => ({ kind: "group", id: g, name: `${g.slice(1)}모둠` })), ...live.map((m) => ({ kind: "student", id: m.key, name: blindCode(m.key) }))];
+      items = redo ? all : all.filter(need);
+    } else {
+      const noText = live.filter((m) => !docs[`s_${m.key}`]?.seteuk?.text);
+      items = (redo ? noText : noText.filter((m) => !docs[`s_${m.key}`]?.seteuk?.draft?.text)).map((m) => ({ kind: "student", id: m.key, name: `${m.groupId.slice(1)}모둠 ${m.nick}` }));
+    }
+    if (!items.length) throw new HttpsError("failed-precondition", type === "score" ? "AI가 채점할 곳이 없어요." : "초안을 만들 학생이 없어요(세특을 저장했거나 초안이 이미 있어요).");
+    const job = { code, type, status: "running", by: auth.uid, startedAt: Date.now(), finalized: false,
+      params: type === "seteuk" ? { emphasis: SK.EMPHASIS[req.data?.emphasis] ? req.data.emphasis : "balance" } : {}, items: items.map((t) => ({ ...t, st: "todo", lease: 0, tries: 0 })) };
+    await jobRef(code).set(job);
+    return { job: jobView(job) };
+  }
+  if (action === "job") return { job: jobView((await jobRef(code).get()).data()) };
+  if (action === "jobStop") {
+    const j = await db.runTransaction(async (tx) => {
+      const cur = (await tx.get(jobRef(code))).data();
+      if (cur?.status === "running") tx.update(jobRef(code), { status: "stopped", note: "선생님이 멈췄어요" });
+      return cur ? { ...cur, status: cur.status === "running" ? "stopped" : cur.status } : null;
+    });
+    // 처리 중인 대상이 없으면 바로 마무리한다(그동안 AI가 채점한 곳의 점수를 채운다). 있으면 그 대상을 끝낸 쪽이 마무리한다.
+    if (j && !j.finalized && !j.items.some((x) => x.st === "doing")) { const f = await finishJobItem(code, -1, { ok: true }); if (f.finalize) await finalizeJob(code, f.job); }
+    return { job: jobView((await jobRef(code).get()).data()) };
+  }
+
+  // 학생 화면 미리보기: 학생이 '내 결과'에서 보게 될 화면(확정한 점수·평가 근거·세특)을 공개 전에 본다
+  if (action === "preview") {
+    const members = await membersOf(code);
+    const m = members.find((x) => x.key === String(req.data?.id));
+    if (!m) throw new HttpsError("not-found", "학생을 찾을 수 없습니다.");
+    return buildResult(code, sess, { nickname: m.nick, groupId: m.groupId, credKey: m.key }, { preview: true });
+  }
+
+  // NEIS에 옮기기: 학생마다 확정한 점수(항목별·영역별·합계)와 저장한 세특. 화면이 엑셀용 CSV 로 바꾼다.
+  if (action === "export") {
+    const members = await membersOf(code);
+    const docs = Object.fromEntries((await db.collection(`sessions/${code}/assess`).get()).docs.map((d) => [d.id, d.data()]));
+    const rows = [...members].sort((a, b) => a.groupId.localeCompare(b.groupId, "en", { numeric: true }) || a.nick.localeCompare(b.nick, "ko")).map((m) => {
+      const stu = docs[`s_${m.key}`] || {}, grp = docs[m.groupId] || {}, ex = excludedOf(stu);
+      const cells = {}, pending = [], scores = {};
+      for (const c of rubric.criteria) {
+        const sc = (c.scope === "student" ? stu : grp).scores?.[c.id];
+        if (sc && sc.reviewed !== false && Number.isInteger(sc.level)) { cells[c.id] = { pts: sc.pts, level: sc.level === -1 ? "미제출" : c.levels[sc.level]?.label || "" }; scores[c.id] = sc; }
+        else if (sc) pending.push(c.name);
+      }
+      const t = totals(rubric, scores);
+      return { group: `${m.groupId.slice(1)}모둠`, nick: m.nick, excluded: ex ? EXCLUDE_REASONS[ex.reason] : "", excludedNote: ex?.note || "", cells, indiv: t.indiv, groupPts: t.group, total: t.total, complete: t.complete, pending,
+        seteuk: stu.seteuk?.text || "", seteukBytes: stu.seteuk?.text ? SK.neisBytes(stu.seteuk.text) : 0 };
+    });
+    return { title: sess.title, rubric: { criteria: rubric.criteria.map((c) => ({ id: c.id, name: c.name, max: c.max, area: c.area })), indivMax: rubric.indivMax, total: rubric.total }, seteukMax: sess.seteukMax || A.SETEUK_MAX.def, rows };
   }
 
   if (action === "save") {
@@ -1422,35 +1562,10 @@ exports.assess = onCall(opts, async (req) => {
     return { score, ai: (mode === "ai_first" ? merged.ai || {} : aiRevealed(merged))[c.id] || null, mode, review: reviewFlags(rubric, merged)[c.id] || null, evidenceEmpty: empty[c.id], evidence: evidence[c.id] };
   }
 
-  // AI 제안을 점수로 적용한다(교사가 아직 채점하지 않은 칸만). 적용한 점수는 '검토 전'이고, 교사가 저장·확인하면 검토 완료가 된다.
+  // AI 제안을 점수로 적용한다(위의 applyAiFor). all 이면 모든 모둠·학생.
   if (action === "applyAi") {
     const members = await membersOf(code);
-    const ctx = await autoContext(code, sess, auth.uid, rubric);
-    const targets = req.data?.all === true
-      ? [...Array.from({ length: sess.groupCount }, (_, i) => ({ kind: "group", id: `g${i + 1}` })), ...members.map((m) => ({ kind: "student", id: m.key }))]
-      : [subjectArgs(req, sess, members)];
-    let applied = 0, skipped = 0, subjects = 0, exceptions = 0;
-    for (const t of targets) {
-      const key = subjKey(t.kind, t.id);
-      if (ctx.sample.has(key)) continue; // 교정 표본은 교사가 AI를 가린 채 직접 채점한다
-      const doc = ctx.docs[key] || {};
-      const cands = Object.entries(doc.ai || {}).filter(([cid]) => !doc.scores?.[cid]);
-      if (!cands.length) continue;
-      const { empty } = await loadEvidence(code, sess, t.kind, t.id, members);
-      const patch = {};
-      for (const [cid, a] of cands) {
-        const c = rubric.criteria.find((x) => x.id === cid && x.scope === scopeOf(t.kind));
-        if (!c || !Number.isInteger(a.level)) continue;
-        // 예외만 검토: AI가 통과시킨 칸만 '확정 후보'로 적용하고, 어려운 칸은 점수를 정하지 않고 예외 큐로 보낸다
-        if (ctx.auto.on && !gateCell(ctx, doc, c).pass) { exceptions++; continue; }
-        const note = A.clip(`AI 제안: ${a.reason || "수준 설명에 비추어 판단"}`, 500);
-        if (A.checkScoreInput({ c, level: a.level, note, evidenceIsEmpty: empty[cid] })) { skipped++; continue; }
-        patch[`scores.${cid}`] = { level: a.level, pts: a.level === -1 ? 0 : c.levels[a.level].pts, note, t: Date.now(), by: "ai", src: "ai", reviewed: false, ...(ctx.auto.on ? { auto: true } : {}) };
-        applied++;
-      }
-      if (Object.keys(patch).length) { subjects++; await patchAssess(assessRef(code, key), { ...patch, kind: t.kind, name: t.kind === "group" ? `${t.id.slice(1)}모둠` : members.find((m) => m.key === t.id)?.nick || "" }); }
-    }
-    return { applied, skipped, subjects, exceptions };
+    return req.data?.all === true ? applyAiAll(code, sess, auth.uid, members) : applyAiFor(code, sess, auth.uid, [subjectArgs(req, sess, members)], members);
   }
 
   // 교사가 '일괄 확정'을 눌러야 AI가 통과시킨 점수(검토 전)가 확정된다. 확정 전 점수는 학생에게 공개돼도 보이지 않는다.
@@ -1476,7 +1591,7 @@ exports.assess = onCall(opts, async (req) => {
     let applied = 0, skipped = 0;
     for (const m of members) {
       const key = `s_${m.key}`, doc = (await assessRef(code, key).get()).data() || {};
-      if (doc.scores?.[c.id]) continue;
+      if (doc.scores?.[c.id] || excludedOf(doc)) continue;
       const { evidence } = await loadEvidence(code, sess, "student", m.key, members);
       const n = Number((evidence[c.id]?.[0]?.text || "").match(/쓴 항목 (\d+)건/)?.[1] || 0);
       if (n === 0) { skipped++; continue; }
@@ -1494,7 +1609,7 @@ exports.assess = onCall(opts, async (req) => {
     const nickOf = (key) => members.find((m) => m.key === key);
     for (const [docId, doc] of Object.entries(ctx.docs)) {
       const kind = docId.startsWith("s_") ? "student" : "group", id = kind === "student" ? docId.slice(2) : docId;
-      if (kind === "student" && !nickOf(id)) continue;
+      if (kind === "student" && (!nickOf(id) || excludedOf(doc))) continue;
       if (ctx.sample.has(docId)) continue;
       if (kind === "student") for (const [cid, a] of appealsOf(doc)) {
         const c = rubric.criteria.find((x) => x.id === cid); if (!c) continue;
@@ -1605,6 +1720,20 @@ exports.assess = onCall(opts, async (req) => {
     return { release: { ...releaseOf(sess), ...(patch["release.score"] !== undefined ? { score: patch["release.score"] } : {}), ...(patch["release.seteuk"] !== undefined ? { seteuk: patch["release.seteuk"] } : {}) } };
   }
 
+  // 이의 신청 마감(밀리초, null 이면 마감 없음). 지나면 학생이 이의를 보낼 수 없다.
+  if (action === "config" && req.data?.appealUntil !== undefined) {
+    const v = req.data.appealUntil === null ? null : Number(req.data.appealUntil);
+    if (v !== null && !(Number.isFinite(v) && v > 0)) throw new HttpsError("invalid-argument", "마감 날짜가 올바르지 않습니다.");
+    await db.doc(`sessions/${code}`).update({ appealUntil: v });
+    return { appealUntil: v };
+  }
+  // 모둠 기여도 켜고 끄기: 척도표가 바뀌므로 이미 매긴 점수를 새 배점으로 다시 계산한다(수준은 그대로)
+  if (action === "config" && req.data?.contrib !== undefined) {
+    const on = req.data.contrib === true;
+    await db.doc(`sessions/${code}`).update({ contrib: on });
+    await rescaleScores(code, rubricOfSession({ ...sess, contrib: on }));
+    return { contrib: on };
+  }
   if (action === "config" && req.data?.assessMode !== undefined) {
     if (!["ai_first", "independent"].includes(req.data.assessMode)) throw new HttpsError("invalid-argument", "채점 방식이 올바르지 않습니다.");
     await db.doc(`sessions/${code}`).update({ assessMode: req.data.assessMode });
@@ -1655,155 +1784,267 @@ async function seteukScoreLines(code, sess, id, stu) {
   return out;
 }
 
+// ---------- AI 채점·세특 초안: 화면의 단추와 서버 작업(assessWorker)이 같은 함수를 쓴다 ----------
+const aiCtx = (code) => ({
+  apiKey: OPENAI_API_KEY.value(), effort: REASONING_EFFORT.value(),
+  bump: (n) => db.doc(`sessions/${code}`).update({ assessAiCount: FieldValue().increment(n) }).catch(() => {}),
+});
+const usedOf = async (code) => ((await db.doc(`sessions/${code}`).get()).data() || {}).assessAiCount || 0;
+const capError = () => new HttpsError("resource-exhausted", `이 수업의 평가용 AI 호출 한도(${ASSESS_AI_CAP}회)에 가까워 더 받을 수 없어요.`);
+
+// 모둠 또는 학생 한 곳을 AI가 채점한다(빠른 모델 3번 + 갈리면 고성능 재판정). 결과는 assess 문서의 ai.<기준> 에 저장한다.
+async function aiScoreSubject({ code, sess, members, kind, id }) {
+  const key = subjKey(kind, id);
+  const { apiKey, effort, bump } = aiCtx(code);
+  const { rubric, evidence, empty } = await loadEvidence(code, sess, kind, id, members);
+  const crits = rubric.criteria.filter((c) => c.scope === (kind === "student" ? "student" : "group") && c.ai);
+  const items = crits.filter((c) => !empty[c.id]).map((c) => ({ c, evidence: evidence[c.id] }));
+  const patch = {};
+  for (const c of crits.filter((x) => empty[x.id])) patch[`ai.${c.id}`] = { level: -1, levels: [-1], spread: 0, quote: "", quoteOk: true, reason: "학생이 쓴 근거가 비어 있음", n: 0, auto: true, tri: { pass: true, reasons: [] }, flags: [], t: Date.now() };
+  let ok = 0, failed = 0, escalatedCount = 0;
+  if (items.length) {
+    if ((await usedOf(code)) + ASSESS_RUNS + 1 > ASSESS_AI_CAP) throw capError();
+    await bump(ASSESS_RUNS);
+    const messages = A.scorerMessages({ rubric, items, scope: scopeOf(kind) });
+    const one = async () => A.parseScorer(extractJson(await callModel({ apiKey, model: ASSESS_FAST_MODEL.value(), messages, json: true, maxTokens: 1800, efforts: [effort === "minimal" ? "low" : effort, "low"] })), items);
+    const settle = (rs) => rs.map((r) => (r.status === "fulfilled" ? r.value : (failed++, console.error("AI 채점 실패:", r.reason?.message), null))).filter(Boolean);
+    // 같은 프롬프트라 첫 호출이 끝나 캐시가 만들어진 뒤에 나머지를 보내면 입력 요금이 줄어든다(OpenAI 자동 프롬프트 캐시)
+    const runs = settle(await Promise.allSettled([one()]));
+    runs.push(...settle(await Promise.allSettled(Array.from({ length: ASSESS_RUNS - 1 }, one))));
+    let combined = A.combineRuns(runs, items);
+    // 갈리거나 인용을 못 찾은 기준(또는 빠른 모델이 답하지 못한 기준)만 고성능 모델이 한 번 더 판정한다
+    const autoOn = autoOf(sess).on;
+    const extreme = (r, c) => !!r && r.level !== -1 && (r.level === 0 || r.level === c.levels.length - 1);
+    // 예외만 검토에서는 가장 높은·낮은 수준도 고성능 모델이 한 번 더 확인해 같을 때만 통과시킨다
+    const hard = items.filter(({ c }) => A.needsEscalation(combined[c.id]) || (autoOn && extreme(combined[c.id], c)));
+    if (hard.length) {
+      await bump(1);
+      const [h] = await Promise.allSettled([(async () => A.parseScorer(extractJson(await callModel({ apiKey, model: ASSESS_MODEL.value(), messages: A.scorerMessages({ rubric, items: hard, scope: scopeOf(kind) }), json: true, maxTokens: 1800, efforts: [effort === "minimal" ? "low" : effort, "low"] })), hard))()]);
+      if (h.status === "rejected") { failed++; console.error("AI 재판정 실패:", h.reason?.message); }
+      combined = A.applyAdjudication(combined, h.status === "fulfilled" ? h.value : null, hard);
+      escalatedCount = hard.length;
+    }
+    const hardIds = new Set(hard.map(({ c }) => c.id));
+    for (const [cid, v] of Object.entries(combined)) {
+      const c = rubric.criteria.find((x) => x.id === cid);
+      const rec = { ...v, esc: hardIds.has(cid), t: Date.now() };
+      const flags = AP.evidenceFlags(evidence[cid], { isRef: A.isRefLabel });
+      patch[`ai.${cid}`] = { ...rec, flags, tri: AP.triage({ c, ai: rec, flags }), meta: { rv: RUBRIC_VERSION, fast: ASSESS_FAST_MODEL.value(), ...(hardIds.has(cid) ? { strong: ASSESS_MODEL.value() } : {}) } };
+      ok++;
+    }
+    if (!ok) throw new HttpsError("unavailable", "AI 응답을 받지 못했어요. 잠시 뒤에 다시 시도하세요.");
+  }
+  if (Object.keys(patch).length) await patchAssess(assessRef(code, key), patch);
+  return { ok, auto: crits.length - items.length, failedRuns: failed, escalated: escalatedCount };
+}
+
+// 세특 ①② 근거 확인과 수준 판정(경량 모델). 결과는 교사에게 보여 주고, 빈약하면 하향·유지·취소를 고르게 한다.
+async function seteukItems(code, sess, members, id) {
+  const stu = members.find((m) => m.key === id);
+  if (!stu) throw new HttpsError("not-found", "학생을 찾을 수 없습니다.");
+  const items = await seteukEvidence(code, sess, id, stu, members);
+  if (!items.length) throw new HttpsError("failed-precondition", "아직 학생이 쓴 활동 기록이 없어 세특을 만들 수 없어요. (주제만 보고 쓰지 않아요)");
+  return { stu, items };
+}
+async function seteukPrepFor({ code, sess, members, id }) {
+  const { apiKey, effort, bump } = aiCtx(code);
+  const target = sess.seteukMax || SK.SETEUK_MAX.def, level = levelOf(sess);
+  const { stu, items } = await seteukItems(code, sess, members, id);
+  if ((await usedOf(code)) + 2 > ASSESS_AI_CAP) throw capError();
+  const inputBytes = SK.neisBytes(items.map((e) => e.text).join(" "));
+  let lv;
+  for (let i = 0; i < 2 && !lv; i++) {
+    await bump(1);
+    try { lv = SK.parseLevel(extractJson(await callModel({ apiKey, model: OPENAI_MODEL.value(), messages: SK.levelMessages({ level, items, targetBytes: target }), json: true, maxTokens: 1500, efforts: [effort === "minimal" ? "low" : effort, "low"] }))); }
+    catch (e) { console.error("수준 판정 실패:", e.message); }
+  }
+  if (!lv) throw new HttpsError("unavailable", "AI 응답을 받지 못했어요. 잠시 뒤에 다시 시도하세요.");
+  const rich = SK.richnessFromQuality(lv.quality, lv.factInsufficient);
+  const safe = SK.computeSafeTarget(inputBytes, target, lv.grade);
+  const suggestedMax = Math.min(safe.safeMaxBytes, rich.cap ?? Infinity);
+  const prep = { grade: lv.grade, gradeScore: lv.gradeScore, criteria: lv.criteria, suspicion: lv.suspicion, quality: lv.quality, factInsufficient: lv.factInsufficient,
+    richness: rich, inputBytes, ratio: safe.ratio, target, suggestedMax, needsAdjustment: suggestedMax < target || rich.isPoor, evidenceCount: items.length, t: Date.now() };
+  await patchAssess(assessRef(code, `s_${id}`), { "seteuk.prep": prep, kind: "student", name: stu.nick });
+  return prep;
+}
+// 세특 ④⑤ 초안(기승전결 4부분) + NEIS 바이트 수렴. 만든 초안은 seteuk.draft 에 저장한다(교사가 읽고 고쳐 저장해야 확정본이 된다).
+async function seteukDraftFor({ code, sess, members, id, decision, grade: wantGrade, emphasis: wantEmp }) {
+  const { apiKey, effort, bump } = aiCtx(code);
+  const target = sess.seteukMax || SK.SETEUK_MAX.def, level = levelOf(sess);
+  const { stu, items } = await seteukItems(code, sess, members, id);
+  const ref = assessRef(code, `s_${id}`);
+  const prep = ((await ref.get()).data() || {}).seteuk?.prep;
+  if (!prep || prep.target !== target) throw new HttpsError("failed-precondition", "먼저 수준 판정을 해 주세요. 초안 만들기를 다시 누르면 다시 판정해요(분량을 바꾸면 다시 판정해야 해요).");
+  const grade = SK.GRADES.includes(wantGrade) ? wantGrade : prep.grade;
+  const emphasis = SK.EMPHASIS[wantEmp] ? wantEmp : "balance";
+  decision = String(decision || "");
+  if (prep.needsAdjustment && !["lower", "keep", "cancel"].includes(decision)) throw new HttpsError("failed-precondition", "학생 글이 분량에 비해 적어요. 짧게 쓸지 분량을 맞출지 먼저 골라 주세요.");
+  if (decision === "cancel") return { cancelled: true };
+  if (!prep.needsAdjustment) decision = "keep";
+  const dec = SK.resolveDecision(decision, target, prep.suggestedMax);
+  const effTarget = prep.needsAdjustment ? dec.effectiveTargetBytes : target;
+  const allowCreation = prep.needsAdjustment && dec.allowCreation;
+  const contentFirst = prep.needsAdjustment && decision === "lower";
+  const scoreLines = await seteukScoreLines(code, sess, id, stu);
+  const params = { level, items, scores: scoreLines, grade, emphasis, effectiveTarget: effTarget, targetBytes: target, allowCreation, filledCount: items.length };
+  const base = SK.draftMessages(params);
+  const validIds = items.map((e) => e.id);
+  const budget = ASSESS_AI_CAP - (await usedOf(code));
+  if (budget < 2) throw capError();
+  let calls = 0, lastParts = null;
+  const made = new Map(), log = [];
+  const used_models = { strong: 0, fast: 0 };
+  let fixes = 0, strongFix = false;
+  const ask = async (messages, strong) => {
+    calls++;
+    await bump(1);
+    used_models[strong ? "strong" : "fast"]++;
+    return extractJson(await callModel({ apiKey, model: (strong ? SETEUK_MODEL : SETEUK_FIX_MODEL).value(), messages, json: true, maxTokens: SK.maxTokens(effTarget) + 600, efforts: [effort === "minimal" ? "low" : effort, "low"] }));
+  };
+  const generate = async (direction, prevText, bytes) => {
+    let messages = direction === "init" ? base : SK.fixMessages({ base, parts: lastParts, direction, bytes, effectiveTarget: effTarget, items });
+    let parsed, flow;
+    if (direction !== "init" && ++fixes > 3) strongFix = true; // 보정이 3번 넘게 걸리면 고성능 모델로 올린다
+    for (let k = 0; k < 2; k++) {
+      // 첫 초안과 구조를 다시 잡는 재시도는 고성능, 분량만 맞추는 보정은 빠른 모델
+      parsed = SK.parseDraft(await ask(messages, direction === "init" || k > 0 || strongFix), { validIds, nick: stu.nick });
+      flow = SK.checkFlow(parsed.parts);
+      if (!flow.errors.length) break;
+      if (direction !== "init") strongFix = true; // 빠른 모델의 보정이 기승전결을 깨면 이후는 고성능
+      if (k === 0 && calls + 1 < budget) { lastParts = parsed.parts.filter((p) => p.sentences.length); messages = SK.fixMessages({ base, parts: parsed.parts, direction: "fix", bytes, effectiveTarget: effTarget, items, feedback: `${flow.errors.join(", ")}. 기승전결 네 부분이 모두 있도록 근거가 있는 문장으로 채운다.` }); }
+    }
+    lastParts = parsed.parts;
+    const text = SK.assemble(parsed.parts);
+    made.set(text, { parts: parsed.parts, dropped: parsed.dropped, flow });
+    return text;
+  };
+  let conv;
+  try {
+    conv = await SK.convergeLength(generate, { target: effTarget, contentFirst, maxAdjust: Math.max(1, Math.min(SK.PRESET.maxAdjust, budget - 3)), deadline: Date.now() + 200 * 1000, onTry: (t) => log.push(t) });
+  } catch (e) {
+    if (e instanceof HttpsError) throw e;
+    console.error("세특 초안 실패:", e.message);
+    throw new HttpsError("unavailable", "AI 응답을 받지 못했어요. 잠시 뒤에 다시 시도하세요.");
+  }
+  const got = made.get(conv.text);
+  if (!conv.text || !got) throw new HttpsError("unavailable", "쓸 만한 초안을 만들지 못했어요. 다시 시도하세요.");
+  const lint = SK.lintStyle(conv.text, { nick: stu.nick });
+  const warnings = [...got.flow.errors, ...got.flow.warnings, ...lint];
+  if (conv.bytes > target) warnings.unshift(`글자 수가 ${conv.bytes}바이트로 한도(${target}바이트)를 넘어요. 줄여서 저장하세요.`);
+  const out = { text: conv.text, parts: got.parts, dropped: got.dropped, warnings, bytes: conv.bytes, max: target, target: effTarget, reason: conv.reason, tries: conv.tries, log, calls, models: used_models, grade, emphasis, decision,
+    evidence: Object.fromEntries(items.map((e) => [e.id, { label: e.label, text: e.text }])) };
+  // 초안은 확정본(seteuk.text)과 따로 둔다. 화면을 닫았다 열어도, 서버가 한꺼번에 만든 초안도 여기서 다시 읽는다.
+  await patchAssess(ref, { "seteuk.gen": { t: Date.now(), grade, emphasis, decision, target: effTarget, bytes: conv.bytes, reason: conv.reason, tries: conv.tries, models: used_models },
+    "seteuk.draft": JSON.parse(JSON.stringify({ ...out, t: Date.now() })), kind: "student", name: stu.nick });
+  return out;
+}
+
 // AI 제2평정자와 세특 초안(교사 전용). 학생 글은 근거로만 쓰고 지시로 따르지 않는다.
 exports.assessAi = onCall(assessAiOpts, async (req) => {
   const { code, sess } = await ownSession(req);
   const action = String(req.data?.action || "");
+  // 서버 작업(AI 채점·세특 초안 모두 만들기)을 화면이 돕는다: 대상 하나를 맡아 처리하고 진행 상황을 돌려준다
+  if (action === "jobStep") return jobStep(code);
   const members = await membersOf(code);
-  const { kind, id, key } = subjectArgs(req, sess, members);
-  const used = sess.assessAiCount || 0;
-  const apiKey = OPENAI_API_KEY.value();
-  const effort = REASONING_EFFORT.value();
-  const level = levelOf(sess);
-  const bump = (n) => db.doc(`sessions/${code}`).update({ assessAiCount: FieldValue().increment(n) }).catch(() => {});
-
-  if (action === "score") {
-    const { rubric, evidence, empty } = await loadEvidence(code, sess, kind, id, members);
-    const crits = rubric.criteria.filter((c) => c.scope === (kind === "student" ? "student" : "group") && c.ai);
-    const items = crits.filter((c) => !empty[c.id]).map((c) => ({ c, evidence: evidence[c.id] }));
-    const patch = {};
-    for (const c of crits.filter((x) => empty[x.id])) patch[`ai.${c.id}`] = { level: -1, levels: [-1], spread: 0, quote: "", quoteOk: true, reason: "학생이 쓴 근거가 비어 있음", n: 0, auto: true, tri: { pass: true, reasons: [] }, flags: [], t: Date.now() };
-    let ok = 0, failed = 0, escalatedCount = 0;
-    if (items.length) {
-      if (used + ASSESS_RUNS + 1 > ASSESS_AI_CAP) throw new HttpsError("resource-exhausted", `이 수업의 평가용 AI 호출 한도(${ASSESS_AI_CAP}회)에 가까워 더 받을 수 없어요.`);
-      await bump(ASSESS_RUNS);
-      const messages = A.scorerMessages({ rubric, items, scope: scopeOf(kind) });
-      const one = async () => A.parseScorer(extractJson(await callModel({ apiKey, model: ASSESS_FAST_MODEL.value(), messages, json: true, maxTokens: 1800, efforts: [effort === "minimal" ? "low" : effort, "low"] })), items);
-      const settle = (rs) => rs.map((r) => (r.status === "fulfilled" ? r.value : (failed++, console.error("AI 채점 실패:", r.reason?.message), null))).filter(Boolean);
-      // 같은 프롬프트라 첫 호출이 끝나 캐시가 만들어진 뒤에 나머지를 보내면 입력 요금이 줄어든다(OpenAI 자동 프롬프트 캐시)
-      const runs = settle(await Promise.allSettled([one()]));
-      runs.push(...settle(await Promise.allSettled(Array.from({ length: ASSESS_RUNS - 1 }, one))));
-      let combined = A.combineRuns(runs, items);
-      // 갈리거나 인용을 못 찾은 기준(또는 빠른 모델이 답하지 못한 기준)만 고성능 모델이 한 번 더 판정한다
-      const autoOn = autoOf(sess).on;
-      const extreme = (r, c) => !!r && r.level !== -1 && (r.level === 0 || r.level === c.levels.length - 1);
-      // 예외만 검토에서는 가장 높은·낮은 수준도 고성능 모델이 한 번 더 확인해 같을 때만 통과시킨다
-      const hard = items.filter(({ c }) => A.needsEscalation(combined[c.id]) || (autoOn && extreme(combined[c.id], c)));
-      if (hard.length) {
-        await bump(1);
-        const [h] = await Promise.allSettled([(async () => A.parseScorer(extractJson(await callModel({ apiKey, model: ASSESS_MODEL.value(), messages: A.scorerMessages({ rubric, items: hard, scope: scopeOf(kind) }), json: true, maxTokens: 1800, efforts: [effort === "minimal" ? "low" : effort, "low"] })), hard))()]);
-        if (h.status === "rejected") { failed++; console.error("AI 재판정 실패:", h.reason?.message); }
-        combined = A.applyAdjudication(combined, h.status === "fulfilled" ? h.value : null, hard);
-        escalatedCount = hard.length;
-      }
-      const hardIds = new Set(hard.map(({ c }) => c.id));
-      for (const [cid, v] of Object.entries(combined)) {
-        const c = rubric.criteria.find((x) => x.id === cid);
-        const rec = { ...v, esc: hardIds.has(cid), t: Date.now() };
-        const flags = AP.evidenceFlags(evidence[cid], { isRef: A.isRefLabel });
-        patch[`ai.${cid}`] = { ...rec, flags, tri: AP.triage({ c, ai: rec, flags }), meta: { rv: RUBRIC_VERSION, fast: ASSESS_FAST_MODEL.value(), ...(hardIds.has(cid) ? { strong: ASSESS_MODEL.value() } : {}) } };
-        ok++;
-      }
-      if (!ok) throw new HttpsError("unavailable", "AI 응답을 받지 못했어요. 잠시 뒤에 다시 시도하세요.");
-    }
-    if (Object.keys(patch).length) await patchAssess(assessRef(code, key), patch);
-    return { ok, auto: crits.length - items.length, failedRuns: failed, escalated: escalatedCount };
-  }
-
-  // ---- 세특 ①② 근거 확인과 수준 판정(경량 모델). 결과는 교사에게 보여 주고, 빈약하면 하향·유지·취소를 고르게 한다. ----
+  const { kind, id } = subjectArgs(req, sess, members);
+  if (action === "score") return aiScoreSubject({ code, sess, members, kind, id });
   if (action === "seteukPrep" || action === "seteukGenerate") {
     if (kind !== "student") throw new HttpsError("invalid-argument", "세특은 학생마다 만들어요.");
-    const target = sess.seteukMax || SK.SETEUK_MAX.def;
-    const stu = members.find((m) => m.key === id);
-    const items = await seteukEvidence(code, sess, id, stu, members);
-    if (!items.length) throw new HttpsError("failed-precondition", "아직 학생이 쓴 활동 기록이 없어 세특을 만들 수 없어요. (주제만 보고 쓰지 않아요)");
-    const ref = assessRef(code, `s_${id}`);
-    const doc = (await ref.get()).data() || {};
-
-    if (action === "seteukPrep") {
-      if (used + 2 > ASSESS_AI_CAP) throw new HttpsError("resource-exhausted", `이 수업의 평가용 AI 호출 한도(${ASSESS_AI_CAP}회)에 가까워 더 받을 수 없어요.`);
-      const inputBytes = SK.neisBytes(items.map((e) => e.text).join(" "));
-      let lv, last;
-      for (let i = 0; i < 2 && !lv; i++) {
-        await bump(1);
-        try { lv = SK.parseLevel(extractJson(await callModel({ apiKey, model: OPENAI_MODEL.value(), messages: SK.levelMessages({ level, items, targetBytes: target }), json: true, maxTokens: 1500, efforts: [effort === "minimal" ? "low" : effort, "low"] }))); }
-        catch (e) { last = e; console.error("수준 판정 실패:", e.message); }
-      }
-      if (!lv) throw new HttpsError("unavailable", "AI 응답을 받지 못했어요. 잠시 뒤에 다시 시도하세요.");
-      const rich = SK.richnessFromQuality(lv.quality, lv.factInsufficient);
-      const safe = SK.computeSafeTarget(inputBytes, target, lv.grade);
-      const suggestedMax = Math.min(safe.safeMaxBytes, rich.cap ?? Infinity);
-      const prep = { grade: lv.grade, gradeScore: lv.gradeScore, criteria: lv.criteria, suspicion: lv.suspicion, quality: lv.quality, factInsufficient: lv.factInsufficient,
-        richness: rich, inputBytes, ratio: safe.ratio, target, suggestedMax, needsAdjustment: suggestedMax < target || rich.isPoor, evidenceCount: items.length, t: Date.now() };
-      await patchAssess(ref, { "seteuk.prep": prep, kind: "student", name: stu.nick });
-      return prep;
-    }
-
-    // ---- ④⑤ 초안(기승전결 4부분) + NEIS 바이트 수렴 ----
-    const prep = doc.seteuk?.prep;
-    if (!prep || prep.target !== target) throw new HttpsError("failed-precondition", "먼저 수준 판정을 해 주세요. 초안 만들기를 다시 누르면 다시 판정해요(분량을 바꾸면 다시 판정해야 해요).");
-    const grade = SK.GRADES.includes(req.data?.grade) ? req.data.grade : prep.grade;
-    const emphasis = SK.EMPHASIS[req.data?.emphasis] ? req.data.emphasis : "balance";
-    let decision = String(req.data?.decision || "");
-    if (prep.needsAdjustment && !["lower", "keep", "cancel"].includes(decision)) throw new HttpsError("failed-precondition", "학생 글이 분량에 비해 적어요. 짧게 쓸지 분량을 맞출지 먼저 골라 주세요.");
-    if (decision === "cancel") return { cancelled: true };
-    if (!prep.needsAdjustment) decision = "keep";
-    const dec = SK.resolveDecision(decision, target, prep.suggestedMax);
-    const effTarget = prep.needsAdjustment ? dec.effectiveTargetBytes : target;
-    const allowCreation = prep.needsAdjustment && dec.allowCreation;
-    const contentFirst = prep.needsAdjustment && decision === "lower";
-    const scoreLines = await seteukScoreLines(code, sess, id, stu);
-    const params = { level, items, scores: scoreLines, grade, emphasis, effectiveTarget: effTarget, targetBytes: target, allowCreation, filledCount: items.length };
-    const base = SK.draftMessages(params);
-    const validIds = items.map((e) => e.id);
-    const budget = ASSESS_AI_CAP - used;
-    if (budget < 2) throw new HttpsError("resource-exhausted", `이 수업의 평가용 AI 호출 한도(${ASSESS_AI_CAP}회)에 가까워 더 받을 수 없어요.`);
-    let calls = 0, lastParts = null;
-    const made = new Map(), log = [];
-    const used_models = { strong: 0, fast: 0 };
-    let fixes = 0, strongFix = false;
-    const ask = async (messages, strong) => {
-      calls++;
-      await bump(1);
-      used_models[strong ? "strong" : "fast"]++;
-      return extractJson(await callModel({ apiKey, model: (strong ? SETEUK_MODEL : SETEUK_FIX_MODEL).value(), messages, json: true, maxTokens: SK.maxTokens(effTarget) + 600, efforts: [effort === "minimal" ? "low" : effort, "low"] }));
-    };
-    const generate = async (direction, prevText, bytes) => {
-      let messages = direction === "init" ? base : SK.fixMessages({ base, parts: lastParts, direction, bytes, effectiveTarget: effTarget, items });
-      let parsed, flow;
-      if (direction !== "init" && ++fixes > 3) strongFix = true; // 보정이 3번 넘게 걸리면 고성능 모델로 올린다
-      for (let k = 0; k < 2; k++) {
-        // 첫 초안과 구조를 다시 잡는 재시도는 고성능, 분량만 맞추는 보정은 빠른 모델
-        parsed = SK.parseDraft(await ask(messages, direction === "init" || k > 0 || strongFix), { validIds, nick: stu.nick });
-        flow = SK.checkFlow(parsed.parts);
-        if (!flow.errors.length) break;
-        if (direction !== "init") strongFix = true; // 빠른 모델의 보정이 기승전결을 깨면 이후는 고성능
-        if (k === 0 && calls + 1 < budget) { lastParts = parsed.parts.filter((p) => p.sentences.length); messages = SK.fixMessages({ base, parts: parsed.parts, direction: "fix", bytes, effectiveTarget: effTarget, items, feedback: `${flow.errors.join(", ")}. 기승전결 네 부분이 모두 있도록 근거가 있는 문장으로 채운다.` }); }
-      }
-      lastParts = parsed.parts;
-      const text = SK.assemble(parsed.parts);
-      made.set(text, { parts: parsed.parts, dropped: parsed.dropped, flow });
-      return text;
-    };
-    let conv;
-    try {
-      conv = await SK.convergeLength(generate, { target: effTarget, contentFirst, maxAdjust: Math.max(1, Math.min(SK.PRESET.maxAdjust, budget - 3)), deadline: Date.now() + 200 * 1000, onTry: (t) => log.push(t) });
-    } catch (e) {
-      if (e instanceof HttpsError) throw e;
-      console.error("세특 초안 실패:", e.message);
-      throw new HttpsError("unavailable", "AI 응답을 받지 못했어요. 잠시 뒤에 다시 시도하세요.");
-    }
-    const got = made.get(conv.text);
-    if (!conv.text || !got) throw new HttpsError("unavailable", "쓸 만한 초안을 만들지 못했어요. 다시 시도하세요.");
-    const lint = SK.lintStyle(conv.text, { nick: stu.nick });
-    const warnings = [...got.flow.errors, ...got.flow.warnings, ...lint];
-    if (conv.bytes > target) warnings.unshift(`글자 수가 ${conv.bytes}바이트로 한도(${target}바이트)를 넘어요. 줄여서 저장하세요.`);
-    await patchAssess(ref, { "seteuk.gen": { t: Date.now(), grade, emphasis, decision, target: effTarget, bytes: conv.bytes, reason: conv.reason, tries: conv.tries, models: used_models } });
-    return { text: conv.text, parts: got.parts, dropped: got.dropped, warnings, bytes: conv.bytes, max: target, target: effTarget, reason: conv.reason, tries: conv.tries, log, calls, models: used_models, grade, emphasis, decision,
-      evidence: Object.fromEntries(items.map((e) => [e.id, { label: e.label, text: e.text }])) };
+    if (action === "seteukPrep") return seteukPrepFor({ code, sess, members, id });
+    return seteukDraftFor({ code, sess, members, id, decision: req.data?.decision, grade: req.data?.grade, emphasis: req.data?.emphasis });
   }
-
   throw new HttpsError("invalid-argument", "알 수 없는 요청입니다.");
+});
+
+// ---------- 오래 걸리는 평가 작업을 서버에서: AI로 전체 채점, 세특 초안 모두 만들기 ----------
+// 교사가 시작하면 assessJobs/{code} 에 할 일 목록(대상마다 한 줄)을 만든다. 화면이 열려 있으면 화면이 jobStep 을 불러 바로 처리하고,
+// 창을 닫아도 1분마다 도는 assessWorker 가 이어서 한다. 대상마다 '맡음(lease)'을 걸어 두 쪽이 같은 대상을 겹쳐 하지 않고,
+// 맡은 쪽이 죽으면 lease 가 지난 뒤 다른 쪽이 다시 맡는다. 마지막 대상을 끝낸 쪽이 한 번만 마무리(AI 점수 적용)한다.
+const jobRef = (code) => db.doc(`assessJobs/${code}`);
+const JOB_LEASE_MS = 6 * 60 * 1000;
+const JOB_TRIES = 2; // 한 대상을 몇 번까지 다시 해 보는지(맡은 쪽이 죽은 경우 포함)
+const jobLeft = (j) => j.items.some((x) => x.st === "todo" || x.st === "doing");
+function jobView(j) {
+  if (!j) return null;
+  const n = (st) => j.items.filter((x) => x.st === st).length;
+  return { type: j.type, status: j.status, total: j.items.length, done: n("done"), failed: n("fail"), current: j.items.filter((x) => x.st === "doing").map((x) => x.name),
+    fails: j.items.filter((x) => x.st === "fail").slice(0, 8).map((x) => ({ name: x.name, err: x.err || "" })), startedAt: j.startedAt, finishedAt: j.finishedAt || null, note: j.note || "", summary: j.summary || null };
+}
+async function claimJobItem(code) {
+  return db.runTransaction(async (tx) => {
+    const j = (await tx.get(jobRef(code))).data();
+    if (!j || j.status !== "running") return { job: j || null, idx: -1 };
+    const now = Date.now();
+    const idx = j.items.findIndex((x) => x.st === "todo" || (x.st === "doing" && x.lease < now));
+    if (idx < 0) return { job: j, idx: -1 };
+    const it = j.items[idx];
+    if ((it.tries || 0) >= JOB_TRIES) { j.items[idx] = { ...it, st: "fail", lease: 0, err: it.err || "처리하다 멈췄어요" }; tx.update(jobRef(code), { items: j.items }); return { job: j, idx: -1, retry: true }; }
+    j.items[idx] = { ...it, st: "doing", lease: now + JOB_LEASE_MS, tries: (it.tries || 0) + 1 };
+    tx.update(jobRef(code), { items: j.items });
+    return { job: j, idx };
+  });
+}
+// 대상 하나의 결과를 적고, 남은 것이 없거나 멈췄으면(그리고 처리 중인 것이 없으면) 이 호출이 마무리를 맡는다.
+// startedAt 으로 같은 작업인지 확인한다(그사이 새 작업이 시작됐으면 옛 결과를 적지 않는다).
+async function finishJobItem(code, idx, res, startedAt) {
+  return db.runTransaction(async (tx) => {
+    const j = (await tx.get(jobRef(code))).data();
+    if (!j || (startedAt !== undefined && j.startedAt !== startedAt)) return { job: j || null, finalize: false };
+    if (idx >= 0) j.items[idx] = { ...j.items[idx], st: res.ok ? "done" : "fail", lease: 0, ...(res.err ? { err: res.err } : {}) };
+    const patch = { items: j.items };
+    if (res.stop && j.status === "running") { j.status = "stopped"; patch.status = "stopped"; patch.note = res.err || ""; }
+    const busy = j.items.some((x) => x.st === "doing");
+    const finalize = !j.finalized && !busy && (j.status !== "running" || !jobLeft(j));
+    if (finalize) { patch.finalized = true; patch.finishedAt = Date.now(); if (j.status === "running") { j.status = "done"; patch.status = "done"; } }
+    tx.update(jobRef(code), patch);
+    return { job: { ...j, ...patch }, finalize };
+  });
+}
+async function runJobItem(code, j, idx) {
+  const it = j.items[idx];
+  try {
+    const sess = (await db.doc(`sessions/${code}`).get()).data();
+    if (!sess) return { ok: false, err: "수업을 찾을 수 없어요", stop: true };
+    const members = await membersOf(code);
+    if (j.type === "score") await aiScoreSubject({ code, sess, members, kind: it.kind, id: it.id });
+    else {
+      // 세특 초안 모두 만들기: 학생 글이 분량에 비해 적으면 '짧게 쓰기'(권장, 지어내지 않음)로 만든다. 교사가 읽고 고쳐 저장한다.
+      const prep = await seteukPrepFor({ code, sess, members, id: it.id });
+      await seteukDraftFor({ code, sess, members, id: it.id, decision: prep.needsAdjustment ? "lower" : "keep", grade: prep.grade, emphasis: j.params?.emphasis });
+    }
+    return { ok: true };
+  } catch (e) {
+    console.error("평가 작업 실패:", j.type, it.kind, it.id, e?.message);
+    return { ok: false, err: A.clip(e?.message || String(e), 160), stop: e?.code === "resource-exhausted" };
+  }
+}
+async function finalizeJob(code, j) {
+  if (j.type !== "score") return;
+  const sess = (await db.doc(`sessions/${code}`).get()).data();
+  if (!sess || modeOf(sess) !== "ai_first") return; // 교사가 먼저 채점하는 방식이면 AI 점수를 채우지 않는다
+  try {
+    const r = await applyAiAll(code, sess, j.by);
+    await jobRef(code).update({ summary: { applied: r.applied, exceptions: r.exceptions, skipped: r.skipped } });
+  } catch (e) { console.error("AI 점수 적용 실패:", e.message); await jobRef(code).update({ note: "AI 점수를 채우지 못했어요. ① 채점에서 다시 시도하세요." }); }
+}
+// 화면과 서버 작업이 함께 쓰는 한 걸음: 대상 하나를 맡아 처리한다. 맡을 것이 없으면 바로 진행 상황만 돌려준다.
+async function jobStep(code) {
+  const c = await claimJobItem(code);
+  if (c.idx < 0) {
+    if (c.retry || (c.job && !c.job.finalized && c.job.status !== "running" && !c.job.items.some((x) => x.st === "doing"))) { const f = await finishJobItem(code, -1, { ok: true }); if (f.finalize) await finalizeJob(code, f.job); }
+    return { job: jobView((await jobRef(code).get()).data()), worked: false };
+  }
+  const res = await runJobItem(code, c.job, c.idx);
+  const f = await finishJobItem(code, c.idx, res, c.job.startedAt);
+  if (f.finalize) await finalizeJob(code, f.job);
+  return { job: jobView((await jobRef(code).get()).data()), worked: true };
+}
+// 창을 닫아도 이어서 하도록 1분마다 돈다. 한 번에 45초 남짓 새 대상을 맡고, 맡은 대상은 끝까지 한다(세특은 길면 3~4분).
+exports.assessWorker = onSchedule({ region: REGION, schedule: "every 1 minutes", timeZone: "Asia/Seoul", cpu: "gcf_gen1", secrets: [OPENAI_API_KEY], timeoutSeconds: 300, maxInstances: 2 }, async () => {
+  const until = Date.now() + 45 * 1000;
+  for (const d of (await db.collection("assessJobs").where("status", "==", "running").get()).docs) {
+    while (Date.now() < until) { const r = await jobStep(d.id); if (!r.worked || r.job?.status !== "running") break; }
+  }
 });
 
 // 학생: 내 점수·평가 이유·세특 보기. 수업 중에는 로그인한 계정으로, 수업이 닫힌 뒤에는 입장할 때와 같은 모둠·별명·비밀번호로 확인한다.
@@ -1815,7 +2056,6 @@ exports.myResult = onCall(opts, async (req) => {
   const sessSnap = await db.doc(`sessions/${code}`).get();
   if (!sessSnap.exists) throw new HttpsError("not-found", "수업 코드를 찾을 수 없습니다.");
   const sess = sessSnap.data();
-  const rel = releaseOf(sess);
   const mine = await db.doc(`sessions/${code}/members/${auth.uid}`).get();
   let m = null;
   if (mine.exists && req.data?.password === undefined) m = mine.data();
@@ -1837,20 +2077,30 @@ exports.myResult = onCall(opts, async (req) => {
     if (attSnap.exists) await attRef.delete();
     m = { nickname, groupId: `g${groupNo}`, credKey: key };
   }
-  const base = { title: sess.title, nickname: m.nickname, groupId: m.groupId, released: rel };
-  if (req.data?.appeal && !rel.score) throw new HttpsError("failed-precondition", "점수가 공개된 뒤에 이의를 신청할 수 있어요.");
-  if (!rel.score && !rel.seteuk) return base;
+  return buildResult(code, sess, m, { appeal: req.data?.appeal || null });
+});
+
+// 학생의 '내 결과'. 교사가 공개한 것만 담는다. preview 는 교사의 미리보기: 공개 여부와 상관없이 점수·세특을 모두 그리되,
+// 학생에게 보이는 그대로(확정한 점수만, 평가에서 뺀 학생은 안내만) 담는다.
+async function buildResult(code, sess, m, { appeal = null, preview = false } = {}) {
+  const rel = releaseOf(sess);
+  const shown = preview ? { score: true, seteuk: true } : rel;
+  const base = { title: sess.title, nickname: m.nickname, groupId: m.groupId, released: shown, appealUntil: sess.appealUntil || null, ...(preview ? { preview: true, releasedNow: rel } : {}) };
+  if (appeal && !rel.score) throw new HttpsError("failed-precondition", "점수가 공개된 뒤에 이의를 신청할 수 있어요.");
+  if (!shown.score && !shown.seteuk) return base;
   const key = studentKeyOf(m);
   const [stuSnap, grpSnap] = await Promise.all([assessRef(code, `s_${key}`).get(), assessRef(code, m.groupId).get()]);
   const stu = stuSnap.data() || {}, grp = grpSnap.data() || {};
-  const out = { ...base };
+  const ex = excludedOf(stu);
+  const out = { ...base, ...(ex ? { excluded: { label: EXCLUDE_REASONS[ex.reason] } } : {}) }; // 교사의 메모는 학생에게 보내지 않는다
   const confirmedOf = (c) => { const s = (c.scope === "student" ? stu : grp).scores?.[c.id]; return s && s.reviewed !== false ? s : null; }; // 교사가 확정하기 전(검토 전) 점수는 보이지 않는다
-  // 이의 제기: 점수가 공개된 뒤, 확정된 칸에 한해 한 칸에 하나. 교사의 예외 큐로 간다.
-  if (req.data?.appeal) {
+  // 이의 신청: 점수가 공개된 뒤, 마감 전, 확정된 칸에 한해 한 칸에 하나. 교사 화면의 ② 확인으로 간다.
+  if (appeal) {
     const rubric = rubricOfSession(sess);
-    const cid = String(req.data.appeal.criterion || ""), text = A.clip(req.data.appeal.text, 300);
+    const cid = String(appeal.criterion || ""), text = A.clip(appeal.text, 300);
     const c = rubric.criteria.find((x) => x.id === cid);
-    if (!rel.score) throw new HttpsError("failed-precondition", "점수가 공개된 뒤에 이의를 신청할 수 있어요.");
+    if (ex) throw new HttpsError("failed-precondition", "평가에서 빠져 있어 이의를 신청할 수 없어요. 선생님께 여쭤보세요.");
+    if (sess.appealUntil && Date.now() > sess.appealUntil) throw new HttpsError("failed-precondition", "이의 신청 기간이 끝났어요.");
     if (!c || !confirmedOf(c)) throw new HttpsError("not-found", "이의를 신청할 항목을 찾을 수 없어요.");
     if (text.length < 4) throw new HttpsError("invalid-argument", "이유를 4자 이상 써 주세요.");
     if (stu.appeals?.[cid]?.status === "resolved") throw new HttpsError("failed-precondition", "이미 처리된 이의 신청이에요.");
@@ -1858,25 +2108,22 @@ exports.myResult = onCall(opts, async (req) => {
     await patchAssess(assessRef(code, `s_${key}`), { [`appeals.${cid}`]: rec, kind: "student", name: m.nickname });
     stu.appeals = { ...(stu.appeals || {}), [cid]: rec };
   }
-  if (rel.score) {
+  if (shown.score && !ex) {
     const rubric = rubricOfSession(sess);
     const scores = {};
     const items = rubric.criteria.map((c) => {
       const s = confirmedOf(c);
       if (s) scores[c.id] = s;
       const ap = stu.appeals?.[c.id];
-      return { id: c.id, element: c.elName, name: c.name, scope: c.scope, max: c.max, scored: !!s, pts: s ? s.pts : null,
+      return { id: c.id, element: c.elName, name: c.name, scope: c.scope, area: c.area, max: c.max, scored: !!s, pts: s ? s.pts : null,
         level: s ? (s.level === -1 ? "미제출" : c.levels[s.level].label) : null, desc: s && s.level !== -1 ? c.levels[s.level].desc : "", note: s?.note || "",
         appeal: ap ? { status: ap.status, text: ap.text, reply: ap.reply || "" } : null };
     });
     out.score = { ...totals(rubric, scores), indivMax: rubric.indivMax, groupMax: rubric.total - rubric.indivMax, items, labels: rubric.labels };
   }
-  if (rel.seteuk) out.seteuk = { text: stu.seteuk?.text || "" };
+  if (shown.seteuk) out.seteuk = { text: stu.seteuk?.text || "" };
   return out;
-});
-
-// ---------- 정기 작업 ----------
-// 마지막 접속 후 정한 시간이 지난 수업을 자동으로 닫는다(수업이 끝나고 누가 접속하는 것을 막기 위해). 30분마다.
+}
 exports.autoCloseSessions = onSchedule({ region: REGION, schedule: "every 30 minutes", timeZone: "Asia/Seoul", cpu: "gcf_gen1", maxInstances: 1 }, async () => {
   const open = await db.collection("sessions").where("closed", "==", false).get();
   for (const d of open.docs) {

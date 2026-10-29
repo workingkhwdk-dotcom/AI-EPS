@@ -1095,6 +1095,9 @@ input[type=email]{ font:inherit; font-size:16px; width:100%; padding:11px 13px; 
 .as-rel-item{ display:flex; align-items:center; justify-content:space-between; gap:12px; background:var(--fill); border-radius:12px; padding:12px 14px; flex-wrap:wrap; }
 .as-rel-item.on{ background:var(--green-tint); }
 .as-rel-txt{ min-width:0; flex:1 1 240px; }
+.as-deadline{ background:var(--fill); border-radius:12px; padding:12px 14px; }
+.as-deadline input[type="datetime-local"]{ font:inherit; font-size:15px; width:auto; flex:0 1 240px; min-width:0; padding:8px 10px; border:none; border-radius:10px; background:var(--surface); color:var(--ink); }
+.as-pv select{ width:auto; flex:1 1 200px; max-width:340px; }
 .sk-sent + .sk-sent{ margin-top:6px; }
 .as-pick .as-n{ opacity:.7; font-weight:600; margin-left:2px; }
 .chk{ font-size:13px; display:inline-flex; align-items:center; gap:6px; color:var(--ink-2); cursor:pointer; }
@@ -1162,6 +1165,7 @@ input[type=email]{ font:inherit; font-size:16px; width:100%; padding:11px 13px; 
 .sk-text{ margin-top:8px; border:1.5px solid #c7d2fe; background:#f0f4ff; cursor:default; line-height:1.85; white-space:pre-wrap; word-break:keep-all; }
 .sk-text.on{ border:2px solid #0284c7; background:#f0f9ff; cursor:text; }
 .sk-saved{ font-size:13px; color:#166534; font-weight:700; }
+.sk-draft{ font-size:13px; color:var(--warn); font-weight:700; }
 .as-prog{ margin-top:10px; font-size:13.5px; }
 .as-bar{ height:8px; background:var(--fill-strong); border-radius:8px; overflow:hidden; margin-top:6px; }
 .as-bar i{ display:block; height:100%; background:var(--grad); transition:width .3s; }
