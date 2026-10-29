@@ -5,6 +5,9 @@
 //  - 평가 대상은 학생이 쓴 판단·근거·이유다. AI 질문 횟수, 글자 수, 맞춤법, AI 사용 여부는 점수에 넣지 않는다.
 //  - 심화 활동(level.js)이 켜진 수업은 해당 기준에 심화 조건이 덧붙는다(deep). 끈 수업에서는 이 조건을 묻지 않는다.
 // 각 기준: scope 'student'(학생 개인 칸) | 'group'(모둠 칸), max 배점, ai 가 false 이면 AI 제안을 받지 않는다(교사 관찰 영역).
+//  - area: 점수를 어느 영역(개인 60 / 모둠 40)에 더하는지. 없으면 scope 와 같다. 모둠 기여도(c63)는 학생마다 매기지만(scope student) 모둠 영역에 든다.
+//  - 모둠 기여도(contrib): 수업마다 켠다(새 수업은 켬). 켜면 c63 이 생기고, 그 10점은 모둠 문제 정하기(c12)·사실 판정(c23)에서 5점씩 가져온다(maxContrib).
+//    그래서 모둠 영역 40점 = 모둠이 함께 받는 30점 + 학생마다 다른 기여도 10점. 무임승차를 막으려는 장치다.
 
 const ELEMENTS = [
   null,
@@ -28,7 +31,7 @@ const CRITERIA = [
     ],
   },
   {
-    id: "c12", el: 1, scope: "group", max: 10, stage: "1단계 ③", ai: true,
+    id: "c12", el: 1, scope: "group", max: 10, maxContrib: 5, stage: "1단계 ③", ai: true,
     name: "모둠 문제 정하기",
     high: [
       "같은 점·엇갈린 말·부딪히는 점을 구별해 인물별 근거로 정리하고, '어떻게 하면 ~하면서도 ~할 수 있을까?' 문장이 부딪히는 두 바람을 모두 담으며 점검표를 근거 있게 확인한다.",
@@ -75,7 +78,7 @@ const CRITERIA = [
     deep: [{ key: "causeMap", text: "원인을 둘 이상 쓰고 원인끼리 '불러와요/더 키워요'로 이은 것이 '매우 잘함'의 조건이다." }],
   },
   {
-    id: "c23", el: 2, scope: "group", max: 10, stage: "3단계", ai: true,
+    id: "c23", el: 2, scope: "group", max: 10, maxContrib: 5, stage: "3단계", ai: true,
     name: "사실 판정과 가장 큰 원인",
     high: [
       "질문마다 어떤 자료의 무엇을 보고 판정했는지 쓰고 '확인할 수 없다'를 구분하며, 확인된 것만 남겨 가장 큰 원인을 '사실→그 뜻→원인'으로 연결해 설명한다.",
@@ -217,6 +220,23 @@ const CRITERIA = [
       "모둠 활동에 거의 참여하지 않았다.",
     ],
   },
+  {
+    // 모둠 기여도: 내 정리(특히 인물과 대화한 뒤의 정리)와 내가 쓴 항목을 모둠이 쓸 수 있게 가져왔는지, 그것이 모둠의 결정에 실제로 쓰였는지.
+    // 정리 자체의 질은 c11 이 보므로(이중 반영을 줄이려고) 여기서는 '모둠에 쓸모 있게 가져왔는가·쓰였는가'를 본다.
+    id: "c63", el: 6, scope: "student", area: "group", contrib: true, max: 10, stage: "전 과정(특히 1단계 ②)", ai: true,
+    name: "모둠 기여도(내가 모둠에 가져온 것)",
+    high: [
+      "인물과의 대화에서 알아낸 사실·인물의 말을 모둠이 바로 쓸 수 있게 구체적으로 정리해 모둠에 보냈고, 그 정리나 내가 쓴 원인 추측·해결책·반응 예측이 모둠의 문제 문장·가장 큰 원인·최종 해결책에 실제로 쓰였다.",
+      "구체적으로 정리해 모둠에 보냈고 모둠의 결정에 일부 쓰였으나, 쓰인 곳이 한 단계에 그친다.",
+      "모둠에 가져온 정리가 일반적인 말이 많아 모둠이 쓰기 어렵거나, 모둠의 결정에 쓰인 흔적이 거의 없다.",
+      "정리를 모둠에 거의 가져오지 않았거나, 모둠 산출물에 내가 쓴 것이 거의 없다.",
+    ],
+    middle: [
+      "인물에게 알아낸 것을 모둠이 쓸 수 있게 구체적으로 정리해 보냈고, 내 정리나 내가 쓴 원인·해결책·예측이 모둠의 결정에 쓰였다.",
+      "정리를 보냈으나 구체적이지 않거나, 모둠의 결정에 쓰인 것이 적다.",
+      "정리를 거의 가져오지 않았거나, 모둠 산출물에 내가 쓴 것이 거의 없다.",
+    ],
+  },
 ];
 
 const SCALES = {
@@ -234,16 +254,19 @@ function ptsFor(level, max, idx) {
   return sc.fixed ? sc.fixed[max][idx] : Math.round(max * sc.pct[idx]);
 }
 
-// 한 수업(학교급·심화 활동)에 쓰는 척도표
-function rubricFor(level, deep = {}) {
+// 한 수업(학교급·심화 활동·모둠 기여도)에 쓰는 척도표
+function rubricFor(level, deep = {}, { contrib = false } = {}) {
   const sch = schoolOf(level), sc = SCALES[sch];
-  const criteria = CRITERIA.map((c) => ({
-    id: c.id, el: c.el, elName: ELEMENTS[c.el], scope: c.scope, max: c.max, stage: c.stage, ai: c.ai,
-    name: sch === "middle" && c.nameMiddle ? c.nameMiddle : c.name,
-    levels: c[sch].map((desc, idx) => ({ idx, label: sc.labels[idx], short: sc.short[idx], pts: ptsFor(level, c.max, idx), desc })),
-    deepNotes: (c.deep || []).filter((d) => deep?.[d.key] === true).map((d) => d.text),
-  }));
-  return { level: sch, labels: sc.labels, criteria, total: criteria.reduce((s, c) => s + c.max, 0), indivMax: criteria.filter((c) => c.scope === "student").reduce((s, c) => s + c.max, 0) };
+  const criteria = CRITERIA.filter((c) => !c.contrib || contrib).map((c) => {
+    const max = contrib && c.maxContrib ? c.maxContrib : c.max;
+    return {
+      id: c.id, el: c.el, elName: ELEMENTS[c.el], scope: c.scope, area: c.area || c.scope, max, stage: c.stage, ai: c.ai,
+      name: sch === "middle" && c.nameMiddle ? c.nameMiddle : c.name,
+      levels: c[sch].map((desc, idx) => ({ idx, label: sc.labels[idx], short: sc.short[idx], pts: ptsFor(level, max, idx), desc })),
+      deepNotes: (c.deep || []).filter((d) => deep?.[d.key] === true).map((d) => d.text),
+    };
+  });
+  return { level: sch, labels: sc.labels, criteria, contrib: !!contrib, total: criteria.reduce((s, c) => s + c.max, 0), indivMax: criteria.filter((c) => c.area === "student").reduce((s, c) => s + c.max, 0) };
 }
 
 // 점수 합계. scores: { 기준ID: { level, pts } } (학생 개인 + 모둠 점수를 합친 것)
@@ -253,7 +276,7 @@ function totals(rubric, scores) {
     const s = scores?.[c.id];
     if (!s || !Number.isInteger(s.level)) continue;
     done++;
-    if (c.scope === "student") indiv += s.pts; else group += s.pts;
+    if (c.area === "student") indiv += s.pts; else group += s.pts;
   }
   return { total: indiv + group, indiv, group, done, count: rubric.criteria.length, complete: done === rubric.criteria.length, max: rubric.total };
 }

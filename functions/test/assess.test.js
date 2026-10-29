@@ -854,3 +854,215 @@ test("통합: 모둠 이동 시 평가 기록도 새 별명 열쇠로 옮겨진�
   assert.equal(store.get(`sessions/${CODE}/assess/s_${K1}`), undefined);
   assert.equal(store.get(`sessions/${CODE}/assess/s_${newKey}`).scores.c11.pts, 8);
 });
+
+// ---------- 모둠 기여도(c63) ----------
+test("척도표 모둠 기여도: 켜면 학생마다 매기는 c63(10점)이 모둠 영역에 들고, 모둠 문제 정하기·사실 판정이 5점이 되어 합은 그대로 100(개인 60·모둠 40)", () => {
+  for (const lv of ["high", "middle"]) {
+    const r = R.rubricFor(lv, {}, { contrib: true });
+    assert.deepEqual([r.total, r.indivMax, r.criteria.length, r.contrib], [100, 60, 14, true]);
+    const c63 = r.criteria.find((c) => c.id === "c63");
+    assert.deepEqual([c63.scope, c63.area, c63.max, c63.ai], ["student", "group", 10, true]);
+    assert.deepEqual(r.criteria.filter((c) => ["c12", "c23"].includes(c.id)).map((c) => c.max), [5, 5]);
+    assert.equal(r.criteria.filter((c) => c.area === "group").reduce((n, c) => n + c.max, 0), 40);
+  }
+  assert.deepEqual(R.rubricFor("high", {}, { contrib: true }).criteria.find((c) => c.id === "c63").levels.map((l) => l.pts), [10, 8, 6, 4]);
+  assert.deepEqual(R.rubricFor("middle", {}, { contrib: true }).criteria.find((c) => c.id === "c12").levels.map((l) => l.pts), [5, 4, 2]);
+  assert.equal(R.rubricFor("high").criteria.some((c) => c.id === "c63"), false, "끈 수업(예전 수업)에는 없다");
+  // 합계: 기여도는 개인 칸에 저장하지만 모둠 영역으로 더한다
+  const r = R.rubricFor("high", {}, { contrib: true });
+  const t = R.totals(r, { c11: { level: 0, pts: 10 }, c63: { level: 1, pts: 8 }, c12: { level: 0, pts: 5 } });
+  assert.deepEqual([t.indiv, t.group, t.total], [10, 13, 23]);
+});
+
+test("근거 모둠 기여도: 모둠에 보낸 내 정리와 내가 쓴 항목, 비교용으로 모둠이 정한 것을 모으고, 내 것이 없으면 비어 있다", () => {
+  const e = A.evidenceFor("c63", ctxS);
+  assert.ok(e.some((x) => x.label === "모둠에 보낸 내 정리: 힘든 것" && x.text.includes("일자리")));
+  assert.ok(e.some((x) => x.label === "내가 쓴 원인 추측" && x.text.includes("불안")));
+  assert.ok(!e.some((x) => x.text.includes("심사 제도가 낯설다")), "다른 모둠원이 쓴 원인은 내 기여가 아니다");
+  assert.ok(e.some((x) => x.label === "(모둠 참고) 모둠이 풀 질문"));
+  assert.ok(!e.some((x) => x.label.startsWith("인물에게 한 질문")), "대화 자체(정리의 질)는 c11 이 본다");
+  assert.equal(A.evidenceEmpty(e), false);
+  // 내가 쓴 것이 없고 모둠 참고만 있으면 비어 있다(미제출)
+  const other = { ...ctxS, student: { uid: "U9", nick: "마바", chat: [] } };
+  assert.equal(A.evidenceEmpty(A.evidenceFor("c63", other)), true);
+});
+
+test("통합 모둠 기여도: 새 수업은 켜져 있고, 학생 AI 채점에 들며, 끄고 켜면 이미 매긴 점수를 새 배점으로 다시 계산한다", async () => {
+  await seed({ contrib: true });
+  let g = await api.assess(as({ action: "get" }));
+  assert.equal(g.contrib, true);
+  assert.ok(g.rubric.criteria.some((c) => c.id === "c63" && c.area === "group"));
+  assert.equal(g.students[0].total, 8, "학생 칸이 7개에서 기여도까지 8개");
+  await api.assessAi(as({ action: "score", kind: "student", id: K1 }));
+  assert.ok(store.get(`sessions/${CODE}/assess/s_${K1}`).ai.c63, "기여도도 AI가 채점한다");
+  const sv = await api.assess(as({ action: "save", kind: "group", id: "g1", criterion: "c12", level: 1, note: "" }));
+  assert.equal(sv.score.pts, 4, "기여도를 켠 수업의 모둠 문제 정하기는 5점 만점");
+  await api.assess(as({ action: "config", contrib: false }));
+  assert.equal(store.get(`sessions/${CODE}/assess/g1`).scores.c12.pts, 8, "끄면 10점 만점으로 다시 계산");
+  g = await api.assess(as({ action: "get" }));
+  assert.equal(g.rubric.criteria.some((c) => c.id === "c63"), false);
+  await api.assess(as({ action: "config", contrib: true }));
+  assert.equal(store.get(`sessions/${CODE}/assess/g1`).scores.c12.pts, 4);
+  // 학생 결과: 기여도는 모둠 영역으로 더해진다
+  await api.assess(as({ action: "save", kind: "student", id: K1, criterion: "c63", level: 1, note: "" }));
+  await api.assess(as({ action: "release", score: true }));
+  const r = await api.myResult({ auth: { uid: "U1", token: {} }, data: { code: CODE } });
+  assert.equal(r.score.items.find((x) => x.id === "c63").area, "group");
+  assert.deepEqual([r.score.group, r.score.groupMax], [12, 40]);
+  // 새로 만든 수업은 기여도가 켜져 있다
+  const made = await api.createSession({ ...teacher, data: { title: "새 수업", groupCount: 2 } });
+  assert.equal(store.get(`sessions/${made.code}`).contrib, true);
+});
+
+// ---------- 서버 작업(AI로 전체 채점·세특 초안 모두 만들기) ----------
+const job = () => store.get(`assessJobs/${CODE}`);
+async function runAll(step) { for (let i = 0; i < 20; i++) { const r = await step(); if (r.job.status !== "running") return r.job; } throw new Error("작업이 끝나지 않음"); }
+
+test("통합 서버 작업: AI로 전체 채점을 서버에 맡기면 화면(jobStep)이 하나씩 처리하고, 끝나면 AI 점수를 채운다. 겹쳐 시작할 수 없다", async () => {
+  await seed({ assessMode: "ai_first", assessAuto: { on: false, calib: false } });
+  const s = await api.assess(as({ action: "jobStart", type: "score" }));
+  assert.deepEqual([s.job.type, s.job.status, s.job.total], ["score", "running", 3], "학생 있는 모둠 1곳 + 학생 2명(학생 없는 2모둠은 뺀다)");
+  assert.deepEqual(job().items.map((x) => x.name.replace(/S-[0-9A-F]{4}/, "S-")), ["1모둠", "S-", "S-"], "학생 이름은 가린 코드로");
+  await assert.rejects(() => api.assess(as({ action: "jobStart", type: "seteuk" })), /이미 하고 있는 작업/);
+  const end = await runAll(() => api.assessAi(as({ action: "jobStep" })));
+  assert.deepEqual([end.status, end.done, end.failed], ["done", 3, 0]);
+  assert.ok(end.summary.applied > 0, "끝나면 AI 점수를 채운다(AI가 먼저 채점하는 방식)");
+  assert.equal(store.get(`sessions/${CODE}/assess/g1`).scores.c12.src, "ai");
+  const g = await api.assess(as({ action: "get" }));
+  assert.equal(g.job.status, "done");
+  await assert.rejects(() => api.assess(as({ action: "jobStart", type: "score" })), /채점할 곳이 없어요/);
+  assert.equal((await api.assess(as({ action: "jobStart", type: "score", redo: true }))).job.total, 3, "다시 채점은 모두");
+});
+
+test("통합 서버 작업: 창을 닫아도 1분마다 도는 assessWorker 가 이어서 하고, 맡은 쪽이 멈추면 다시 맡으며, 멈추면 그때까지 한 것을 채운다", async () => {
+  await seed({ assessMode: "ai_first" });
+  await api.assess(as({ action: "jobStart", type: "score" }));
+  await api.assessWorker.run({});
+  assert.equal(job().status, "done", "화면 없이 서버가 끝까지 했다");
+  assert.equal(job().items.every((x) => x.st === "done"), true);
+  // 맡은 채로 죽은 대상: lease 가 지나면 다시 맡는다
+  await api.assess(as({ action: "jobStart", type: "score", redo: true }));
+  const j = job(); j.items[0] = { ...j.items[0], st: "doing", lease: Date.now() - 1, tries: 1 }; store.set(`assessJobs/${CODE}`, j);
+  await api.assessWorker.run({});
+  assert.deepEqual([job().status, job().items[0].st], ["done", "done"]);
+  // 멈추기: 처리 중인 것이 없으면 바로 마무리(그때까지 채점한 곳의 AI 점수를 채운다)
+  await seed({ assessMode: "ai_first" });
+  await api.assess(as({ action: "jobStart", type: "score" }));
+  await api.assessAi(as({ action: "jobStep" }));
+  const stop = await api.assess(as({ action: "jobStop" }));
+  assert.deepEqual([stop.job.status, stop.job.done], ["stopped", 1]);
+  assert.ok(stop.job.summary, "멈춰도 마무리한다");
+  assert.equal(store.get(`sessions/${CODE}/assess/g1`).scores.c12.src, "ai");
+  const after = await api.assessAi(as({ action: "jobStep" }));
+  assert.equal(after.worked, false, "멈춘 작업은 더 하지 않는다");
+});
+
+test("통합 서버 작업: 세특 초안 모두 만들기 — 저장한 세특이 없는 학생만, 글이 적으면 짧게 쓰기로, 초안은 확정본과 따로 저장되고 다시 열면 보인다", async () => {
+  await seed({ seteukMax: 600 });
+  levelMode = "normal"; fill = 0; withBad = false;
+  await api.assess(as({ action: "seteukSave", id: K2, text: "이미 저장한 세특임." }));
+  const s = await api.assess(as({ action: "jobStart", type: "seteuk", emphasis: "growth" }));
+  assert.deepEqual([s.job.type, s.job.total], ["seteuk", 1], "세특을 저장한 학생은 뺀다");
+  const end = await runAll(() => api.assessAi(as({ action: "jobStep" })));
+  assert.deepEqual([end.status, end.done], ["done", 1]);
+  const d = store.get(`sessions/${CODE}/assess/s_${K1}`).seteuk;
+  assert.ok(d.draft.text.length > 20 && !d.text, "초안만 있고 확정본은 없다");
+  assert.equal(d.draft.emphasis, "growth");
+  const sub = await api.assess(as({ action: "subject", kind: "student", id: K1 }));
+  assert.equal(sub.seteuk.draft.text, d.draft.text);
+  assert.equal(sub.seteuk.draft.parts.length, 4);
+  const g = await api.assess(as({ action: "get" }));
+  assert.deepEqual(g.students.filter((x) => x.key === K1).map((x) => [x.hasDraft, x.hasSeteuk]), [[true, false]]);
+  await assert.rejects(() => api.assess(as({ action: "jobStart", type: "seteuk" })), /초안을 만들 학생이 없어요/);
+});
+
+// ---------- 평가 제외·이의 신청 마감·미리보기·내보내기 ----------
+test("통합 평가 제외: 결석·전학 학생은 진행률·확인할 것·서버 작업에서 빠지고, 학생은 점수 대신 안내를 본다. 되돌리면 그대로", async () => {
+  await seed({ assessMode: "ai_first" });
+  let g = await api.assess(as({ action: "get" }));
+  const before = g.progress.total;
+  await assert.rejects(() => api.assess(as({ action: "exclude", id: K2, reason: "sick" })), /까닭을 고르세요/);
+  const ex = await api.assess(as({ action: "exclude", id: K2, reason: "absent", note: "인정결석(병결)" }));
+  assert.equal(ex.excluded.label, "결석");
+  g = await api.assess(as({ action: "get" }));
+  assert.deepEqual(g.students.find((x) => x.key === K2).excluded, { reason: "absent", label: "결석", note: "인정결석(병결)" });
+  assert.equal(g.progress.total, before - 7, "제외한 학생의 7항목을 세지 않는다");
+  assert.equal(g.queue.observation, 1, "협력 점수 남은 학생도 제외한 학생은 빼고 센다");
+  const s = await api.assess(as({ action: "jobStart", type: "score" }));
+  assert.equal(s.job.total, 2, "AI 채점에서도 뺀다");
+  await api.assess(as({ action: "jobStop" }));
+  // 학생 화면: 점수 대신 평가 제외 안내(교사 메모는 보내지 않는다), 이의 신청도 막는다
+  store.set(`sessions/${CODE}/members/U2`, { ...store.get(`sessions/${CODE}/members/U2`), credKey: K2 });
+  await api.assess(as({ action: "release", score: true }));
+  const r = await api.myResult({ auth: { uid: "U2", token: {} }, data: { code: CODE } });
+  assert.deepEqual(r.excluded, { label: "결석" });
+  assert.equal(r.score, undefined);
+  assert.ok(!JSON.stringify(r).includes("병결"));
+  // 되돌리기
+  await api.assess(as({ action: "exclude", id: K2, reason: null }));
+  g = await api.assess(as({ action: "get" }));
+  assert.equal(g.students.find((x) => x.key === K2).excluded, null);
+  assert.equal(g.progress.total, before);
+});
+
+test("통합 이의 신청 마감: 마감이 지나면 이의를 보낼 수 없고, 학생 결과에 마감이 함께 온다", async () => {
+  await seed();
+  await api.assess(as({ action: "save", kind: "group", id: "g1", criterion: "c12", level: 1, note: "" }));
+  await api.assess(as({ action: "release", score: true }));
+  const stu = (data) => api.myResult({ auth: { uid: "U1", token: {} }, data: { code: CODE, ...data } });
+  await assert.rejects(() => api.assess(as({ action: "config", appealUntil: "어제" })), /마감 날짜/);
+  await api.assess(as({ action: "config", appealUntil: Date.now() - 1000 }));
+  assert.ok((await stu({})).appealUntil < Date.now());
+  await assert.rejects(() => stu({ appeal: { criterion: "c12", text: "다시 봐 주세요" } }), /이의 신청 기간이 끝났어요/);
+  await api.assess(as({ action: "config", appealUntil: Date.now() + 86400000 }));
+  const ok = await stu({ appeal: { criterion: "c12", text: "다시 봐 주세요" } });
+  assert.equal(ok.score.items.find((x) => x.id === "c12").appeal.status, "open");
+  await api.assess(as({ action: "config", appealUntil: null }));
+  assert.equal((await api.assess(as({ action: "get" }))).appealUntil, null);
+});
+
+test("통합 미리보기: 공개하기 전에도 학생이 볼 화면(확정한 점수만·세특)을 교사가 본다", async () => {
+  await seed({ assessMode: "ai_first" });
+  await api.assess(as({ action: "save", kind: "group", id: "g1", criterion: "c12", level: 1, note: "근거 부족" }));
+  store.set(`sessions/${CODE}/assess/s_${K1}`, { ...store.get(`sessions/${CODE}/assess/s_${K1}`), scores: { c11: { level: 0, pts: 10, note: "AI 제안", src: "ai", reviewed: false } }, seteuk: { text: "세특 본문임." } });
+  const p = await api.assess(as({ action: "preview", id: K1 }));
+  assert.equal(p.preview, true);
+  assert.deepEqual(p.releasedNow, { score: false, seteuk: false });
+  assert.equal(p.score.items.find((x) => x.id === "c12").pts, 8);
+  assert.equal(p.score.items.find((x) => x.id === "c11").scored, false, "확정 전 점수는 학생에게 보이지 않으니 미리보기에도 없다");
+  assert.equal(p.seteuk.text, "세특 본문임.");
+  // 학생 본인은 여전히 아무것도 못 본다
+  const r = await api.myResult({ auth: { uid: "U1", token: {} }, data: { code: CODE } });
+  assert.equal(r.score, undefined);
+});
+
+test("통합 내보내기: 학생마다 확정한 항목 점수·영역 합계·총점·확정 전 항목·세특과 바이트, 평가 제외 까닭", async () => {
+  await seed({ contrib: true });
+  await api.assess(as({ action: "save", kind: "group", id: "g1", criterion: "c12", level: 0, note: "두 바람을 모두 담고 근거가 분명함" }));
+  await api.assess(as({ action: "save", kind: "student", id: K1, criterion: "c11", level: 1, note: "" }));
+  await api.assess(as({ action: "save", kind: "student", id: K1, criterion: "c63", level: 1, note: "" }));
+  store.set(`sessions/${CODE}/assess/s_${K1}`, { ...store.get(`sessions/${CODE}/assess/s_${K1}`), scores: { ...store.get(`sessions/${CODE}/assess/s_${K1}`).scores, c21: { level: 1, pts: 8, src: "ai", reviewed: false } } });
+  await api.assess(as({ action: "seteukSave", id: K1, text: "자료를 비교해 원인을 분석함." }));
+  await api.assess(as({ action: "exclude", id: K2, reason: "transfer" }));
+  const x = await api.assess(as({ action: "export" }));
+  assert.equal(x.rubric.criteria.length, 14);
+  const a = x.rows.find((r) => r.nick === "가나"), b = x.rows.find((r) => r.nick === "다라");
+  assert.deepEqual([a.cells.c11.pts, a.cells.c11.level, a.cells.c12.pts, a.cells.c63.pts], [8, "잘함", 5, 8]);
+  assert.deepEqual([a.indiv, a.groupPts, a.total], [8, 13, 21]);
+  assert.deepEqual(a.pending, ["처음 내 생각 돌아보기"], "확정 전 AI 점수는 점수 칸에 넣지 않고 따로 알린다");
+  assert.deepEqual([a.seteuk, a.seteukBytes], ["자료를 비교해 원인을 분석함.", 40]);
+  assert.equal(b.excluded, "전학");
+});
+
+test("통합 서버 작업: 멈춘 작업의 마지막 대상을 처리하는 중에는 새 작업을 시작하지 않고, 옛 결과가 새 작업 목록에 섞이지 않는다", async () => {
+  await seed({ assessMode: "ai_first" });
+  await api.assess(as({ action: "jobStart", type: "score" }));
+  const j = job(); j.items[0] = { ...j.items[0], st: "doing", lease: Date.now() + 60000, tries: 1 }; store.set(`assessJobs/${CODE}`, j);
+  await api.assess(as({ action: "jobStop" }));
+  await assert.rejects(() => api.assess(as({ action: "jobStart", type: "score", redo: true })), /마무리하는 중/);
+  // lease 가 지나면 새로 시작할 수 있고, 이전 작업의 늦은 결과는 새 목록을 건드리지 않는다
+  const old = job(); old.items[0].lease = Date.now() - 1; store.set(`assessJobs/${CODE}`, old);
+  await api.assess(as({ action: "jobStart", type: "score", redo: true }));
+  const fresh = job();
+  assert.equal(fresh.items.every((x) => x.st === "todo"), true);
+});

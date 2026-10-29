@@ -141,6 +141,24 @@ function evidenceFor(critId, ctx) {
       add("인물 대화·생각 도우미", `인물에게 질문 ${st.chatCount || 0}번, 생각 도우미 ${st.coachCount || 0}번`);
       break;
     }
+    case "c63": {
+      // 모둠 기여도: 내가 모둠에 가져온 것(인물과 대화한 뒤의 정리, 내가 쓴 항목)과, 비교용으로 모둠이 실제로 정한 것.
+      // 정리 자체의 질은 c11 이 보므로, 여기서는 모둠이 쓸 수 있게 가져왔는지와 모둠의 결정에 쓰였는지를 본다.
+      const f = myFinding() || {};
+      if (f.submitted === false) add("(모둠 참고) 내 정리", "정리를 아직 모둠에 보이지 않았음");
+      else { add("모둠에 보낸 내 정리: 누구인지", f.who, 200); add("모둠에 보낸 내 정리: 힘든 것", f.hard, 200); add("모둠에 보낸 내 정리: 바라는 것", f.want, 200);
+        add("모둠에 보낸 내 정리: '어?' 했던 순간", f.surprise, 240); add("모둠에 보낸 내 정리: 기억에 남는 말", f.quote, 200); add("모둠에 보낸 내 정리: '정말 그럴까?' 싶은 말", f.doubt, 200); }
+      listOf(w.s2?.causes).filter(isMine).forEach((c) => add("내가 쓴 원인 추측", `${clip(c.text, 140)}${w.s3?.causes?.[c.id]?.status ? ` (모둠 판정: ${w.s3.causes[c.id].status})` : ""}`, 220));
+      listOf(w.s2?.checks).filter(isMine).forEach((c) => add("내가 쓴 확인 질문", c.question || c.heard, 180));
+      listOf(w.s4?.proposals).filter(isMine).forEach((p) => add("내가 낸 해결책", p.text, 200));
+      listOf(w.s5?.predictions).filter(isMine).forEach((r) => add(`내가 쓴 반응 예측: ${r.stakeholder || ""}`, r.text, 180));
+      const pb = w.s1?.problem || {};
+      add("(모둠 참고) 모둠이 정리한 같은 점·부딪히는 점", [pb.common, pb.conflict].filter(Boolean).join(" / "), 260);
+      add("(모둠 참고) 모둠이 풀 질문", pb.hmw, 200);
+      add("(모둠 참고) 모둠이 고른 가장 큰 원인", w.s3?.chain?.cause, 160);
+      add("(모둠 참고) 모둠의 최종 해결책", w.s4?.final, 200);
+      break;
+    }
     default: break;
   }
   // 한 기준의 근거가 너무 길면 뒤를 자른다(AI 입력 크기 보호)
