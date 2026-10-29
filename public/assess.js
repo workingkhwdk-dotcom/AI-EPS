@@ -100,7 +100,7 @@ function calibHtml(c, date) {
   return `<div class="as-calib ok"><b>교정 완료</b> ${c.reused ? `· 다른 수업(${esc(c.from)})에서 ${date(c.t)}에 한 교정을 <b>재사용</b> 중` : `· ${date(c.t)}`} · 자동 통과 가능한 기준 <b>${c.passed} / ${c.total}</b>
     ${c.overall ? `<span class="meta-line">(표본 ${c.overall.n}칸 · 일치율 ${fmtN(c.overall.exact, "%")} · 카파 ${fmtN(c.overall.kappa)})</span>` : ""}
     <details class="as-ev"><summary>기준별 결과</summary><div class="chipbar">${Object.entries(per).map(([id, x]) => { const cr = st.data.rubric.criteria.find((y) => y.id === id); return `<span class="chip sm ${x.pass ? "on" : ""}" title="비교 ${x.n}칸 · 일치율 ${fmtN(x.exact, "%")}">${esc(cr?.name || id)} ${x.pass ? "✓" : `✗ ${x.n}칸`}</span>`; }).join("")}</div>
-    <div class="meta-line">✗ 표시는 비교 표본이 3칸 미만이거나 AI와 덜 맞은 기준이에요(그 기준은 계속 예외 큐로 가요). 척도표나 사건·심화 설정을 바꾸면 다시 교정해요.</div></details>
+    <div class="meta-line">✗ 표시는 비교 표본이 모자라거나(학생 기준은 3칸, 모둠 기준은 표본 모둠 수만큼·최소 1칸) AI와 덜 맞은 기준이에요(그 기준은 계속 예외 큐로 가요). 표본 모둠이 하나뿐이면 1칸 비교라 거칠어요. 척도표나 사건·심화 설정을 바꾸면 다시 교정해요.</div></details>
     <div class="row" style="margin-top:6px"><button class="btn btn-plain btn-sm" data-ascalib type="button">다시 교정</button></div></div>`;
 }
 const relBtn = (k, name, on) => `<div class="as-rel-item ${on ? "on" : ""}"><span class="tag ${on ? "" : "x"}">${name} ${on ? "공개 중" : "비공개"}</span>

@@ -12,7 +12,7 @@ const { agreementStats, rankOf } = require("./assess");
 
 const T = {
   minEvidenceChars: 20, // 근거가 이보다 짧으면 AI 혼자 판단하지 않는다
-  calibMinPerCriterion: 3, calibExact: 75, calibAdjacent: 100, // 기준별 교정 통과(비교 3칸 이상, 일치율 75% 이상, 한 수준 이내 100%)
+  calibMinPerCriterion: 3, calibMinGroupFloor: 1, calibExact: 75, calibAdjacent: 100, // 기준별 교정 통과(학생 기준은 비교 3칸 이상, 모둠 기준은 표본 모둠 수만큼(최소 1칸), 일치율 75% 이상, 한 수준 이내 100%)
   calibPoolMin: 20, calibKappa: 0.6, calibBias: 0.4, // 전체 표본(20칸 이상)의 가중 카파와 후함/엄격함 편향
   sampleStudents: 6, sampleGroups: 4,
   auditMin: 5, auditExact: 70, auditRate: 10, // 감사: 재채점 5칸 이상에서 일치율 70% 미만이면 자동 통과 정지, 확정 칸의 1/10을 표본으로
@@ -98,10 +98,13 @@ function calibrationReport(rubric, docs, sample, keyOf) {
   const kappaOk = overall.kappa === null || distinct(0) < 2 || distinct(1) < 2 || overall.kappa >= T.calibKappa;
   const poolOk = overall.n < T.calibPoolMin ? overall.n >= 1 : kappaOk && Math.abs(overall.bias) < T.calibBias && overall.exact >= T.calibExact;
   const pass = {}, perCrit = {};
+  // 비교 칸 수의 최소: 학생 기준은 3칸, 모둠 기준은 표본 모둠 수만큼(모둠이 하나뿐이어도 1칸으로 시험한다. 표본이 작아 거치니 감사가 보완한다)
+  const nGroupSample = sample.filter((t) => t.kind === "group").length;
+  const minFor = (c) => (c.scope === "group" ? Math.max(T.calibMinGroupFloor, Math.min(T.calibMinPerCriterion, nGroupSample)) : T.calibMinPerCriterion);
   for (const c of rubric.criteria.filter((x) => x.ai)) {
     const st = agreementStats(per[c.id], n);
-    const ok = st.n >= T.calibMinPerCriterion && st.exact >= T.calibExact && st.adjacent >= T.calibAdjacent;
-    perCrit[c.id] = { n: st.n, exact: st.exact, adjacent: st.adjacent, pass: ok && poolOk };
+    const ok = st.n >= minFor(c) && st.exact >= T.calibExact && st.adjacent >= T.calibAdjacent;
+    perCrit[c.id] = { n: st.n, min: minFor(c), exact: st.exact, adjacent: st.adjacent, pass: ok && poolOk };
     pass[c.id] = ok && poolOk;
   }
   return { overall, poolOk, pass, perCriterion: perCrit, passed: Object.values(pass).filter(Boolean).length, total: Object.keys(pass).length, thresholds: T };

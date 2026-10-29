@@ -518,7 +518,8 @@ test("통합 교정: 켜면 교정 전에는 모두 예외, 표본을 AI 가린 
   assert.equal((await api.assess(as({ action: "applyAi", all: true }))).applied, 0);
   // 교사가 표본을 모두 채점(AI와 같은 수준으로) → 교정 완료
   const subG = await api.assess(as({ action: "subject", kind: "group", id: "g1" }));
-  for (const c of R.rubricFor("high", deepAll).criteria.filter((c) => c.scope === "group" && c.ai)) await api.assess(as({ action: "save", kind: "group", id: "g1", criterion: c.id, level: subG.empty[c.id] ? -1 : 1, note: "" }));
+  // 표본 모둠 하나: c12 는 일부러 AI(1)와 다르게(2) 채점해 그 기준만 교정을 통과 못 하게 한다
+  for (const c of R.rubricFor("high", deepAll).criteria.filter((c) => c.scope === "group" && c.ai)) await api.assess(as({ action: "save", kind: "group", id: "g1", criterion: c.id, level: subG.empty[c.id] ? -1 : c.id === "c12" ? 2 : 1, note: "" }));
   for (const x of sampleStudents) {
     const sub = await api.assess(as({ action: "subject", kind: "student", id: x.key }));
     for (const c of R.rubricFor("high", deepAll).criteria.filter((c) => c.scope === "student" && c.ai)) {
@@ -527,12 +528,13 @@ test("통합 교정: 켜면 교정 전에는 모두 예외, 표본을 AI 가린 
   }
   g = await api.assess(as({ action: "get" }));
   assert.equal(g.calib.state, "ready");
-  assert.ok(g.calib.passed >= 6 && g.calib.total === 12, JSON.stringify(g.calib));
+  assert.ok(g.calib.passed >= 9 && g.calib.total === 12, JSON.stringify(g.calib));
   const rec = store.get(`teacherAssess/T1/calibrations/${g.calib.key}`);
   assert.equal(rec.from, CODE);
   assert.ok(rec.pass.c11 && rec.pass.c21, "개인 기준은 통과");
-  assert.equal(rec.pass.c12, false, "표본 모둠이 1개라 모둠 기준은 교정 통과 못 함");
-  // 표본 밖 모둠(2모둠)은 교정을 통과하지 못한 모둠 기준이라 AI가 채점해도 예외로 간다
+  assert.equal(rec.pass.c12, false, "표본 모둠 1개에서 AI와 다르게 채점한 기준은 통과 못 함");
+  assert.equal(rec.pass.c23 && rec.pass.c32 && rec.pass.c51, true, "표본 모둠이 하나여도 같게 채점한 모둠 기준은 통과");
+  // 표본 밖 모둠(2모둠)도 교정을 통과하지 못한 기준(c12)은 AI가 채점해도 예외로 간다
   await api.assessAi(as({ action: "score", kind: "group", id: "g2" }));
   const qq = await api.assess(as({ action: "queue" }));
   assert.ok(qq.items.some((x) => x.id === "g2" && /교정을 통과하지 못했어요/.test(x.reasons.join())));

@@ -85,7 +85,7 @@ function calibDocs(agree) {
   }
   return { docs, sample, keyOf: (t) => `s_${t.id}` };
 }
-test("교정 보고서: 기준별로 비교 3칸 이상·일치율 75%·한 수준 이내 100%여야 통과, 모둠 칸은 표본이 모자라면 통과 못 한다", () => {
+test("교정 보고서: 기준별로 비교 칸 수·일치율 75%·한 수준 이내 100%여야 통과(학생 기준은 3칸, 모둠 기준은 표본 모둠 수만큼·최소 1칸), 모둠 표본이 없으면 모둠 기준은 통과 못 한다", () => {
   const { docs, sample, keyOf } = calibDocs(() => 1);
   assert.equal(AP.calibComplete(rub, docs, sample, keyOf), true);
   let rep = AP.calibrationReport(rub, docs, sample, keyOf);
@@ -93,6 +93,15 @@ test("교정 보고서: 기준별로 비교 3칸 이상·일치율 75%·한 수�
   assert.ok(studentIds.every((id) => rep.pass[id] === true && rep.perCriterion[id].n === 6));
   assert.ok(rub.criteria.filter((c) => c.scope === "group" && c.ai).every((c) => rep.pass[c.id] === false && rep.perCriterion[c.id].n === 0), "모둠 표본이 없으면 모둠 칸은 통과 못 함");
   assert.equal(rep.overall.exact, 100);
+  // 표본 모둠이 하나뿐이어도 그 모둠 칸에서 AI와 같으면 모둠 기준이 통과한다(1칸 비교). 다르면 통과 못 한다.
+  const withGroup = (agreeG) => { const d = calibDocs(() => 1); d.docs.g1 = { scores: {}, ai: {} }; for (const c of rub.criteria.filter((x) => x.scope === "group" && x.ai)) { d.docs.g1.ai[c.id] = { level: 1 }; d.docs.g1.scores[c.id] = { level: agreeG(c.id), pts: 0, src: "teacher" }; } d.sample.push({ kind: "group", id: "g1" }); return d; };
+  const keyG = (t) => (t.kind === "group" ? t.id : `s_${t.id}`);
+  const g1 = withGroup(() => 1);
+  rep = AP.calibrationReport(rub, g1.docs, g1.sample, keyG);
+  assert.ok(rub.criteria.filter((c) => c.scope === "group" && c.ai).every((c) => rep.pass[c.id] === true && rep.perCriterion[c.id].n === 1 && rep.perCriterion[c.id].min === 1));
+  assert.equal(rep.perCriterion.c11.min, 3, "학생 기준은 여전히 3칸");
+  assert.equal(AP.calibrationReport(rub, withGroup((id) => (id === "c12" ? 2 : 1)).docs, g1.sample, keyG).pass.c12, false, "다르면 통과 못 함");
+  assert.equal(AP.calibComplete(rub, g1.docs, g1.sample, keyG), true);
   // 한 기준에서 6칸 중 2칸이 다르면(일치율 66.7%) 그 기준만 통과 못 한다
   rep = AP.calibrationReport(rub, calibDocs((i, cid) => (cid === "c11" && i < 2 ? 2 : 1)).docs, sample, keyOf);
   assert.equal(rep.pass.c11, false);
