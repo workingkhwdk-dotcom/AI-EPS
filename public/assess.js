@@ -11,7 +11,7 @@ const $ = (s) => document.querySelector(s);
 const root = () => $("#as-root");
 const st = { code: null, data: null, view: "score", kind: "group", id: null, sub: null, blind: true, sk: {}, emphasis: "balance", recheck: null, rel: null, busy: false, rubricOpen: false };
 
-// 서버(functions/seteuk.js)와 같은 NAIS 바이트: 한글 3, 그 밖 1
+// 서버(functions/seteuk.js)와 같은 NEIS 바이트: 한글 3, 그 밖 1
 export const byteLen = (str) => { let n = 0; for (let i = 0; i < String(str ?? "").length; i++) { const c = String(str).charCodeAt(i); n += (c >= 0xac00 && c <= 0xd7a3) || (c >= 0x1100 && c <= 0x11ff) || (c >= 0x3130 && c <= 0x318f) ? 3 : 1; } return n; };
 const crit = (cid) => st.data.rubric.criteria.find((c) => c.id === cid);
 const critsOf = (kind) => st.data.rubric.criteria.filter((c) => c.scope === (kind === "student" ? "student" : "group"));
@@ -136,7 +136,7 @@ function seteukHtml() {
   return `<div class="card sk-root"><div class="row" style="justify-content:space-between"><h3 style="margin:0">세특 만들기</h3>
       <div class="row"><label class="meta-line">강조 관점 <select id="as-emp">${EMP.map(([k, n]) => `<option value="${k}" ${st.emphasis === k ? "selected" : ""}>${n}</option>`).join("")}</select></label>
       <label class="meta-line">글자 수 한도 <select id="as-max">${[1000, 1500, 2000].map((n) => `<option value="${n}" ${d.seteukMax === n ? "selected" : ""}>${n}바이트(약 ${Math.round(n / 3)}자)</option>`).join("")}</select></label></div></div>
-    <div class="meta-line">학생이 쓴 활동만 근거로 쓰고, 기승전결로 이어지는 한 문단을 만들어요. 순서는 <b>근거 확인 → 수준 판정 → 초안 → 분량 보정(NAIS 바이트) → 검토·저장</b>이에요. 초안은 참고용이니 꼭 읽고 고치세요.</div>
+    <div class="meta-line">학생이 쓴 활동만 근거로 쓰고, 기승전결로 이어지는 한 문단을 만들어요. 순서는 <b>근거 확인 → 수준 판정 → 초안 → 분량 보정(NEIS 바이트) → 검토·저장</b>이에요. 초안은 참고용이니 꼭 읽고 고치세요.</div>
     <div class="chipbar as-pick" style="margin-top:10px">${list.map((x) => `<button class="chip sm ${x.key === st.id ? "on" : ""}" data-asid="${esc(x.key)}">${esc(`${x.groupId.slice(1)}모둠 ${x.nick}`)} ${x.hasSeteuk ? "✓" : ""}</button>`).join("") || `<span class="meta-line">학생이 없어요.</span>`}</div></div>
     ${cur ? studentSeteukHtml(cur) : ""}`;
 }
@@ -177,7 +177,7 @@ function structureHtml(g) {
     <details class="as-ev"><summary>문장별 근거 보기</summary>${g.parts.flatMap((p) => p.sentences).map((x) => `<div class="logline"><div class="q">${esc(x.text)}</div><div class="a">${x.evidence.map((id) => `· ${esc(g.evidence[id]?.label || id)}: ${esc(g.evidence[id]?.text || "")}`).join("\n")}</div></div>`).join("")}</details></div>`;
 }
 
-const SK_STEPS = ["📄 학생이 쓴 근거를 확인하는 중…", "🔍 수준을 판정하는 중…", "✨ 기승전결로 기록을 쓰는 중…", "📏 분량(NAIS 바이트)을 맞추는 중…", "📏 목표 범위에 맞게 다듬는 중…"];
+const SK_STEPS = ["📄 학생이 쓴 근거를 확인하는 중…", "🔍 수준을 판정하는 중…", "✨ 기승전결로 기록을 쓰는 중…", "📏 분량(NEIS 바이트)을 맞추는 중…", "📏 목표 범위에 맞게 다듬는 중…"];
 async function makeSeteuk() {
   const k = skOf(st.id), id = st.id;
   await guard(async () => {

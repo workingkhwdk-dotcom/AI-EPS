@@ -1,14 +1,14 @@
-// 세특 만들기 순수 로직 테스트(seteuk.js): NAIS 바이트, 분량 수렴, 수준·빈약도 판정, 문체·기승전결 검사, 프롬프트.
+// 세특 만들기 순수 로직 테스트(seteuk.js): NEIS 바이트, 분량 수렴, 수준·빈약도 판정, 문체·기승전결 검사, 프롬프트.
 // Seteuk-all-in-one 스킬의 참조 구현체와 같은 값을 내는지 함께 확인한다.
 const test = require("node:test");
 const assert = require("node:assert");
 const SK = require("../seteuk");
 
-test("NAIS 바이트: 한글 3, 그 밖 1(스킬 참조 구현체와 같음)", () => {
-  assert.equal(SK.naisBytes("가"), 3);
-  assert.equal(SK.naisBytes("가a1 ."), 3 + 4);
-  assert.equal(SK.naisBytes("ㄱㅏ"), 6); // 호환 자모
-  assert.equal(SK.naisBytes(""), 0);
+test("NEIS 바이트: 한글 3, 그 밖 1(스킬 참조 구현체와 같음)", () => {
+  assert.equal(SK.neisBytes("가"), 3);
+  assert.equal(SK.neisBytes("가a1 ."), 3 + 4);
+  assert.equal(SK.neisBytes("ㄱㅏ"), 6); // 호환 자모
+  assert.equal(SK.neisBytes(""), 0);
   assert.equal(SK.sentenceGuide(500), "4~5문장");
   assert.equal(SK.sentenceGuide(1500), "9~12문장");
   assert.equal(SK.maxTokens(1500), 1000);

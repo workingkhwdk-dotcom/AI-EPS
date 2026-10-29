@@ -1,4 +1,4 @@
-// 세특(교과 세부능력 및 특기사항) 만들기의 순수 로직. Seteuk-all-in-one 스킬의 참조 구현체(NAIS 바이트·분량 수렴·수준·빈약도·문체 린트)를
+// 세특(교과 세부능력 및 특기사항) 만들기의 순수 로직. Seteuk-all-in-one 스킬의 참조 구현체(NEIS 바이트·분량 수렴·수준·빈약도·문체 린트)를
 // 이 앱의 근거(학생이 쓴 활동 기록)에 맞게 옮기고, 세특이 단편적으로 끊기지 않도록 '기승전결' 구조와 연결 검사를 더했다.
 //
 // 처리 순서(스킬의 파이프라인, index.js 의 assessAi 가 부른다)
@@ -6,14 +6,14 @@
 //  ② 수준 판정(seteukPrep): 5개 기준 S/A/B/C + AI 작성 의심 + 근거의 빈약도 → 빈약하면 교사가 하향·유지·취소를 고른다
 //  ③ 자기입력 대조(cross-check)는 이 앱에서 쓰지 않는다: 학생이 원자료와 별도로 쓴 '요약'을 받지 않기 때문(스킬: 요약이 없으면 생략)
 //  ④ 초안(seteukGenerate): 문체 규칙 + 기승전결 4부분 JSON + 수준·강조 축
-//  ⑤ 분량 수렴: NAIS 바이트로 목표 범위에 들 때까지 보정(초과 0, 미달 30 허용, 최대 10회, 시간 제한)
+//  ⑤ 분량 수렴: NEIS 바이트로 목표 범위에 들 때까지 보정(초과 0, 미달 30 허용, 최대 10회, 시간 제한)
 //  ⑥ 교사 검토·직접 수정·저장(assess 의 seteukSave, 화면은 assess.js)
 // AI 생성 품질(근거주의, 기승전결의 자연스러움)은 프롬프트로 유도할 뿐이다. 여기의 검사는 형식·구조·연결의 휴리스틱이므로 교사가 꼭 읽고 고친다.
 
 const clip = (s, n) => String(s ?? "").trim().replace(/\s+/g, " ").slice(0, n);
 
-// ---------- NAIS 바이트 (스킬 참조 구현체와 같다: 한글 3, 그 밖 1) ----------
-function naisBytes(text) {
+// ---------- NEIS 바이트 (스킬 참조 구현체와 같다: 한글 3, 그 밖 1) ----------
+function neisBytes(text) {
   if (!text) return 0;
   let bytes = 0;
   for (let i = 0; i < text.length; i++) {
@@ -278,7 +278,7 @@ function checkSeteuk(text, { nick = "", maxBytes = SETEUK_MAX.def } = {}) {
   const errors = [];
   const t = String(text ?? "").trim();
   if (!t) return { errors: ["내용이 비어 있어요."], warnings: [], bytes: 0 };
-  const bytes = naisBytes(t);
+  const bytes = neisBytes(t);
   if (bytes > maxBytes) errors.push(`글자 수가 ${bytes}바이트로 한도(${maxBytes}바이트)를 넘어요.`);
   return { errors, warnings: lintStyle(t, { nick }), bytes };
 }
@@ -291,7 +291,7 @@ async function convergeLength(generateFn, { target, tolUnder = PRESET.tolUnder, 
   let bestUnder = null, bestUnderDiff = Infinity, bestOver = null, bestOverDiff = Infinity;
   let text = await generateFn("init", null, 0);
   for (let i = 0; i <= maxAdjust; i++) {
-    const bytes = naisBytes(text);
+    const bytes = neisBytes(text);
     onTry({ n: i + 1, bytes });
     if (bytes >= lo && bytes <= hi) return { text, bytes, reason: "범위 내", tries: i + 1 };
     const diff = Math.abs(bytes - target);
@@ -302,7 +302,7 @@ async function convergeLength(generateFn, { target, tolUnder = PRESET.tolUnder, 
       if (diff < bestOverDiff) { bestOverDiff = diff; bestOver = { text, bytes }; }
       if (contentFirst) {
         const t2 = await generateFn("over", text, bytes);
-        const b2 = naisBytes(t2);
+        const b2 = neisBytes(t2);
         onTry({ n: i + 2, bytes: b2 });
         return { text: t2, bytes: b2, reason: "내용충실-1회압축", tries: i + 2 };
       }
@@ -311,14 +311,14 @@ async function convergeLength(generateFn, { target, tolUnder = PRESET.tolUnder, 
     if (deadline && Date.now() > deadline) { onTry({ n: i + 1, bytes, stop: "time" }); break; }
     text = await generateFn(bytes > hi ? "over" : "under", text, bytes);
   }
-  // 채택 우선순위: 범위 내 > 미달 최근접 > 초과 최근접(NAIS 등록 때 초과가 더 치명적이다)
+  // 채택 우선순위: 범위 내 > 미달 최근접 > 초과 최근접(NEIS 등록 때 초과가 더 치명적이다)
   if (bestUnder) return { ...bestUnder, reason: "미달 최근접", tries: maxAdjust + 1 };
   if (bestOver) return { ...bestOver, reason: "초과 최근접", tries: maxAdjust + 1 };
-  return { text, bytes: naisBytes(text), reason: "없음", tries: maxAdjust + 1 };
+  return { text, bytes: neisBytes(text), reason: "없음", tries: maxAdjust + 1 };
 }
 
 module.exports = {
-  clip, naisBytes, sentenceGuide, maxTokens, PRESET, SETEUK_MAX,
+  clip, neisBytes, sentenceGuide, maxTokens, PRESET, SETEUK_MAX,
   CRITERIA, GRADES, overallSuspicion, overallGrade, computeSafeTarget, richnessFromQuality, resolveDecision, EXPANSION_RATIO,
   levelMessages, parseLevel, LEVEL_STYLE, EMPHASIS, PARTS, PART_GUIDE, ROLE_OF, CONNECTIVES,
   draftMessages, fixMessages, parseDraft, assemble, checkFlow, lintStyle, checkSeteuk, splitSentences, convergeLength,

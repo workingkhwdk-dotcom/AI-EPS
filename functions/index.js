@@ -1496,7 +1496,7 @@ exports.assessAi = onCall(assessAiOpts, async (req) => {
 
     if (action === "seteukPrep") {
       if (used + 2 > ASSESS_AI_CAP) throw new HttpsError("resource-exhausted", `이 수업의 평가용 AI 호출 한도(${ASSESS_AI_CAP}회)에 가까워 더 받을 수 없어요.`);
-      const inputBytes = SK.naisBytes(items.map((e) => e.text).join(" "));
+      const inputBytes = SK.neisBytes(items.map((e) => e.text).join(" "));
       let lv, last;
       for (let i = 0; i < 2 && !lv; i++) {
         await bump(1);
@@ -1513,7 +1513,7 @@ exports.assessAi = onCall(assessAiOpts, async (req) => {
       return prep;
     }
 
-    // ---- ④⑤ 초안(기승전결 4부분) + NAIS 바이트 수렴 ----
+    // ---- ④⑤ 초안(기승전결 4부분) + NEIS 바이트 수렴 ----
     const prep = doc.seteuk?.prep;
     if (!prep || prep.target !== target) throw new HttpsError("failed-precondition", "먼저 수준 판정을 해 주세요. (글자 수 한도를 바꿨다면 다시 판정해야 해요)");
     const grade = SK.GRADES.includes(req.data?.grade) ? req.data.grade : prep.grade;

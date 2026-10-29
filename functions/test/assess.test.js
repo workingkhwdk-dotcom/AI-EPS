@@ -454,7 +454,7 @@ test("통합 세특: 수준 판정(5개 기준·AI 의심·빈약도)을 하고 
   await assert.rejects(() => prep(credKey(2, "라마")), /활동 기록이 없어/);
 });
 
-test("통합 세특: 기승전결 4부분으로 쓰고, 근거 없는 문장은 빼며, NAIS 바이트 목표 범위에 들 때까지 보정한다", async () => {
+test("통합 세특: 기승전결 4부분으로 쓰고, 근거 없는 문장은 빼며, NEIS 바이트 목표 범위에 들 때까지 보정한다", async () => {
   await seed({ seteukMax: 600 });
   levelMode = "normal"; fill = 150; withBad = true; draftMsgs.length = 0; // 처음엔 크게 초과하게 쓴다
   await prep();

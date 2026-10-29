@@ -304,9 +304,9 @@ function checkScoreInput({ c, level, note, evidenceIsEmpty, aiLevel }) {
 }
 
 // ---------- 세특 ----------
-// 세특 규칙(NAIS 바이트, 문체·구조 검사, 수준 판정, 분량 수렴)은 seteuk.js 에 있다. 저장·화면이 쓰는 이름만 여기서 다시 내보낸다.
+// 세특 규칙(NEIS 바이트, 문체·구조 검사, 수준 판정, 분량 수렴)은 seteuk.js 에 있다. 저장·화면이 쓰는 이름만 여기서 다시 내보낸다.
 const SK = require("./seteuk");
-const byteLen = SK.naisBytes, SETEUK_MAX = SK.SETEUK_MAX, checkSeteuk = SK.checkSeteuk;
+const byteLen = SK.neisBytes, SETEUK_MAX = SK.SETEUK_MAX, checkSeteuk = SK.checkSeteuk;
 const isRefLabel = (label) => REF_LABELS.test(label);
 
 module.exports = {
