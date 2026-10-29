@@ -2461,3 +2461,202 @@ test("수업 안내 페이지: 1~7단계·중고 차이·심화 활동·교사 �
     await ctx.close();
   }
 });
+
+// ---------- 평가(교사 채점·공개)와 학생 결과 ----------
+const RUBRIC = require("../functions/rubric");
+const A_THRESH = { minPairs: 10, exact: 70, adjacent: 95, kappa: 0.6, selfConsistency: 70, recheckExact: 75, bias: 0.4 };
+function assessFixture() {
+  const st = teacherFixture(), base = st.handler;
+  const rubric = RUBRIC.rubricFor("high", { causeMap: true });
+  const S = { scores: {}, release: { score: false, seteuk: false }, seteukText: "", seteukMax: 1500, aiAsked: false };
+  const ev = { c12: [{ id: "e1", label: "같은 점", text: "모두 안전을 바란다" }, { id: "e2", label: "우리가 풀 질문", text: "어떻게 하면 안전을 지키면서도 인권을 존중할 수 있을까?" }], c22: [{ id: "e1", label: "원인 추측", text: "사람들의 불안" }] };
+  const grp = rubric.criteria.filter((c) => c.scope === "group");
+  st.assess = S;
+  st.handler = async (name, data) => {
+    if (name === "assess") {
+      st.calls.push([name, data]);
+      switch (data.action) {
+        case "get": return {
+          rubric, groups: [{ id: "g1", name: "1모둠", members: 2, scored: Object.keys(S.scores).length, total: grp.length }, { id: "g2", name: "2모둠", members: 0, scored: 0, total: grp.length }],
+          students: [{ key: "k1", nick: "가람", code: "S-AB12", groupId: "g1", scored: 0, total: 4, hasSeteuk: !!S.seteukText }, { key: "k2", nick: "나래", code: "S-0F3C", groupId: "g1", scored: 0, total: 4, hasSeteuk: false }],
+          progress: { done: Object.keys(S.scores).length, total: 2 * grp.length + 8, reviewCount: 0 }, release: S.release, seteukMax: S.seteukMax, seteukRange: [300, 3000], aiUsed: 0, aiCap: 1500, aiRuns: 3, thresholds: A_THRESH };
+        case "subject": {
+          const cs = data.kind === "group" ? grp : rubric.criteria.filter((c) => c.scope === "student");
+          return { kind: data.kind, id: data.id, evidence: Object.fromEntries(cs.map((c) => [c.id, ev[c.id] || []])), empty: Object.fromEntries(cs.map((c) => [c.id, !(ev[c.id] || []).length])), scores: S.scores,
+            ai: S.scores.c12 ? { c12: { level: 1, levels: [1, 1, 1], spread: 0, quote: "모두 안전을 바란다", quoteOk: true, reason: "두 바람을 담았으나 근거가 부족", n: 3 } } : {}, hasAi: S.aiAsked ? { c12: true } : {}, review: {}, seteuk: { text: S.seteukText, t: 0 } };
+        }
+        case "save": {
+          const c = rubric.criteria.find((x) => x.id === data.criterion);
+          if (data.level === 0 && String(data.note || "").length < 8) throw new Error("functions: 가장 높은 수준은 평가 근거를 8자 이상 써야 해요.");
+          S.scores[data.criterion] = { level: data.level, pts: data.level === -1 ? 0 : c.levels[data.level].pts, note: data.note, t: 1 };
+          return { score: S.scores[data.criterion], ai: data.criterion === "c12" ? { level: 1, levels: [1, 1, 1], spread: 0, quote: "모두 안전을 바란다", quoteOk: true, reason: "두 바람을 담았으나 근거가 부족", n: 3 } : null, review: null };
+        }
+        case "release": S.release = { ...S.release, ...(data.score !== undefined ? { score: data.score } : {}), ...(data.seteuk !== undefined ? { seteuk: data.seteuk } : {}) }; return { release: S.release };
+        case "seteukSave": S.seteukText = data.text; return { text: data.text, bytes: 10, warnings: [] };
+        case "config": S.seteukMax = data.seteukMax; return { seteukMax: data.seteukMax };
+        case "reliability": return { overall: { n: 12, exact: 58.3, adjacent: 100, kappa: 0.52, bias: 0.42 }, byCriterion: [{ id: "c12", name: "모둠 문제 정하기", n: 12, exact: 58.3, adjacent: 100, kappa: 0.52, bias: 0.4 }], recheck: { n: 0, exact: null, adjacent: null, kappa: null, bias: null }, self: { n: 12, same: 75 },
+          distribution: [{ id: "c12", name: "모둠 문제 정하기", n: 12, mean: 72.5, sd: 14.2 }], warnings: ["교사–AI 일치율 58.3%가 기준(70%)보다 낮습니다. 불일치 항목을 다시 살펴보세요."], thresholds: A_THRESH, groups: [{ id: "g1", name: "1모둠", group: 52 }], scored: 12 };
+        case "recheck": return { items: [], left: 0, total: 12 };
+        default: return {};
+      }
+    }
+    if (name === "assessAi") { st.calls.push([name, data]); S.aiAsked = true; return data.action === "seteuk" ? { text: "인물 인터뷰에서 어려움을 파악함. 원인을 제도에서 찾음.", sentences: [{ text: "인물 인터뷰에서 어려움을 파악함.", evidence: ["e1"] }, { text: "원인을 제도에서 찾음.", evidence: ["e2"] }], dropped: [{ text: "리더십이 뛰어남.", why: "근거가 연결되지 않아 뺐어요" }], warnings: [], bytes: 90, max: 1500, evidence: { e1: { label: "내 활동 · 힘든 것", text: "일자리를 구하기 어려움" }, e2: { label: "모둠 활동 · 가장 큰 원인", text: "제도 이해 부족" } } } : { ok: 3, auto: 1, failedRuns: 0 }; }
+    return base(name, data);
+  };
+  return st;
+}
+
+test("교사 평가: 척도표 점수가 보이고, 근거가 있어야 채점하며, AI 제안은 내가 저장한 뒤에만 보인다", async () => {
+  const st = assessFixture(), { pg, errors } = await openTeacher(st);
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-root .as-crit");
+  assert.match(await pg.locator("#as-root .as-head").innerText(), /고등학교 척도[\s\S]*만점 100점\(개인 25 \+ 모둠 75\)/);
+  const crit = pg.locator('[data-cid="c12"]');
+  // 학생이 쓴 근거를 그대로 보여 주고, 수준마다 점수가 붙어 있다
+  assert.match(await crit.innerText(), /모두 안전을 바란다/);
+  assert.deepEqual(await crit.locator(".lvopt .tag.b").allInnerTexts(), ["10점", "8점", "6점", "4점", "0점"]);
+  // 근거가 없는 칸(c31)은 미제출만 고를 수 있다
+  const empty = pg.locator('[data-cid="c31"]');
+  assert.ok(await empty.locator('input[value="1"]').isDisabled());
+  assert.ok(await empty.locator('input[value="-1"]').isEnabled());
+  // AI 제안이 준비됐어도 저장 전에는 잠겨 있다
+  await pg.click("[data-asai]");
+  await pg.waitForFunction(() => /AI 제안을 받았어요/.test(document.querySelector(".toast")?.textContent || ""));
+  assert.match(await crit.innerText(), /AI 제안이 준비돼 있어요/);
+  assert.equal(await crit.locator(".as-ai").count(), 0);
+  // 가장 높은 수준은 평가 근거가 필요하다(서버 메시지를 그대로 보여 준다)
+  await crit.locator('input[value="0"]').check();
+  await crit.locator("[data-assave]").click();
+  await pg.waitForFunction(() => /평가 근거를 8자/.test(document.querySelector(".toast.err")?.textContent || ""));
+  // 한 수준 낮추어 저장하면 그 기준의 AI 제안이 열린다
+  await crit.locator('input[value="1"]').check();
+  await crit.locator("[data-assave]").click();
+  await pg.waitForSelector('[data-cid="c12"] .as-ai');
+  const ai = await pg.locator('[data-cid="c12"] .as-ai').innerText();
+  assert.match(ai, /AI 제2평정 잘함 8점/); assert.match(ai, /3회 일치/); assert.match(ai, /인용 확인됨/); assert.match(ai, /내 채점과 같음/); assert.match(ai, /최종 판단은 교사/);
+  assert.equal(st.calls.filter(([n, d]) => n === "assess" && d.action === "save").length, 2);
+  if (process.env.UI_SHOT) await pg.screenshot({ path: `${process.env.UI_SHOT}/assess-pc.png`, fullPage: true });
+  assert.deepEqual(errors, []);
+});
+
+test("교사 평가: 점수 공개와 세특 공개는 서로 독립이고, 공개 전에 확인 창을 거치며, 끄면 바로 꺼진다", async () => {
+  const st = assessFixture(), { pg, errors } = await openTeacher(st);
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-root .as-rel");
+  assert.match(await pg.locator(".as-rel").innerText(), /점수 비공개[\s\S]*세특 비공개/);
+  await pg.click('[data-asrel="score"]');
+  assert.match(await pg.locator(".modal").innerText(), /내 결과[\s\S]*채점하지 않은 칸이/);
+  await pg.click(".modal .btn-primary");
+  await pg.waitForFunction(() => /점수 공개 중/.test(document.querySelector(".as-rel")?.innerText || ""));
+  assert.match(await pg.locator(".as-rel").innerText(), /세특 비공개/, "점수만 공개되고 세특은 그대로");
+  assert.deepEqual(st.calls.filter(([n, d]) => n === "assess" && d.action === "release").map(([, d]) => ({ score: d.score, seteuk: d.seteuk })), [{ score: true, seteuk: undefined }]);
+  await pg.click('[data-asrel="seteuk"]');
+  await pg.click(".modal .btn-primary");
+  await pg.waitForFunction(() => /세특 공개 중/.test(document.querySelector(".as-rel")?.innerText || ""));
+  // 점수만 끈다 — 확인 창 없이 바로
+  await pg.click('[data-asrel="score"]');
+  await pg.waitForFunction(() => /점수 비공개/.test(document.querySelector(".as-rel")?.innerText || ""));
+  assert.match(await pg.locator(".as-rel").innerText(), /세특 공개 중/);
+  assert.equal(st.assess.release.score, false); assert.equal(st.assess.release.seteuk, true);
+  assert.deepEqual(errors, []);
+});
+
+test("교사 평가: 세특 초안 → 바이트 수 표시·한도 초과 표시 → 저장, 신뢰도 점검과 척도표 보기", async () => {
+  const st = assessFixture(), { pg, errors } = await openTeacher(st);
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-root .as-crit");
+  await pg.click('[data-asv="seteuk"]');
+  await pg.waitForSelector("#as-seteuk");
+  await pg.click("[data-asdraft]");
+  await pg.waitForFunction(() => document.querySelector("#as-seteuk")?.value.includes("인물 인터뷰"));
+  assert.match(await pg.locator("#as-root").innerText(), /뺀 문장: “리더십이 뛰어남.”\(근거가 연결되지 않아 뺐어요\)/);
+  await pg.fill("#as-seteuk", "가".repeat(600));
+  assert.match(await pg.locator("#as-bytes").innerText(), /1800 \/ 1500바이트/);
+  assert.equal(await pg.locator("#as-bytes").getAttribute("class"), "as-over");
+  await pg.fill("#as-seteuk", "자료를 비교해 원인을 분석함.");
+  await pg.click("[data-asseteuk]");
+  await pg.waitForFunction(() => /저장했어요/.test(document.querySelector(".toast")?.textContent || ""));
+  assert.equal(st.assess.seteukText, "자료를 비교해 원인을 분석함.");
+  // 신뢰도 점검
+  await pg.click('[data-asv="reli"]');
+  await pg.waitForSelector(".as-stats");
+  const rel = await pg.locator("#as-body").innerText();
+  assert.match(rel, /58\.3%/); assert.match(rel, /가중 카파/); assert.match(rel, /기준 70% 이상/); assert.match(rel, /일치율 58\.3%가 기준\(70%\)보다 낮습니다/); assert.match(rel, /1모둠 52점/);
+  assert.equal(await pg.locator(".as-stat.bad").count() >= 1, true);
+  // 척도표
+  await pg.click('[data-asv="rubric"]');
+  const rb = await pg.locator("#as-body").innerText();
+  assert.match(rb, /고등학교 평가 척도표/); assert.match(rb, /매우 잘함[\s\S]*잘함[\s\S]*보통[\s\S]*노력 필요/); assert.match(rb, /10점/); assert.match(rb, /심화: 원인을 둘 이상 쓰고/);
+  assert.deepEqual(errors, []);
+});
+
+test("교사 평가(휴대폰): 아래 메뉴에 평가가 있고 열면 가로로 넘치지 않는다", async () => {
+  const st = assessFixture(), { pg, errors } = await openTeacher(st, { page: "m-teacher.html", ctxOpts: { userAgent: IPHONE, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true } });
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-root .as-crit");
+  assert.equal(await pg.locator("#ctabs button").count(), 5);
+  assert.ok(await pg.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), "가로로 넘치지 않는다");
+  if (process.env.UI_SHOT) await pg.screenshot({ path: `${process.env.UI_SHOT}/assess-m.png` });
+  assert.deepEqual(errors, []);
+});
+
+const RESULT = {
+  title: "테스트 수업", nickname: "가람", groupId: "g1", released: { score: true, seteuk: false },
+  score: { total: 18, max: 100, indiv: 10, group: 8, indivMax: 25, groupMax: 75, done: 2, count: 13, complete: false, labels: ["매우 잘함", "잘함", "보통", "노력 필요"],
+    items: [{ id: "c11", element: "문제 이해와 정의", name: "인물 이해: 대화와 정리", scope: "student", max: 10, scored: true, pts: 10, level: "매우 잘함", desc: "인물이 누구인지·무엇이 힘든지를 알아냈다.", note: "세 가지를 모두 알아냄" },
+      { id: "c12", element: "문제 이해와 정의", name: "모둠 문제 정하기", scope: "group", max: 10, scored: true, pts: 8, level: "잘함", desc: "문제 문장이 두 바람을 담았다.", note: "" },
+      { id: "c21", element: "원인 탐색과 검증", name: "처음 내 생각 돌아보기", scope: "student", max: 5, scored: false, pts: null, level: null, desc: "", note: "" }] },
+};
+test("학생 결과: 입장 화면에서 모둠·별명·비밀번호로 점수를 보고(수업이 끝난 뒤), 세특은 공개된 때만 보인다", async () => {
+  const st = studentFixture(), h0 = st.handler;
+  let reply = RESULT; // 이 테스트 안에서 서버의 답을 바꾼다
+  st.handler = async (name, data) => { if (name === "myResult") { st.calls.push([name, data]); if (data.password === "bad") throw new Error("functions: 비밀번호가 맞지 않습니다."); return reply; } return h0(name, data); };
+  const { pg, errors } = await openStudent(st);
+  await pg.fill("#j-code", "abc234");
+  await pg.click("#res-join");
+  await pg.waitForFunction(() => /모두 입력하세요/.test(document.querySelector(".toast.err")?.textContent || ""));
+  assert.ok(!st.calls.some(([n]) => n === "myResult"), "빈 칸이면 부르지 않는다");
+  await pg.fill("#j-group", "1"); await pg.fill("#j-nick", "가람"); await pg.fill("#j-pw", "bad");
+  await pg.click("#res-join");
+  await pg.waitForFunction(() => /비밀번호가 맞지 않/.test(document.querySelector(".toast.err")?.textContent || ""));
+  await pg.fill("#j-pw", "pw1234");
+  await pg.click("#res-join");
+  await pg.waitForSelector(".modal .res-total");
+  const m = await pg.locator(".modal").innerText();
+  assert.match(m, /가람의 결과/); assert.match(m, /18\s*\/ 100점/); assert.match(m, /내 활동 10 \/ 25점 \+ 우리 모둠 활동 8 \/ 75점/); assert.match(m, /아직 11칸은 채점 전/);
+  assert.match(m, /인물 이해: 대화와 정리[\s\S]*10 \/ 10점[\s\S]*매우 잘함[\s\S]*세 가지를 모두 알아냄/);
+  assert.match(m, /처음 내 생각 돌아보기[\s\S]*채점 전/);
+  assert.ok(!/내 세특/.test(m), "세특은 공개되지 않았으니 보이지 않는다");
+  if (process.env.UI_SHOT) await pg.screenshot({ path: `${process.env.UI_SHOT}/result.png` });
+  assert.deepEqual(st.calls.filter(([n]) => n === "myResult").at(-1)[1], { code: "ABC234", groupNo: 1, nickname: "가람", password: "pw1234" });
+  assert.deepEqual(errors, []);
+  // 세특만 공개된 응답
+  reply = { title: "t", nickname: "가람", groupId: "g1", released: { score: false, seteuk: true }, seteuk: { text: "인물 인터뷰에서 어려움을 파악함." } };
+  await pg.click(".modal .btn-primary");
+  await pg.waitForFunction(() => document.querySelector("#j-pw").value === "", null, { timeout: 5000 }); // 확인 창을 닫으면 비밀번호 칸을 비운다
+  await pg.fill("#j-pw", "pw1234");
+  await pg.click("#res-join");
+  await pg.waitForSelector(".modal .res-seteuk");
+  const m2 = await pg.locator(".modal").innerText();
+  assert.match(m2, /내 세특[\s\S]*인물 인터뷰에서 어려움을 파악함\./); assert.ok(!/내 점수/.test(m2));
+});
+
+test("학생 결과: 수업 중 선생님이 공개하면 '내 결과' 단추가 나타나 강조되고, 누르면 결과 창, 보고 나면 강조가 사라진다", async () => {
+  const st = studentFixture(), h0 = st.handler;
+  st.handler = async (name, data) => { if (name === "myResult") { st.calls.push([name, data]); return RESULT; } return h0(name, data); };
+  const { pg, errors } = await openStudent(st);
+  await login(pg);
+  assert.ok(await pg.locator("#res-btn").isHidden(), "공개 전에는 단추가 없다");
+  await pg.evaluate(() => window.__push("sessions/ABC234", { chatLimit: 5, release: { score: true, seteuk: false, t: 111 } }));
+  await pg.waitForSelector("#res-btn:not(.hidden)");
+  assert.ok(await pg.locator("#res-btn.has-new").count() === 1);
+  await pg.click("#res-btn");
+  await pg.waitForSelector(".modal .res-total");
+  assert.deepEqual(st.calls.find(([n]) => n === "myResult")[1], { code: "ABC234" }, "수업 중에는 비밀번호 없이 로그인한 계정으로 부른다");
+  await pg.click(".modal .btn-primary");
+  await pg.waitForFunction(() => !document.querySelector("#res-btn").classList.contains("has-new"));
+  // 선생님이 다시 끄면 단추가 사라진다
+  await pg.evaluate(() => window.__push("sessions/ABC234", { chatLimit: 5, release: { score: false, seteuk: false, t: 112 } }));
+  await pg.waitForSelector("#res-btn.hidden", { state: "attached" });
+  assert.deepEqual(errors, []);
+});

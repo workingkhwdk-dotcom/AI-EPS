@@ -1054,3 +1054,42 @@ input[type=email]{ font:inherit; font-size:16px; width:100%; padding:11px 13px; 
 .t-help a{ font-weight:700; color:var(--accent); text-decoration:none; }
 .t-help a:hover{ text-decoration:underline; }
 .t-help .link{ font-size:13px; }
+
+/* ---------- 평가 탭(교사)과 내 결과(학생) ---------- */
+.as-rel{ display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+.as-rel-item{ display:flex; align-items:center; gap:8px; background:var(--fill); border-radius:12px; padding:8px 12px; }
+.as-rel-item.on{ background:var(--green-tint); }
+.as-pick .as-n{ opacity:.7; font-weight:600; margin-left:2px; }
+.chk{ font-size:13px; display:inline-flex; align-items:center; gap:6px; color:var(--ink-2); cursor:pointer; }
+.chk input{ width:18px; height:18px; }
+.as-crit h4{ font-size:15px; line-height:1.5; }
+.as-ev{ margin-top:10px; background:var(--fill); border-radius:12px; padding:8px 12px; }
+.as-ev summary{ cursor:pointer; font-weight:700; font-size:13.5px; }
+.as-lv{ display:grid; gap:8px; margin:12px 0 4px; }
+.lvopt{ display:grid; grid-template-columns:24px 1fr; column-gap:6px; align-items:start; padding:10px 12px; border-radius:12px; border:1.5px solid var(--sep); cursor:pointer; background:var(--surface); }
+.lvopt input{ grid-row:span 2; margin:3px 0 0; width:18px; height:18px; }
+.lvopt.cur, .lvopt:has(input:checked){ border-color:var(--accent); background:var(--accent-tint); }
+.lvopt:has(input:disabled){ opacity:.45; cursor:not-allowed; }
+.lvd{ font-size:13px; color:var(--ink-2); line-height:1.55; }
+.as-ai{ margin-top:12px; border-radius:12px; padding:10px 12px; background:var(--fill); font-size:13.5px; line-height:1.7; }
+.as-ai.same{ background:var(--green-tint); }
+.as-ai.dev{ background:var(--warn-tint); }
+.as-stats{ display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-top:12px; }
+.as-stat{ background:var(--fill); border-radius:14px; padding:10px 12px; }
+.as-stat .big{ font-size:24px; font-weight:800; letter-spacing:-0.02em; }
+.as-stat.ok{ background:var(--green-tint); }
+.as-stat.bad{ background:var(--warn-tint); }
+.as-over{ color:var(--danger); font-weight:800; font-size:13px; }
+.as-rc{ border-top:1px solid var(--sep); padding:12px 0; }
+.as-rubric td, .as-rubric th{ min-width:150px; font-size:12.5px; }
+.as-rubric td:first-child, .as-rubric th:first-child{ min-width:180px; }
+.as-el td{ background:var(--accent-tint); font-weight:800; color:var(--accent); }
+/* 학생 결과 창 */
+.res-total{ font-size:34px; font-weight:800; letter-spacing:-0.03em; color:var(--accent); }
+.res-total small{ font-size:15px; color:var(--ink-2); font-weight:700; }
+.res-item{ padding:10px 0; box-shadow:inset 0 -0.5px 0 var(--sep); }
+.res-item .rh{ display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
+.res-note{ margin-top:4px; padding:8px 10px; border-radius:10px; background:var(--fill); font-size:13.5px; white-space:pre-wrap; }
+.res-seteuk{ white-space:pre-wrap; background:var(--paper); border:1px solid var(--paper-line); border-radius:12px; padding:12px 14px; line-height:1.85; }
+.res-link{ margin:10px 0 0; }
+.btn-out.has-new{ background:#fff; color:var(--navy); border-color:#fff; }

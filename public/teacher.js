@@ -3,6 +3,7 @@ import { waitHtml, startWaitTicker, STEPS } from "./wait.js";
 import { showModal, confirmModal } from "./modal.js";
 import { initTopics, loadTopics, topicClassTitle, topicReady } from "./topics.js";
 import { runTour } from "./tour.js";
+import { openAssess } from "./assess.js";
 startWaitTicker();
 import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { collection, query, where, orderBy, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -156,7 +157,7 @@ const TOUR_CLASS = [
   { el: "#lobby", title: "수업 시작", text: "<p>학생들은 들어와서 대기실에서 기다려요. 모둠이 다 모이면 <b>수업 시작하기</b>를 눌러요.</p>" },
   { el: "#notice-card", title: "학생에게 한마디", text: "<p>\"5분 남았어요\" 같은 짧은 공지를 모든 모둠이나 한 모둠에게 보내요. 학생 화면 위쪽에 떠요.</p>" },
   { el: "#students", title: "학생과 모둠 진행", text: "<p>학생마다 지금 몇 단계인지, 질문을 몇 번 썼는지 보여요. 아래 <b>모둠 진행</b>에서 대화 기록과 AI 기록을 열어 볼 수 있어요. 문제가 생기면 위쪽 <b>확인이 필요해요</b>에 바로 나타나요.</p>" },
-  { el: "#ctabs", title: "수업 메뉴", text: "<p><b>자료 관리</b>·<b>인물 편집</b>으로 이 수업만의 자료를 고치고, <b>수업 설정</b>에서 학교급과 <b>심화 활동</b>을 하나씩 켜고 꺼요.</p>" },
+  { el: "#ctabs", title: "수업 메뉴", text: "<p><b>자료 관리</b>·<b>인물 편집</b>으로 이 수업만의 자료를 고치고, <b>평가</b>에서 척도표로 채점하고 세특을 쓰고 점수·세특을 따로 공개해요. <b>수업 설정</b>에서는 학교급과 <b>심화 활동</b>을 하나씩 켜고 꺼요.</p>" },
   { el: "#csv-btn", title: "기록 남기기와 닫기", text: "<p>수업이 끝나면 <b>기록 CSV</b>를 받아 두고, 위쪽 단추로 수업을 닫아요. 닫으면 학생이 더 쓸 수 없어요.</p>" },
 ];
 $("#tour-btn").onclick = () => { const inClass = !$("#class-view").classList.contains("hidden"); runTour(inClass ? "teacher-class" : "teacher-main", inClass ? TOUR_CLASS : TOUR_MAIN, { force: true }); };
@@ -173,9 +174,10 @@ $("#tabs").onclick = (e) => { const b = e.target.closest("[data-tab]"); if (b) s
 // 수업을 연 뒤의 세 가지 작업: 진행 현황 / 자료 관리 / 수업 설정
 function showCTab(name) {
   document.querySelectorAll("#ctabs button").forEach((b) => b.classList.toggle("on", b.dataset.ctab === name));
-  for (const t of ["live", "materials", "personas", "settings"]) $(`#cpane-${t}`).classList.toggle("hidden", t !== name);
+  for (const t of ["live", "materials", "personas", "assess", "settings"]) $(`#cpane-${t}`).classList.toggle("hidden", t !== name);
   if (name === "materials") loadMats();
   if (name === "personas") loadPersonaEdit();
+  if (name === "assess") openAssess(current);
   if (name === "settings") fillSettings();
 }
 $("#ctabs").onclick = (e) => { const b = e.target.closest("[data-ctab]"); if (b) showCTab(b.dataset.ctab); };

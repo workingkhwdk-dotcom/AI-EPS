@@ -339,6 +339,10 @@ async function moveMember(code, groupId, fromUid, toUid) {
     upd[`work.s1.findings.${toUid}`] = work.s1.findings[fromUid];
     upd[`work.s1.findings.${fromUid}`] = FieldValue().delete();
   }
+  if (work.s7?.after?.[fromUid] !== undefined) {
+    upd[`work.s7.after.${toUid}`] = work.s7.after[fromUid];
+    upd[`work.s7.after.${fromUid}`] = FieldValue().delete();
+  }
   if (work.live?.[fromUid] !== undefined) upd[`work.live.${fromUid}`] = FieldValue().delete();
   for (const [pid, pk] of Object.entries(grp.picks || {})) if (pk?.uid === fromUid) upd[`picks.${pid}.uid`] = toUid;
   upd[`names.${fromUid}`] = FieldValue().delete(); // 모둠원 별명 목록(대기실에 보인다)은 입장 처리에서 새 uid 로 다시 적는다
@@ -700,6 +704,7 @@ exports.moveStudent = onCall(opts, async (req) => {
   if (work.live?.[uid] !== undefined) batch.update(fromG, { [`work.live.${uid}`]: FieldValue().delete() });
   if (oldCred.exists) { batch.set(db.doc(`sessions/${code}/creds/${newKey}`), { ...oldCred.data(), groupId: toId }); batch.delete(db.doc(`sessions/${code}/creds/${oldKey}`)); }
   await batch.commit();
+  await moveAssessKey(code, oldKey, newKey).catch((e) => console.error("평가 기록 옮기기 실패:", e.message));
   return { groupId: toId };
 });
 
@@ -1201,6 +1206,350 @@ exports.demoRequest = onCall({ ...aiOpts, maxInstances: 2 }, async (req) => {
     console.error(`demoRequest 실패 kind=${d.kind} stage=${d.stage}:`, e.message);
     throw new HttpsError("unavailable", "AI 응답을 받지 못했어요.");
   }
+});
+
+// ---------- 수행평가: 교사 채점, AI 제2평정자, 세특 초안, 학생 결과 공개 ----------
+// 점수·평가 근거·AI 제안·세특은 모두 sessions/{code}/assess/{g1 | s_<별명 열쇠>} 에 서버만 쓰고 읽는다(규칙으로 학생·클라이언트 접근 막음).
+// 학생은 myResult 로만 본다. 공개 여부(sessions/{code}.release.score·seteuk)는 서로 독립이고, 읽을 때마다 서버가 걸러 준다.
+// 학생 열쇠는 uid 가 아니라 별명 열쇠(credKey)다: 로그아웃 후 다시 들어와 uid 가 바뀌어도 같은 학생으로 이어진다.
+const A = require("./assess");
+const { rubricFor, totals } = require("./rubric");
+const ASSESS_MODEL = modelParam("ASSESS_MODEL", "gpt-5.6-terra"); // AI 제2평정자(채점 보조): 해석력이 필요해 균형 모델
+const SETEUK_MODEL = modelParam("SETEUK_MODEL", "gpt-5.6-terra");
+const ASSESS_RUNS = 3; // 같은 근거를 AI가 몇 번 채점해 흔들림을 재는지
+const ASSESS_AI_CAP = 1500; // 수업 하나에서 평가용 AI 호출 한도(비용 보호)
+const assessAiOpts = { ...aiOpts, cpu: "gcf_gen1", maxInstances: 2 };
+
+const assessRef = (code, key) => db.doc(`sessions/${code}/assess/${key}`);
+const subjKey = (kind, id) => (kind === "group" ? id : `s_${id}`);
+const studentKeyOf = (m) => m.credKey || credKey(parseInt(String(m.groupId).slice(1), 10), m.nickname);
+const blindCode = (key) => `S-${crypto.createHash("sha1").update(String(key)).digest("hex").slice(0, 4).toUpperCase()}`;
+const rubricOfSession = (sess) => rubricFor(levelOf(sess), deepOf(sess));
+
+async function patchAssess(ref, patch) {
+  if (!(await ref.get()).exists) await ref.set({});
+  await ref.update(patch);
+}
+
+// 모둠을 옮겨 별명 열쇠가 바뀌면 평가 기록도 새 열쇠로 옮긴다
+async function moveAssessKey(code, oldKey, newKey) {
+  if (oldKey === newKey) return;
+  const from = assessRef(code, `s_${oldKey}`), snap = await from.get();
+  if (!snap.exists) return;
+  await assessRef(code, `s_${newKey}`).set(snap.data());
+  await from.delete();
+}
+
+async function membersOf(code) {
+  const snap = await db.collection(`sessions/${code}/members`).get();
+  return snap.docs.map((d) => { const m = d.data(); return { uid: d.id, nick: m.nickname, groupId: m.groupId, key: studentKeyOf(m), chatCount: m.chatCount || 0, coachCount: m.coachCount || 0 }; });
+}
+
+// 대상(모둠 또는 학생)의 근거를 기준마다 모은다
+async function loadEvidence(code, sess, kind, id, members) {
+  const rubric = rubricOfSession(sess), deep = deepOf(sess);
+  let gid = id, stu = null;
+  if (kind === "student") {
+    stu = members.find((m) => m.key === id);
+    if (!stu) throw new HttpsError("not-found", "학생을 찾을 수 없습니다.");
+    gid = stu.groupId;
+  } else if (!/^g\d{1,2}$/.test(id) || parseInt(id.slice(1), 10) > sess.groupCount) throw new HttpsError("invalid-argument", "모둠이 올바르지 않습니다.");
+  const grp = (await db.doc(`sessions/${code}/groups/${gid}`).get()).data() || {};
+  const logs3 = (await db.collection(`sessions/${code}/groups/${gid}/logs`).where("stage", "==", 3).get()).docs.map((d) => ({ id: d.id, ...d.data() }));
+  const ctx = { work: grp.work || {}, logs3, deep, groupAi: grp.aiCount || 0, members: members.filter((m) => m.groupId === gid) };
+  if (stu) {
+    const chat = (await db.collection(`sessions/${code}/members/${stu.uid}/chat`).orderBy("createdAt").limit(30).get()).docs.map((d) => d.data());
+    ctx.student = { uid: stu.uid, nick: stu.nick, chat, chatCount: stu.chatCount, coachCount: stu.coachCount };
+  }
+  const scope = kind === "student" ? "student" : "group";
+  const evidence = {}, empty = {};
+  for (const c of rubric.criteria.filter((x) => x.scope === scope)) {
+    evidence[c.id] = A.evidenceFor(c.id, ctx);
+    empty[c.id] = A.evidenceEmpty(evidence[c.id]);
+  }
+  return { rubric, evidence, empty, ctx, gid };
+}
+
+const subjectArgs = (req, sess, members) => {
+  const kind = req.data?.kind === "student" ? "student" : req.data?.kind === "group" ? "group" : "";
+  const id = String(req.data?.id ?? "");
+  if (!kind || !id) throw new HttpsError("invalid-argument", "평가할 대상을 고르세요.");
+  if (kind === "student" && !members.some((m) => m.key === id)) throw new HttpsError("not-found", "학생을 찾을 수 없습니다.");
+  return { kind, id, key: subjKey(kind, id) };
+};
+
+// AI 제안은 교사가 그 기준의 수준을 저장한 뒤에만 내보낸다(독립 채점)
+const aiRevealed = (doc) => Object.fromEntries(Object.entries(doc.ai || {}).filter(([cid]) => doc.scores?.[cid]));
+// 교사 점수가 AI 제안과 두 수준 이상 다른데 평가 근거가 짧으면 '확인 필요'
+function reviewFlags(rubric, doc) {
+  const out = {};
+  for (const c of rubric.criteria) {
+    const t = doc.scores?.[c.id], a = doc.ai?.[c.id];
+    if (!t || !a || !Number.isInteger(a.level)) continue;
+    const n = c.levels.length;
+    if (Math.abs(A.rankOf(t.level, n) - A.rankOf(a.level, n)) >= 2 && A.clip(t.note, 500).length < A.NOTE_MIN) out[c.id] = "dev";
+  }
+  return out;
+}
+
+function releaseOf(sess) { return { score: sess.release?.score === true, seteuk: sess.release?.seteuk === true }; }
+
+exports.assess = onCall(opts, async (req) => {
+  const { auth, code, sess } = await ownSession(req);
+  const action = String(req.data?.action || "");
+  const rubric = rubricOfSession(sess);
+
+  if (action === "get") {
+    const members = await membersOf(code);
+    const docs = Object.fromEntries((await db.collection(`sessions/${code}/assess`).get()).docs.map((d) => [d.id, d.data()]));
+    const cnt = (doc, scope) => rubric.criteria.filter((c) => c.scope === scope && doc?.scores?.[c.id]).length;
+    const nG = rubric.criteria.filter((c) => c.scope === "group").length, nS = rubric.criteria.filter((c) => c.scope === "student").length;
+    const groups = Array.from({ length: sess.groupCount }, (_, i) => `g${i + 1}`).map((id) => ({ id, name: `${id.slice(1)}모둠`, members: members.filter((m) => m.groupId === id).length, scored: cnt(docs[id], "group"), total: nG }));
+    const students = members.map((m) => ({ key: m.key, nick: m.nick, code: blindCode(m.key), groupId: m.groupId, scored: cnt(docs[`s_${m.key}`], "student"), total: nS, hasSeteuk: !!docs[`s_${m.key}`]?.seteuk?.text }))
+      .sort((a, b) => a.groupId.localeCompare(b.groupId, "en", { numeric: true }) || a.code.localeCompare(b.code));
+    const done = groups.reduce((s, g) => s + g.scored, 0) + students.reduce((s, x) => s + x.scored, 0);
+    const total = groups.reduce((s, g) => s + g.total, 0) + students.reduce((s, x) => s + x.total, 0);
+    const reviewCount = Object.values(docs).reduce((n, d) => n + Object.keys(reviewFlags(rubric, d)).length, 0);
+    return {
+      rubric, groups, students, progress: { done, total, reviewCount }, release: releaseOf(sess), seteukMax: sess.seteukMax || A.SETEUK_MAX.def, seteukRange: [A.SETEUK_MAX.min, A.SETEUK_MAX.max],
+      aiUsed: sess.assessAiCount || 0, aiCap: ASSESS_AI_CAP, aiRuns: ASSESS_RUNS, thresholds: A.THRESHOLDS,
+    };
+  }
+
+  if (action === "subject") {
+    const members = await membersOf(code);
+    const { kind, id, key } = subjectArgs(req, sess, members);
+    const [{ evidence, empty }, snap] = await Promise.all([loadEvidence(code, sess, kind, id, members), assessRef(code, key).get()]);
+    const doc = snap.data() || {};
+    return {
+      kind, id, evidence, empty, scores: doc.scores || {}, ai: aiRevealed(doc), hasAi: Object.fromEntries(Object.keys(doc.ai || {}).map((c) => [c, true])),
+      review: reviewFlags(rubric, doc), seteuk: kind === "student" ? { text: doc.seteuk?.text || "", t: doc.seteuk?.t || 0 } : null,
+    };
+  }
+
+  if (action === "save") {
+    const members = await membersOf(code);
+    const { kind, id, key } = subjectArgs(req, sess, members);
+    const c = rubric.criteria.find((x) => x.id === String(req.data?.criterion));
+    if (!c || c.scope !== (kind === "student" ? "student" : "group")) throw new HttpsError("invalid-argument", "기준이 올바르지 않습니다.");
+    const level = Number(req.data?.level), note = A.clip(req.data?.note, 500);
+    const { evidence, empty } = await loadEvidence(code, sess, kind, id, members);
+    const doc = (await assessRef(code, key).get()).data() || {};
+    const prev = doc.scores?.[c.id];
+    // AI 제안은 첫 저장 전에는 보지 못했으므로, 두 번째 저장부터만 AI 제안과의 차이를 따진다(독립 채점을 지킨다).
+    const err = A.checkScoreInput({ c, level, note, evidenceIsEmpty: empty[c.id], aiLevel: prev ? doc.ai?.[c.id]?.level : undefined });
+    if (err) throw new HttpsError("invalid-argument", err);
+    const pts = level === -1 ? 0 : c.levels[level].pts;
+    const revs = [...(prev?.revs || []), ...(prev ? [{ level: prev.level, note: prev.note || "", t: prev.t }] : [])].slice(-5);
+    const score = { level, pts, note, t: Date.now(), by: auth.uid, ...(revs.length ? { revs } : {}) };
+    await patchAssess(assessRef(code, key), { [`scores.${c.id}`]: score, kind, name: kind === "group" ? `${id.slice(1)}모둠` : members.find((m) => m.key === id)?.nick || "" });
+    const merged = { ...doc, scores: { ...(doc.scores || {}), [c.id]: score } };
+    return { score, ai: aiRevealed(merged)[c.id] || null, review: reviewFlags(rubric, merged)[c.id] || null, evidenceEmpty: empty[c.id], evidence: evidence[c.id] };
+  }
+
+  if (action === "recheck") {
+    const members = await membersOf(code);
+    const docsSnap = (await db.collection(`sessions/${code}/assess`).get()).docs;
+    if (req.data?.op === "save") {
+      const { kind, id, key } = subjectArgs(req, sess, members);
+      const c = rubric.criteria.find((x) => x.id === String(req.data?.criterion));
+      const level = Number(req.data?.level);
+      const doc = docsSnap.find((d) => d.id === key)?.data();
+      if (!c || !doc?.scores?.[c.id]) throw new HttpsError("failed-precondition", "먼저 채점한 칸만 다시 채점할 수 있어요.");
+      if (!Number.isInteger(level) || level < -1 || level >= c.levels.length) throw new HttpsError("invalid-argument", "수준을 고르세요.");
+      await patchAssess(assessRef(code, key), { [`recheck.${c.id}`]: { level, t: Date.now() } });
+      return { ok: true };
+    }
+    // 목록: 이미 채점한 칸 중 해시로 고른 표본(약 1/5). 첫 채점 수준은 내보내지 않는다.
+    const items = [];
+    let left = 0;
+    for (const d of docsSnap) {
+      const doc = d.data(), kind = d.id.startsWith("s_") ? "student" : "group", id = kind === "student" ? d.id.slice(2) : d.id;
+      if (kind === "student" && !members.some((m) => m.key === id)) continue;
+      for (const c of rubric.criteria) {
+        if (c.scope !== (kind === "student" ? "student" : "group") || !doc.scores?.[c.id] || doc.recheck?.[c.id]) continue;
+        if (!A.inRecheckSample(`${d.id}:${c.id}`)) continue;
+        left++;
+        if (items.length < 6) items.push({ kind, id, criterion: c.id });
+      }
+    }
+    const cache = new Map(), out = [];
+    for (const it of items) {
+      const ck = `${it.kind}:${it.id}`;
+      if (!cache.has(ck)) cache.set(ck, await loadEvidence(code, sess, it.kind, it.id, members));
+      const ev = cache.get(ck);
+      out.push({ ...it, code: it.kind === "student" ? blindCode(it.id) : `${it.id.slice(1)}모둠`, evidence: ev.evidence[it.criterion], empty: ev.empty[it.criterion] });
+    }
+    return { items: out, left, total: docsSnap.length };
+  }
+
+  if (action === "reliability") {
+    const members = await membersOf(code);
+    const docs = (await db.collection(`sessions/${code}/assess`).get()).docs
+      .filter((d) => !d.id.startsWith("s_") || members.some((m) => `s_${m.key}` === d.id)).map((d) => ({ id: d.id, ...d.data() }));
+    const report = A.reliabilityReport(rubric, docs);
+    // 모둠별 합계와 개인 점수 분포(공정성 점검): 학생 한 명의 합계 = 개인 칸 + 소속 모둠 칸
+    const gSum = (g) => rubric.criteria.filter((c) => c.scope === "group").reduce((s, c) => s + (docs.find((d) => d.id === g)?.scores?.[c.id]?.pts || 0), 0);
+    const groups = Array.from({ length: sess.groupCount }, (_, i) => `g${i + 1}`).map((g) => ({ id: g, name: `${g.slice(1)}모둠`, group: gSum(g) }));
+    return { ...report, groups, scored: docs.length };
+  }
+
+  if (action === "release") {
+    const patch = {};
+    if (req.data?.score !== undefined) patch["release.score"] = req.data.score === true;
+    if (req.data?.seteuk !== undefined) patch["release.seteuk"] = req.data.seteuk === true;
+    if (!Object.keys(patch).length) throw new HttpsError("invalid-argument", "공개할 항목을 고르세요.");
+    patch["release.t"] = Date.now();
+    await db.doc(`sessions/${code}`).update(patch);
+    return { release: { ...releaseOf(sess), ...(patch["release.score"] !== undefined ? { score: patch["release.score"] } : {}), ...(patch["release.seteuk"] !== undefined ? { seteuk: patch["release.seteuk"] } : {}) } };
+  }
+
+  if (action === "config") {
+    const n = parseInt(req.data?.seteukMax, 10);
+    if (!(n >= A.SETEUK_MAX.min && n <= A.SETEUK_MAX.max)) throw new HttpsError("invalid-argument", `세특 한도는 ${A.SETEUK_MAX.min}~${A.SETEUK_MAX.max}바이트 사이로 정하세요.`);
+    await db.doc(`sessions/${code}`).update({ seteukMax: n });
+    return { seteukMax: n };
+  }
+
+  if (action === "seteukSave") {
+    const members = await membersOf(code);
+    const m = members.find((x) => x.key === String(req.data?.id));
+    if (!m) throw new HttpsError("not-found", "학생을 찾을 수 없습니다.");
+    const text = String(req.data?.text ?? "").trim();
+    const max = sess.seteukMax || A.SETEUK_MAX.def;
+    if (!text) { await patchAssess(assessRef(code, `s_${m.key}`), { "seteuk.text": FieldValue().delete(), "seteuk.t": Date.now() }); return { text: "", bytes: 0, warnings: [] }; }
+    const chk = A.checkSeteuk(text, { nick: m.nick, maxBytes: max });
+    if (chk.errors.length) throw new HttpsError("invalid-argument", chk.errors[0]);
+    await patchAssess(assessRef(code, `s_${m.key}`), { "seteuk.text": text, "seteuk.bytes": chk.bytes, "seteuk.t": Date.now(), "seteuk.by": auth.uid, kind: "student", name: m.nick });
+    return { text, bytes: chk.bytes, warnings: chk.warnings };
+  }
+
+  throw new HttpsError("invalid-argument", "알 수 없는 요청입니다.");
+});
+
+// AI 제2평정자와 세특 초안(교사 전용). 학생 글은 근거로만 쓰고 지시로 따르지 않는다.
+exports.assessAi = onCall(assessAiOpts, async (req) => {
+  const { code, sess } = await ownSession(req);
+  const action = String(req.data?.action || "");
+  const members = await membersOf(code);
+  const { kind, id, key } = subjectArgs(req, sess, members);
+  const used = sess.assessAiCount || 0;
+  const apiKey = OPENAI_API_KEY.value();
+  const effort = REASONING_EFFORT.value();
+  const level = levelOf(sess);
+  const bump = (n) => db.doc(`sessions/${code}`).update({ assessAiCount: FieldValue().increment(n) }).catch(() => {});
+
+  if (action === "score") {
+    const { rubric, evidence, empty } = await loadEvidence(code, sess, kind, id, members);
+    const crits = rubric.criteria.filter((c) => c.scope === (kind === "student" ? "student" : "group") && c.ai);
+    const items = crits.filter((c) => !empty[c.id]).map((c) => ({ c, evidence: evidence[c.id] }));
+    const patch = {};
+    for (const c of crits.filter((x) => empty[x.id])) patch[`ai.${c.id}`] = { level: -1, levels: [-1], spread: 0, quote: "", quoteOk: true, reason: "학생이 쓴 근거가 비어 있음", n: ASSESS_RUNS, auto: true, t: Date.now() };
+    let ok = 0, failed = 0;
+    if (items.length) {
+      if (used + ASSESS_RUNS > ASSESS_AI_CAP) throw new HttpsError("resource-exhausted", `이 수업의 평가용 AI 호출 한도(${ASSESS_AI_CAP}회)에 가까워 더 받을 수 없어요.`);
+      await bump(ASSESS_RUNS);
+      const messages = A.scorerMessages({ rubric, items, deep: deepOf(sess) });
+      const runs = (await Promise.allSettled(Array.from({ length: ASSESS_RUNS }, async () => {
+        const text = await callModel({ apiKey, model: ASSESS_MODEL.value(), messages, json: true, maxTokens: 1800, efforts: [effort === "minimal" ? "low" : effort, "low"] });
+        return A.parseScorer(extractJson(text), items);
+      }))).map((r) => (r.status === "fulfilled" ? r.value : (failed++, console.error("AI 채점 실패:", r.reason?.message), null))).filter(Boolean);
+      const combined = A.combineRuns(runs, items);
+      for (const [cid, v] of Object.entries(combined)) { patch[`ai.${cid}`] = { ...v, t: Date.now() }; ok++; }
+      if (!ok) throw new HttpsError("unavailable", "AI 응답을 받지 못했어요. 잠시 뒤에 다시 시도하세요.");
+    }
+    if (Object.keys(patch).length) await patchAssess(assessRef(code, key), patch);
+    return { ok, auto: crits.length - items.length, failedRuns: failed };
+  }
+
+  if (action === "seteuk") {
+    if (kind !== "student") throw new HttpsError("invalid-argument", "세특은 학생마다 만들어요.");
+    const maxBytes = sess.seteukMax || A.SETEUK_MAX.def;
+    const stu = members.find((m) => m.key === id);
+    const mine = await loadEvidence(code, sess, "student", id, members);
+    const grp = await loadEvidence(code, sess, "group", stu.groupId, members);
+    // 이 학생의 개인 활동 + 모둠이 함께 한 활동. 다른 학생의 개인 글과 별명은 넣지 않는다.
+    const picks = [["c11", mine], ["c21", mine], ["c52", mine], ["c12", grp], ["c23", grp], ["c32", grp], ["c42", grp], ["c51", grp]];
+    const items = [];
+    for (const [cid, src] of picks) for (const e of src.evidence[cid] || []) {
+      if (A.evidenceEmpty([e]) && /^(점검표|계획 유형)/.test(e.label)) continue;
+      items.push({ id: `e${items.length + 1}`, label: `${cid === "c11" || cid === "c21" || cid === "c52" ? "내 활동" : "모둠 활동"} · ${e.label}`, text: A.clip(e.text, 320) });
+    }
+    let size = 0;
+    const capped = items.filter((e) => (size += e.text.length + e.label.length) <= 5500);
+    if (!capped.length) throw new HttpsError("failed-precondition", "아직 학생이 쓴 활동 기록이 없어 초안을 만들 수 없어요.");
+    if (used + 1 > ASSESS_AI_CAP) throw new HttpsError("resource-exhausted", `이 수업의 평가용 AI 호출 한도(${ASSESS_AI_CAP}회)에 가까워 더 받을 수 없어요.`);
+    const aDocs = await Promise.all([assessRef(code, `s_${id}`).get(), assessRef(code, stu.groupId).get()]);
+    const scoreLines = [];
+    aDocs.forEach((s, i) => { for (const [cid, v] of Object.entries(s.data()?.scores || {})) { const c = mine.rubric.criteria.find((x) => x.id === cid); if (c) scoreLines.push({ name: c.name, levelLabel: v.level === -1 ? "미제출" : c.levels[v.level]?.label, note: v.note }); } });
+    await bump(1);
+    const messages = A.seteukMessages({ level, items: capped, scores: scoreLines, maxBytes });
+    let parsed;
+    try {
+      const text = await callModel({ apiKey, model: SETEUK_MODEL.value(), messages, json: true, maxTokens: 1600, efforts: [effort === "minimal" ? "low" : effort, "low"] });
+      parsed = A.parseSeteuk(extractJson(text), { validIds: capped.map((e) => e.id), maxBytes, nick: stu.nick });
+    } catch (e) {
+      console.error("세특 초안 실패:", e.message);
+      throw new HttpsError("unavailable", "AI 응답을 받지 못했어요. 잠시 뒤에 다시 시도하세요.");
+    }
+    if (!parsed.text) throw new HttpsError("unavailable", "쓸 만한 초안을 만들지 못했어요. 다시 시도하세요.");
+    const check = A.checkSeteuk(parsed.text, { nick: stu.nick, maxBytes });
+    return { text: parsed.text, sentences: parsed.sentences, dropped: parsed.dropped, warnings: check.warnings, bytes: check.bytes, max: maxBytes, evidence: Object.fromEntries(capped.map((e) => [e.id, { label: e.label, text: e.text }])) };
+  }
+
+  throw new HttpsError("invalid-argument", "알 수 없는 요청입니다.");
+});
+
+// 학생: 내 점수·평가 이유·세특 보기. 수업 중에는 로그인한 계정으로, 수업이 닫힌 뒤에는 입장할 때와 같은 모둠·별명·비밀번호로 확인한다.
+// 교사가 공개한 항목(점수, 세특)만 돌려준다. 공개를 끄면 바로 보이지 않는다.
+exports.myResult = onCall(opts, async (req) => {
+  const auth = requireAuth(req);
+  const code = sessCode(req.data?.code);
+  if (!code) throw new HttpsError("not-found", "수업 코드를 찾을 수 없습니다.");
+  const sessSnap = await db.doc(`sessions/${code}`).get();
+  if (!sessSnap.exists) throw new HttpsError("not-found", "수업 코드를 찾을 수 없습니다.");
+  const sess = sessSnap.data();
+  const rel = releaseOf(sess);
+  const mine = await db.doc(`sessions/${code}/members/${auth.uid}`).get();
+  let m = null;
+  if (mine.exists && req.data?.password === undefined) m = mine.data();
+  else {
+    const groupNo = parseInt(req.data?.groupNo, 10), nickname = String(req.data?.nickname || "").trim().slice(0, 12), password = String(req.data?.password ?? "");
+    if (!(groupNo >= 1 && groupNo <= sess.groupCount) || !nickname || !password) throw new HttpsError("invalid-argument", "수업 코드, 모둠 번호, 별명, 비밀번호를 모두 입력하세요.");
+    const key = credKey(groupNo, nickname);
+    const credRef = db.doc(`sessions/${code}/creds/${key}`), attRef = db.doc(`sessions/${code}/attempts/${auth.uid}`);
+    const [credSnap, attSnap] = await Promise.all([credRef.get(), attRef.get()]);
+    const cred = credSnap.exists ? credSnap.data() : null;
+    if (!cred) throw new HttpsError("not-found", "이 별명으로 입장한 기록이 없어요. 모둠 번호와 별명을 확인하세요.");
+    const att = attSnap.data() || {};
+    const wait = Math.max(lockedSeconds(att), lockedSeconds(cred));
+    if (wait) throw new HttpsError("resource-exhausted", `비밀번호를 여러 번 틀려서 ${wait}초 동안 확인할 수 없습니다.`);
+    if (!(await verifyPassword(password, cred))) {
+      await Promise.all([attRef.set(afterFail(att)), credRef.update(afterTotalFail(cred))]);
+      throw new HttpsError("permission-denied", "비밀번호가 맞지 않습니다.");
+    }
+    if (attSnap.exists) await attRef.delete();
+    m = { nickname, groupId: `g${groupNo}`, credKey: key };
+  }
+  const base = { title: sess.title, nickname: m.nickname, groupId: m.groupId, released: rel };
+  if (!rel.score && !rel.seteuk) return base;
+  const key = studentKeyOf(m);
+  const [stuSnap, grpSnap] = await Promise.all([assessRef(code, `s_${key}`).get(), assessRef(code, m.groupId).get()]);
+  const stu = stuSnap.data() || {}, grp = grpSnap.data() || {};
+  const out = { ...base };
+  if (rel.score) {
+    const rubric = rubricOfSession(sess);
+    const scores = {};
+    const items = rubric.criteria.map((c) => {
+      const s = (c.scope === "student" ? stu : grp).scores?.[c.id];
+      if (s) scores[c.id] = s;
+      return { id: c.id, element: c.elName, name: c.name, scope: c.scope, max: c.max, scored: !!s, pts: s ? s.pts : null,
+        level: s ? (s.level === -1 ? "미제출" : c.levels[s.level].label) : null, desc: s && s.level !== -1 ? c.levels[s.level].desc : "", note: s?.note || "" };
+    });
+    out.score = { ...totals(rubric, scores), indivMax: rubric.indivMax, groupMax: rubric.total - rubric.indivMax, items, labels: rubric.labels };
+  }
+  if (rel.seteuk) out.seteuk = { text: stu.seteuk?.text || "" };
+  return out;
 });
 
 // ---------- 정기 작업 ----------

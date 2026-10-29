@@ -1,0 +1,37 @@
+// 학생 화면의 '내 결과': 교사가 공개한 점수(수준별 평가 근거 포함)와 세특을 보여 준다.
+//  - 수업 중에는 로그인한 계정으로, 수업이 닫힌 뒤에는 입장 화면의 모둠·별명·비밀번호로 myResult 를 부른다.
+//  - 점수와 세특은 교사가 따로 공개한다. 서버가 공개된 것만 돌려주므로 화면은 받은 것만 그린다.
+import { call, esc, toast, errMsg } from "./fb.js";
+import { showModal } from "./modal.js";
+
+const seenKey = (code) => `eps_res_${code}`;
+export const seenAt = (code) => { try { return Number(localStorage.getItem(seenKey(code))) || 0; } catch { return 0; } };
+export const markSeen = (code, t) => { try { localStorage.setItem(seenKey(code), String(t || Date.now())); } catch {} };
+
+function scoreHtml(sc) {
+  const rows = [];
+  let last = "";
+  for (const it of sc.items) {
+    if (it.element !== last) { rows.push(`<h4 style="margin:14px 0 2px;color:var(--ink-2)">${esc(it.element)}</h4>`); last = it.element; }
+    rows.push(`<div class="res-item"><div class="rh"><b>${esc(it.name)}</b><span>${it.scored ? `<b>${it.pts}</b> / ${it.max}점` : `<span class="tag x">채점 전</span>`}</span></div>
+      <div class="meta-line">${it.scope === "student" ? "내 활동" : "우리 모둠 활동"}${it.scored ? ` · <span class="tag ${it.level === "미제출" ? "r" : "b"}">${esc(it.level)}</span>` : ""}</div>
+      ${it.desc ? `<div class="meta-line">${esc(it.desc)}</div>` : ""}${it.note ? `<div class="res-note">${esc(it.note)}</div>` : ""}</div>`);
+  }
+  return `<div class="res-total">${sc.total}<small> / ${sc.max}점</small></div>
+    <div class="meta-line">내 활동 ${sc.indiv} / ${sc.indivMax}점 + 우리 모둠 활동 ${sc.group} / ${sc.groupMax}점${sc.complete ? "" : ` · 아직 ${sc.count - sc.done}칸은 채점 전이에요`}</div>${rows.join("")}`;
+}
+
+export function resultHtml(r) {
+  const parts = [];
+  if (r.released.score && r.score) parts.push(`<h3 style="margin-top:6px">내 점수</h3>${scoreHtml(r.score)}`);
+  if (r.released.seteuk) parts.push(`<h3 style="margin-top:16px">내 세특</h3>${r.seteuk?.text ? `<div class="res-seteuk">${esc(r.seteuk.text)}</div>` : `<div class="meta-line">아직 선생님이 쓰는 중이에요.</div>`}`);
+  return parts.join("") || `<p>선생님이 아직 공개하지 않았어요. 공개하면 여기서 볼 수 있어요.</p>`;
+}
+
+// args: { code } (수업 중) 또는 { code, groupNo, nickname, password } (수업이 끝난 뒤)
+export async function openResult(args) {
+  let r;
+  try { r = (await call("myResult")(args)).data; } catch (e) { toast(errMsg(e), true); return null; }
+  await showModal({ title: `${esc(r.nickname)}의 결과`, body: `<div class="meta-line" style="margin-bottom:6px">${esc(r.title || "")}</div>${resultHtml(r)}`, actions: [{ label: "닫기", value: true, kind: "btn-primary" }], dismissible: true, wide: true });
+  return r;
+}

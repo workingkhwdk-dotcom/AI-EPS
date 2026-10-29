@@ -50,6 +50,9 @@ service cloud.firestore {
       match /assign/{id} { allow read: if isTeacher(code); allow write: if false; }
       match /assignGroup/{id} { allow read: if isTeacher(code); allow write: if false; }
       match /guardlog/{id} { allow read: if isTeacher(code); allow write: if false; }
+      // 수행평가 기록(교사 점수·평가 근거·AI 제안·세특): 서버만 읽고 쓴다. 학생은 공개된 것만 myResult 함수로 본다. 교사도 함수(assess)를 거쳐 본다
+      // (AI 제안은 교사가 먼저 채점한 뒤에만 내보내는 독립 채점 규칙을 서버가 지키게 하려고 화면이 직접 읽지 않는다).
+      match /assess/{id} { allow read, write: if false; }
 
       match /members/{uid} {
         allow read: if signedIn() && (request.auth.uid == uid || isTeacher(code));
