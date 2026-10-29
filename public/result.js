@@ -8,6 +8,13 @@ const seenKey = (code) => `eps_res_${code}`;
 export const seenAt = (code) => { try { return Number(localStorage.getItem(seenKey(code))) || 0; } catch { return 0; } };
 export const markSeen = (code, t) => { try { localStorage.setItem(seenKey(code), String(t || Date.now())); } catch {} };
 
+// 이의 제기: 확정된 칸마다 한 번. 선생님의 예외 큐로 가고, 처리되면 답이 여기에 보인다.
+function appealHtml(it) {
+  if (!it.scored) return "";
+  const ap = it.appeal;
+  if (!ap) return `<div class="res-ap"><button class="link" type="button" data-appeal="${esc(it.id)}">이 점수에 이의가 있어요</button></div>`;
+  return `<div class="res-ap"><span class="tag ${ap.status === "open" ? "y" : ""}">이의 제기 ${ap.status === "open" ? "· 선생님이 확인하는 중" : "· 처리됨"}</span> <span class="meta-line">“${esc(ap.text)}”</span>${ap.reply ? `<div class="res-note">선생님 답: ${esc(ap.reply)}</div>` : ""}</div>`;
+}
 function scoreHtml(sc) {
   const rows = [];
   let last = "";
@@ -15,7 +22,7 @@ function scoreHtml(sc) {
     if (it.element !== last) { rows.push(`<h4 style="margin:14px 0 2px;color:var(--ink-2)">${esc(it.element)}</h4>`); last = it.element; }
     rows.push(`<div class="res-item"><div class="rh"><b>${esc(it.name)}</b><span>${it.scored ? `<b>${it.pts}</b> / ${it.max}점` : `<span class="tag x">채점 전</span>`}</span></div>
       <div class="meta-line">${it.scope === "student" ? "내 활동" : "우리 모둠 활동"}${it.scored ? ` · <span class="tag ${it.level === "미제출" ? "r" : "b"}">${esc(it.level)}</span>` : ""}</div>
-      ${it.desc ? `<div class="meta-line">${esc(it.desc)}</div>` : ""}${it.note ? `<div class="res-note">${esc(it.note)}</div>` : ""}</div>`);
+      ${it.desc ? `<div class="meta-line">${esc(it.desc)}</div>` : ""}${it.note ? `<div class="res-note">${esc(it.note)}</div>` : ""}${appealHtml(it)}</div>`);
   }
   return `<div class="res-total">${sc.total}<small> / ${sc.max}점</small></div>
     <div class="meta-line">내 활동 ${sc.indiv} / ${sc.indivMax}점 + 우리 모둠 활동 ${sc.group} / ${sc.groupMax}점${sc.complete ? "" : ` · 아직 ${sc.count - sc.done}칸은 채점 전이에요`}</div>${rows.join("")}`;
@@ -29,9 +36,30 @@ export function resultHtml(r) {
 }
 
 // args: { code } (수업 중) 또는 { code, groupNo, nickname, password } (수업이 끝난 뒤)
+let cur = null; // 열려 있는 결과 창의 호출 정보(이의 제기를 같은 방식으로 보내려고)
+const bodyHtml = (r) => `<div class="meta-line" style="margin-bottom:6px">${esc(r.title || "")}</div>${resultHtml(r)}`;
 export async function openResult(args) {
   let r;
   try { r = (await call("myResult")(args)).data; } catch (e) { toast(errMsg(e), true); return null; }
-  await showModal({ title: `${esc(r.nickname)}의 결과`, body: `<div class="meta-line" style="margin-bottom:6px">${esc(r.title || "")}</div>${resultHtml(r)}`, actions: [{ label: "닫기", value: true, kind: "btn-primary" }], dismissible: true, wide: true });
+  cur = { args, r };
+  await showModal({ title: `${esc(r.nickname)}의 결과`, body: bodyHtml(r), actions: [{ label: "닫기", value: true, kind: "btn-primary" }], dismissible: true, wide: true });
+  cur = null;
   return r;
 }
+document.addEventListener("click", async (e) => {
+  if (!cur) return;
+  const open = e.target.closest("[data-appeal]"), send = e.target.closest("[data-appeal-send]"), cancel = e.target.closest("[data-appeal-cancel]");
+  if (open) {
+    open.closest(".res-ap").innerHTML = `<textarea class="res-ap-t" maxlength="300" rows="3" placeholder="어느 부분이 왜 다르다고 생각하는지 써 주세요(4자 이상)"></textarea>
+      <div class="row" style="margin-top:6px"><button class="btn btn-primary btn-sm" type="button" data-appeal-send="${esc(open.dataset.appeal)}">선생님께 보내기</button><button class="btn btn-plain btn-sm" type="button" data-appeal-cancel>취소</button></div>`;
+  } else if (cancel) { document.querySelector(".modal-body").innerHTML = bodyHtml(cur.r); }
+  else if (send) {
+    const text = send.closest(".res-ap").querySelector(".res-ap-t").value;
+    send.disabled = true;
+    try {
+      cur.r = (await call("myResult")({ ...cur.args, appeal: { criterion: send.dataset.appealSend, text } })).data;
+      document.querySelector(".modal-body").innerHTML = bodyHtml(cur.r);
+      toast("선생님께 보냈어요");
+    } catch (err) { toast(errMsg(err), true); send.disabled = false; }
+  }
+});

@@ -2468,7 +2468,8 @@ const A_THRESH = { minPairs: 10, exact: 70, adjacent: 95, kappa: 0.6, selfConsis
 function assessFixture() {
   const st = teacherFixture(), base = st.handler;
   const rubric = RUBRIC.rubricFor("high", { causeMap: true });
-  const S = { scores: {}, release: { score: false, seteuk: false }, seteukText: "", seteukMax: 1500, aiAsked: false };
+  const S = { scores: {}, release: { score: false, seteuk: false }, seteukText: "", seteukMax: 1500, aiAsked: false, mode: "independent", aiDone: false, auto: { on: false, calib: false }, queueItems: [], observation: 1, paused: false, calib: null, sampleOn: false };
+  const AIC12 = { level: 1, levels: [1, 1, 1], spread: 0, quote: "모두 안전을 바란다", quoteOk: true, reason: "두 바람을 담았으나 근거가 부족", n: 3 };
   const ev = { c12: [{ id: "e1", label: "같은 점", text: "모두 안전을 바란다" }, { id: "e2", label: "우리가 풀 질문", text: "어떻게 하면 안전을 지키면서도 인권을 존중할 수 있을까?" }], c22: [{ id: "e1", label: "원인 추측", text: "사람들의 불안" }] };
   const grp = rubric.criteria.filter((c) => c.scope === "group");
   st.assess = S;
@@ -2477,23 +2478,32 @@ function assessFixture() {
       st.calls.push([name, data]);
       switch (data.action) {
         case "get": return {
-          rubric, groups: [{ id: "g1", name: "1모둠", members: 2, scored: Object.keys(S.scores).length, total: grp.length }, { id: "g2", name: "2모둠", members: 0, scored: 0, total: grp.length }],
-          students: [{ key: "k1", nick: "가람", code: "S-AB12", groupId: "g1", scored: 0, total: 7, hasSeteuk: !!S.seteukText }, { key: "k2", nick: "나래", code: "S-0F3C", groupId: "g1", scored: 0, total: 7, hasSeteuk: false }],
-          progress: { done: Object.keys(S.scores).length, total: 2 * grp.length + 8, reviewCount: 0 }, release: S.release, seteukMax: S.seteukMax, seteukRange: [300, 3000], aiUsed: 0, aiCap: 1500, aiRuns: 3, thresholds: A_THRESH };
+          rubric, groups: [{ id: "g1", name: "1모둠", members: 2, scored: Object.keys(S.scores).length, total: grp.length, ai: S.aiDone ? 6 : 0, unreviewed: 0, exc: 0, calibSample: false }, { id: "g2", name: "2모둠", members: 0, scored: 0, total: grp.length, ai: 0, unreviewed: 0, exc: 0, calibSample: false }],
+          students: [{ key: "k1", nick: "가람", code: "S-AB12", groupId: "g1", scored: 0, total: 7, ai: S.aiDone ? 6 : 0, unreviewed: 0, exc: 0, appeals: 0, calibSample: S.sampleOn, hasSeteuk: !!S.seteukText }, { key: "k2", nick: "나래", code: "S-0F3C", groupId: "g1", scored: 0, total: 7, ai: S.aiDone ? 6 : 0, unreviewed: 0, exc: 0, appeals: 0, calibSample: false, hasSeteuk: false }],
+          mode: S.mode, auto: S.auto, autoPaused: S.paused, audit: { n: 6, exact: S.paused ? 33 : 100, paused: S.paused }, calib: S.auto.calib ? S.calib : null,
+          queue: { exceptions: S.queueItems.filter((x) => x.type === "exception").length, appeals: S.queueItems.filter((x) => x.type === "appeal").length, observation: S.observation }, aiTotal: { group: 6, student: 6 },
+          progress: { done: Object.keys(S.scores).length, total: 2 * grp.length + 8, reviewCount: 0, unreviewed: Object.values(S.scores).filter((x) => x.src === "ai" && x.reviewed === false).length }, release: S.release, seteukMax: S.seteukMax, seteukRange: [300, 3000], aiUsed: 0, aiCap: 1500, aiRuns: 3, thresholds: A_THRESH };
         case "subject": {
           const cs = data.kind === "group" ? grp : rubric.criteria.filter((c) => c.scope === "student");
-          return { kind: data.kind, id: data.id, evidence: Object.fromEntries(cs.map((c) => [c.id, ev[c.id] || []])), empty: Object.fromEntries(cs.map((c) => [c.id, !(ev[c.id] || []).length])), scores: S.scores,
-            ai: S.scores.c12 ? { c12: { level: 1, levels: [1, 1, 1], spread: 0, quote: "모두 안전을 바란다", quoteOk: true, reason: "두 바람을 담았으나 근거가 부족", n: 3 } } : {}, hasAi: S.aiAsked ? { c12: true } : {}, review: {}, seteuk: { text: S.seteukText, t: 0 } };
+          return { kind: data.kind, id: data.id, mode: S.mode, evidence: Object.fromEntries(cs.map((c) => [c.id, ev[c.id] || []])), empty: Object.fromEntries(cs.map((c) => [c.id, !(ev[c.id] || []).length])), scores: S.scores,
+            ai: S.mode === "ai_first" ? (S.aiDone ? { c12: AIC12 } : {}) : S.scores.c12 ? { c12: AIC12 } : {}, hasAi: S.aiAsked || S.aiDone ? { c12: true } : {}, review: {}, seteuk: { text: S.seteukText, t: 0 } };
         }
         case "save": {
           const c = rubric.criteria.find((x) => x.id === data.criterion);
           if (data.level === 0 && String(data.note || "").length < 8) throw new Error("functions: 가장 높은 수준은 평가 근거를 8자 이상 써야 해요.");
-          S.scores[data.criterion] = { level: data.level, pts: data.level === -1 ? 0 : c.levels[data.level].pts, note: data.note, t: 1 };
+          S.scores[data.criterion] = { level: data.level, pts: data.level === -1 ? 0 : c.levels[data.level].pts, note: data.note, t: 1, src: "teacher", reviewed: true };
           return { score: S.scores[data.criterion], ai: data.criterion === "c12" ? { level: 1, levels: [1, 1, 1], spread: 0, quote: "모두 안전을 바란다", quoteOk: true, reason: "두 바람을 담았으나 근거가 부족", n: 3 } : null, review: null };
         }
         case "release": S.release = { ...S.release, ...(data.score !== undefined ? { score: data.score } : {}), ...(data.seteuk !== undefined ? { seteuk: data.seteuk } : {}) }; return { release: S.release };
         case "seteukSave": S.seteukText = data.text; return { text: data.text, bytes: 10, warnings: [] };
-        case "config": S.seteukMax = data.seteukMax; return { seteukMax: data.seteukMax };
+        case "queue": return { items: S.queueItems, total: S.queueItems.length, offset: data.offset || 0, appeals: S.queueItems.filter((x) => x.type === "appeal").length };
+        case "config": if (data.assessAuto) { S.auto = data.assessAuto; return { auto: S.auto }; } if (data.assessMode) { S.mode = data.assessMode; return { mode: S.mode }; } S.seteukMax = data.seteukMax; return { seteukMax: data.seteukMax };
+        case "calibStart": S.calib = { key: "k", state: "collecting", reused: false, passed: null, total: null, overall: null, perCriterion: null, sampleSize: 7 }; S.sampleOn = true; return { students: 6, groups: 1, sample: [] };
+        case "confirmAll": for (const k of Object.keys(S.scores)) if (S.scores[k].src === "ai") S.scores[k].reviewed = true; return { confirmed: 1 };
+        case "bulkLevel": S.observation = 0; return { applied: 5, skipped: 1 };
+        case "autoResume": S.paused = false; return { ok: true };
+        case "resolveAppeal": S.queueItems = S.queueItems.filter((x) => x.type !== "appeal"); return { ok: true };
+        case "applyAi": S.scores.c12 = { level: 1, pts: 8, note: "AI 제안: 두 바람을 담았으나 근거가 부족", t: 1, by: "ai", src: "ai", reviewed: false }; return { applied: 1, skipped: 0, subjects: 1 };
         case "reliability": return { overall: { n: 12, exact: 58.3, adjacent: 100, kappa: 0.52, bias: 0.42 }, byCriterion: [{ id: "c12", name: "모둠 문제 정하기", n: 12, exact: 58.3, adjacent: 100, kappa: 0.52, bias: 0.4 }], recheck: { n: 0, exact: null, adjacent: null, kappa: null, bias: null }, self: { n: 12, same: 75 },
           distribution: [{ id: "c12", name: "모둠 문제 정하기", n: 12, mean: 72.5, sd: 14.2 }], warnings: ["교사–AI 일치율 58.3%가 기준(70%)보다 낮습니다. 불일치 항목을 다시 살펴보세요."], thresholds: A_THRESH, groups: [{ id: "g1", name: "1모둠", group: 52 }], scored: 12 };
         case "recheck": return { items: [], left: 0, total: 12 };
@@ -2516,8 +2526,8 @@ function assessFixture() {
           dropped: [{ part: "기", text: "리더십이 뛰어남.", why: "근거가 연결되지 않아 뺐어요" }], warnings: ["부분과 부분을 잇는 말이 적어 앞뒤가 끊겨 읽힐 수 있음(승·전·결의 첫 문장)"], bytes: 1480, max: 1500, target: data.decision === "lower" ? 600 : 1500, reason: "범위 내", tries: 2, log: [{ n: 1, bytes: 1650 }, { n: 2, bytes: 1480 }], calls: 2, models: { strong: 1, fast: 1 }, grade: data.grade, emphasis: data.emphasis, decision: data.decision || "keep",
           evidence: { e1: { label: "내 활동 · 힘든 것", text: "일자리를 구하기 어려움" }, e2: { label: "내 활동 · 내가 쓴 원인 추측(법·제도)", text: "제도가 낯설다" }, e3: { label: "모둠 활동 · 확인된 사실", text: "허가율 약 2%" } } };
       }
-      S.aiAsked = true;
-      return { ok: 3, auto: 1, failedRuns: 0 };
+      S.aiAsked = true; S.aiDone = true;
+      return { ok: 3, auto: 1, failedRuns: 0, escalated: 0 };
     }
     return base(name, data);
   };
@@ -2554,6 +2564,146 @@ test("교사 평가: 척도표 점수가 보이고, 근거가 있어야 채점�
   assert.match(ai, /AI 제2평정 잘함 8점/); assert.match(ai, /3회 일치/); assert.match(ai, /인용 확인됨/); assert.match(ai, /내 채점과 같음/); assert.match(ai, /최종 판단은 교사/);
   assert.equal(st.calls.filter(([n, d]) => n === "assess" && d.action === "save").length, 2);
   if (process.env.UI_SHOT) await pg.screenshot({ path: `${process.env.UI_SHOT}/assess-pc.png`, fullPage: true });
+  assert.deepEqual(errors, []);
+});
+
+test("교사 평가: AI가 먼저 채점 — 전체 일괄 채점, AI 점수 미리 선택, 확인·수정, 채점 방식 바꾸기, 사용 순서 안내", async () => {
+  const st = assessFixture();
+  st.assess.mode = "ai_first";
+  const { pg, errors } = await openTeacher(st);
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-root .as-batch");
+  // 사용 순서(처음 쓰는 교사를 위한 안내)와 채점 방식 선택
+  await pg.locator(".as-batch summary").click();
+  const guide = await pg.locator(".as-batch").innerText();
+  assert.match(guide, /AI로 전체 채점[\s\S]*검토 전[\s\S]*세특.*탭/); assert.match(guide, /자동 캐시로 입력 요금이 줄어요/);
+  assert.equal(await pg.locator("#as-mode").inputValue(), "ai_first");
+  // AI 채점 전: 일괄 채점 단추와 안내
+  assert.match(await pg.locator("[data-asbatch]").innerText(), /AI로 전체 채점 \(모둠 1 · 학생 2명\)/);
+  assert.ok(await pg.locator("#as-apply").isChecked());
+  assert.match(await pg.locator('[data-cid="c12"]').innerText(), /아직 AI 채점 전이에요/);
+  await pg.click("[data-asbatch]");
+  assert.match(await pg.locator(".modal").innerText(), /모둠 1개와 학생 2명[\s\S]*약 10번/);
+  await pg.click(".modal .btn-primary");
+  await pg.waitForFunction(() => /완료/.test(document.querySelector(".toast")?.textContent || ""));
+  assert.deepEqual(st.calls.filter(([n, d]) => n === "assessAi").map(([, d]) => [d.kind, d.id]), [["group", "g1"], ["student", "k1"], ["student", "k2"]]);
+  assert.ok(st.calls.some(([n, d]) => n === "assess" && d.action === "applyAi" && d.all === true));
+  // 적용된 AI 점수: 검토 전 표시, 상단에 검토 전 수
+  await pg.waitForSelector('[data-cid="c12"] .tag:has-text("AI 점수 · 검토 전")');
+  assert.match(await pg.locator('[data-cid="c12"] textarea').inputValue(), /^AI 제안: 두 바람을/);
+  assert.match(await pg.locator('[data-cid="c12"] [data-assave]').innerText(), /확인·저장/);
+  assert.match(await pg.locator('[data-cid="c12"] .as-ai').innerText(), /AI 제안/);
+  // 교사가 맞다고 확인(같은 수준 저장) → 검토 완료로 바뀐다
+  await pg.locator('[data-cid="c12"] [data-assave]').click();
+  await pg.waitForSelector('[data-cid="c12"] .tag:has-text("교사 채점")');
+  // 채점 방식을 독립 채점으로 바꾸면 AI 점수가 다시 가려진다
+  await pg.selectOption("#as-mode", "independent");
+  await pg.waitForFunction(() => document.querySelector("#as-mode")?.value === "independent");
+  assert.equal(st.assess.mode, "independent");
+  assert.deepEqual(errors, []);
+});
+
+const R_C12 = RUBRIC.rubricFor("high", {}).criteria.find((c) => c.id === "c12");
+const QITEM = (over) => ({ type: "exception", kind: "group", id: "g1", via: null, cid: "c12", name: R_C12.name, el: "문제 이해와 정의", code: "1모둠", nick: null, groupId: "g1", reasons: ["AI 3번이 서로 다른 수준으로 갈렸어요", "AI가 인용한 문장을 근거에서 찾지 못했어요"], appeal: null,
+  evidence: [{ id: "e1", label: "같은 점", text: "모두 안전을 바란다" }], empty: false, ai: { level: 1, levels: [0, 1, 2], spread: 2, quote: "안전을 바란다", quoteOk: false, reason: "두 바람을 담았으나 근거가 부족", n: 3, esc: true }, score: null, levels: R_C12.levels, max: 10, ...over });
+
+test("교사 평가: 예외만 검토 — 예외 큐(이유·근거·AI 제안), 정하기, 협력 칸 일괄 적용, 확정 후보 일괄 확정(교사가 누름)", async () => {
+  const st = assessFixture();
+  st.assess.auto = { on: true, calib: false }; st.assess.mode = "ai_first"; st.assess.aiDone = true;
+  st.assess.scores.c12 = { level: 1, pts: 8, note: "AI 제안: x", t: 1, by: "ai", src: "ai", reviewed: false, auto: true };
+  st.assess.queueItems = [QITEM({ type: "appeal", id: "g1", via: "k1", appeal: { status: "open", text: "점검표를 다 확인했어요", t: 1 }, reasons: [], score: { level: 1, pts: 8, note: "점검표 근거가 부족함" } }), QITEM({})]; // 서버가 이의 제기를 먼저 정렬한다
+  const { pg, errors } = await openTeacher(st);
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-root .q-card");
+  // 할 일이 있으면 예외 큐가 먼저 열리고, 탭에 건수가 보인다
+  assert.match(await pg.locator("#as-views").innerText(), /예외 큐 \(2\)/);
+  const head = await pg.locator(".as-batch").innerText();
+  assert.match(head, /예외 1/); assert.match(head, /확정 후보 1/); assert.match(head, /이의 제기 1/); assert.match(head, /협력 칸 미채점 1명/);
+  assert.equal(await pg.locator("#as-auto-on").isChecked(), true);
+  // 이의 제기가 먼저, 예외는 이유 칩과 근거·AI 제안(미리 골라진 수준)이 보인다
+  const cards = pg.locator(".q-card");
+  assert.equal(await cards.count(), 2);
+  assert.match(await cards.nth(0).innerText(), /이의 제기[\s\S]*학생의 이의: “점검표를 다 확인했어요”/);
+  const ex = cards.nth(1);
+  assert.match(await ex.innerText(), /AI 3번이 서로 다른 수준으로 갈렸어요/); assert.match(await ex.innerText(), /모두 안전을 바란다/); assert.match(await ex.innerText(), /AI 매우 잘함·잘함 ?|AI 잘함 · 3번 채점/);
+  assert.equal(await ex.locator('input[value="1"]').isChecked(), true);
+  assert.match(await ex.locator(".q-note").inputValue(), /^AI 제안: 두 바람을/);
+  // 정하기 → 저장 호출(예외 칸은 모둠 점수 칸으로)
+  await ex.locator('input[value="2"]').check();
+  await ex.locator("[data-qsave]").click();
+  await pg.waitForFunction(() => /저장했어요/.test(document.querySelector(".toast")?.textContent || ""));
+  const saved = st.calls.filter(([n, d]) => n === "assess" && d.action === "save").at(-1)[1];
+  assert.deepEqual([saved.kind, saved.id, saved.criterion, saved.level], ["group", "g1", "c12", 2]);
+  // 이의 처리 완료(학생에게 보낼 답)
+  await cards.nth(0).locator(".q-reply").fill("다시 보니 맞아요");
+  await cards.nth(0).locator("[data-qresolve]").click();
+  await pg.waitForFunction(() => /이의 제기를 처리했어요/.test(document.querySelector(".toast")?.textContent || ""));
+  const rs = st.calls.filter(([n, d]) => n === "assess" && d.action === "resolveAppeal").at(-1)[1];
+  assert.deepEqual([rs.id, rs.criterion, rs.reply], ["k1", "c12", "다시 보니 맞아요"]);
+  // (정하기에서 c12 는 교사가 정했으니 확정 후보는 다른 칸 하나만 남게 한다)
+  st.assess.scores.c23 = { level: 1, pts: 8, note: "AI 제안: y", t: 1, by: "ai", src: "ai", reviewed: false, auto: true };
+  // 협력 칸 일괄 적용
+  await pg.waitForSelector(".as-bulk");
+  await pg.selectOption("#as-bulk-lv", "1");
+  await pg.fill("#as-bulk-note", "모둠 활동에 고르게 참여함");
+  await pg.click("[data-asbulk]");
+  await pg.waitForFunction(() => /협력 칸 5명에게 적용/.test(document.querySelector(".toast")?.textContent || ""));
+  assert.deepEqual(st.calls.filter(([n, d]) => n === "assess" && d.action === "bulkLevel").at(-1)[1], { code: "ABC234", action: "bulkLevel", criterion: "c62", level: 1, note: "모둠 활동에 고르게 참여함" });
+  // 확정 후보 일괄 확정: 교사가 직접 눌러야 하고 확인 창을 거친다
+  assert.equal(st.calls.filter(([n, d]) => n === "assess" && d.action === "confirmAll").length, 0);
+  await pg.click("[data-asconfirmall]");
+  assert.match(await pg.locator(".modal").innerText(), /확정 후보 1칸을 확정할까요[\s\S]*공개는 따로 눌러요/);
+  await pg.click(".modal .btn-primary");
+  await pg.waitForFunction(() => /1칸을 확정했어요/.test(document.querySelector(".toast")?.textContent || ""));
+  assert.equal(st.calls.filter(([n, d]) => n === "assess" && d.action === "confirmAll").length, 1);
+  assert.deepEqual(errors, []);
+});
+
+test("교사 평가: 교정 켜기·끄기 — 교정 전 안내, 교정 시작(표본 표시), 완료 후 재사용 표시, 감사 정지 알림과 다시 켜기", async () => {
+  const st = assessFixture();
+  st.assess.auto = { on: true, calib: false }; st.assess.paused = true;
+  const { pg, errors } = await openTeacher(st);
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-root .as-batch");
+  assert.equal(await pg.locator("#as-calib-on").isChecked(), false);
+  assert.match(await pg.locator(".as-batch").innerText(), /자동 통과를 멈췄어요/);
+  await pg.click("[data-asresume]");
+  await pg.waitForFunction(() => !/자동 통과를 멈췄어요/.test(document.querySelector(".as-batch")?.innerText || ""));
+  // 교정 사용을 켜면 설정이 서버에 저장된다
+  st.assess.calib = { key: "k", state: "none", reused: false, sampleSize: 0 };
+  await pg.locator("#as-calib-on").check();
+  await pg.waitForFunction(() => /교정이 아직 없어요/.test(document.querySelector(".as-batch")?.innerText || ""));
+  assert.deepEqual(st.calls.filter(([n, d]) => n === "assess" && d.action === "config" && d.assessAuto).at(-1)[1].assessAuto, { on: true, calib: true });
+  // 교정 시작: 확인 창 → 표본이 표시되고 AI 점수가 가려진다는 안내
+  await pg.click("[data-ascalib]");
+  assert.match(await pg.locator(".modal").innerText(), /AI 점수는 가려지니[\s\S]*다른 수업에서도 다시 쓰여요/);
+  await pg.click(".modal .btn-primary");
+  await pg.waitForSelector(".as-calib:has-text('교정 중')");
+  assert.ok(await pg.locator('.as-pick .chip:has-text("🎯")').count() >= 1);
+  assert.match(await pg.locator(".as-sub").innerText(), /교정 표본이에요|AI/);
+  // 완료 후(다른 수업에서 한 교정을 재사용) 표시
+  st.assess.calib = { key: "k", state: "ready", reused: true, from: "OLD123", t: Date.UTC(2026, 9, 20), passed: 8, total: 12, overall: { n: 40, exact: 85, kappa: 0.71 }, perCriterion: { c11: { n: 6, exact: 100, adjacent: 100, pass: true }, c12: { n: 1, exact: 100, adjacent: 100, pass: false } }, sampleSize: 0 };
+  await pg.click('[data-asv="rubric"]'); await pg.click('[data-asv="score"]');
+  await pg.reload(); await pg.waitForSelector("#sessions button[data-code]"); await pg.click("#sessions button[data-code]"); await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector(".as-calib.ok");
+  const cal = await pg.locator(".as-calib").innerText();
+  assert.match(cal, /교정 완료[\s\S]*OLD123[\s\S]*재사용/); assert.match(cal, /8 \/ 12/); assert.match(cal, /표본 40칸 · 일치율 85%/);
+  // 예외만 검토를 끄면 채점 방식 선택이 다시 나온다
+  await pg.locator("#as-auto-on").uncheck();
+  await pg.waitForSelector("#as-mode");
+  assert.deepEqual(errors, []);
+});
+
+test("교사 평가: AI 점수를 아직 검토하지 않았으면 점수 공개 확인 창에서 알려 준다", async () => {
+  const st = assessFixture();
+  st.assess.mode = "ai_first"; st.assess.aiDone = true;
+  st.assess.scores.c12 = { level: 1, pts: 8, note: "AI 제안: x", t: 1, by: "ai", src: "ai", reviewed: false };
+  const { pg, errors } = await openTeacher(st);
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-root .as-rel");
+  await pg.click('[data-asrel="score"]');
+  assert.match(await pg.locator(".modal").innerText(), /AI 점수를 아직 검토하지 않은 칸이 1개/);
+  await pg.click(".modal .btn:has-text('취소')");
   assert.deepEqual(errors, []);
 });
 
@@ -2704,6 +2854,39 @@ test("학생 결과: 입장 화면에서 모둠·별명·비밀번호로 점수�
   await pg.waitForSelector(".modal .res-seteuk");
   const m2 = await pg.locator(".modal").innerText();
   assert.match(m2, /내 세특[\s\S]*인물 인터뷰에서 어려움을 파악함\./); assert.ok(!/내 점수/.test(m2));
+});
+
+test("학생 결과: 확정된 칸마다 '이의가 있어요'로 이의를 보내고, 처리되면 선생님의 답이 보인다", async () => {
+  const st = studentFixture(), h0 = st.handler;
+  let reply = JSON.parse(JSON.stringify(RESULT));
+  reply.score.items.forEach((x) => { x.appeal = null; });
+  st.handler = async (name, data) => {
+    if (name === "myResult") {
+      st.calls.push([name, data]);
+      if (data.appeal) { reply.score.items.find((x) => x.id === data.appeal.criterion).appeal = { status: "open", text: data.appeal.text, reply: "" }; }
+      return reply;
+    }
+    return h0(name, data);
+  };
+  const { pg, errors } = await openStudent(st);
+  await pg.fill("#j-code", "abc234"); await pg.fill("#j-group", "1"); await pg.fill("#j-nick", "가람"); await pg.fill("#j-pw", "pw1234");
+  await pg.click("#res-join");
+  await pg.waitForSelector(".modal .res-total");
+  // 채점된 칸에만 이의 단추가 있다(채점 전 칸에는 없다)
+  assert.equal(await pg.locator(".modal [data-appeal]").count(), 2);
+  await pg.locator('.modal [data-appeal="c12"]').click();
+  await pg.locator(".modal .res-ap-t").fill("점검표를 모두 확인했어요");
+  await pg.locator(".modal [data-appeal-send]").click();
+  await pg.waitForSelector(".modal .tag:has-text('선생님이 확인하는 중')");
+  assert.deepEqual(st.calls.filter(([n]) => n === "myResult").at(-1)[1].appeal, { criterion: "c12", text: "점검표를 모두 확인했어요" });
+  assert.equal(await pg.locator(".modal [data-appeal]").count(), 1, "이의를 낸 칸은 단추가 사라진다");
+  // 처리된 답
+  reply.score.items.find((x) => x.id === "c12").appeal = { status: "resolved", text: "점검표를 모두 확인했어요", reply: "다시 보니 맞아서 고쳤어요" };
+  await pg.click(".modal .btn-primary");
+  await pg.fill("#j-pw", "pw1234");
+  await pg.click("#res-join");
+  await pg.waitForSelector(".modal .res-note:has-text('선생님 답: 다시 보니 맞아서 고쳤어요')");
+  assert.deepEqual(errors, []);
 });
 
 test("학생 결과: 수업 중 선생님이 공개하면 '내 결과' 단추가 나타나 강조되고, 누르면 결과 창, 보고 나면 강조가 사라진다", async () => {
