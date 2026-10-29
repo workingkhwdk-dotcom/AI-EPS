@@ -213,9 +213,6 @@ function combineRuns(runs, items) {
   return out;
 }
 
-// 빠른 모델 두 번의 결과가 갈렸거나(spread), 인용문이 근거에 없거나, 합쳐지지 못한 기준은 고성능 모델이 한 번 더 판정한다.
-const needsEscalation = (r) => !r || r.spread > 0 || (r.level !== -1 && !r.quoteOk);
-
 // ---------- 신뢰도 통계 ----------
 const rankOf = (level, n) => (level === -1 ? n : level);
 
@@ -314,7 +311,7 @@ const isRefLabel = (label) => REF_LABELS.test(label);
 
 module.exports = {
   clip, listOf, evidenceFor, evidenceEmpty, evidenceText,
-  scorerMessages, parseScorer, combineRuns, normQuote, needsEscalation,
+  scorerMessages, parseScorer, combineRuns, normQuote,
   weightedKappa, agreementStats, reliabilityReport, inRecheckSample, THRESHOLDS,
   checkScoreInput, NOTE_MIN, rankOf,
   byteLen, SETEUK_MAX, checkSeteuk, isRefLabel,

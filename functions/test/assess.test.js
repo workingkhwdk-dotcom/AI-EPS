@@ -298,30 +298,22 @@ test("통합: 독립 채점 — AI 제안은 교사가 그 기준을 저장하�
   assert.equal(sub.ai.c12.spread, 0);
 });
 
-test("통합 하이브리드: 빠른 모델 2번이 같으면 고성능은 부르지 않고, 갈리거나 인용을 못 찾은 기준만 고성능이 한 번 더 판정한다", async () => {
+test("통합 채점: 정확도를 위해 빠른 모델이 같은 근거를 3번 채점하고 고성능으로 올리지 않는다", async () => {
   await seed();
   scoreModels.length = 0; scoreSplit = false;
-  let r = await api.assessAi(as({ action: "score", kind: "group", id: "g1" }));
-  assert.deepEqual([scoreModels.length, scoreModels.every((m) => /luna/.test(m)), r.escalated], [2, true, 0], "일치하면 빠른 모델 2번뿐");
+  const r = await api.assessAi(as({ action: "score", kind: "group", id: "g1" }));
+  assert.deepEqual([scoreModels.length, scoreModels.every((m) => /luna/.test(m))], [3, true]);
+  assert.equal(r.ok >= 5, true);
   let d = store.get(`sessions/${CODE}/assess/g1`).ai;
-  assert.deepEqual([d.c12.n, d.c12.spread, !!d.c12.esc], [2, 0, false]);
-  const used = store.get(`sessions/${CODE}`).assessAiCount;
-  assert.equal(used, 2);
-  // 빠른 모델이 c12 에서 갈리면 그 기준만 고성능이 재판정(다른 기준은 그대로)
+  assert.deepEqual([d.c12.n, d.c12.spread, d.c12.levels.length], [3, 0, 3]);
+  assert.equal(store.get(`sessions/${CODE}`).assessAiCount, 3);
+  // 갈리면 가운데 값을 쓰고 흔들림(spread)을 알린다. 고성능 모델은 부르지 않는다
   scoreModels.length = 0; scoreSplit = true;
-  r = await api.assessAi(as({ action: "score", kind: "group", id: "g1" }));
+  await api.assessAi(as({ action: "score", kind: "group", id: "g1" }));
   assert.equal(scoreModels.length, 3);
-  assert.deepEqual(scoreModels.map((m) => /luna/.test(m)), [true, true, false]);
-  assert.equal(r.escalated, 1);
+  assert.ok(scoreModels.every((m) => /luna/.test(m)));
   d = store.get(`sessions/${CODE}/assess/g1`).ai;
-  assert.deepEqual([d.c12.esc, d.c12.n, d.c12.levels.length], [true, 3, 3]);
-  assert.equal(d.c12.level, 1, "가운데 값(빠른 0·2, 고성능 1)");
-  assert.equal(!!d.c23.esc, false);
-  // 인용문을 근거에서 못 찾는 경우도 고성능이 다시 판정한다
-  scoreModels.length = 0; scoreSplit = false; aiMode = "bad";
-  r = await api.assessAi(as({ action: "score", kind: "group", id: "g1" }));
-  aiMode = "normal";
-  assert.ok(r.escalated >= 1 && scoreModels.some((m) => !/luna/.test(m)));
+  assert.ok(d.c12.spread >= 1 && d.c12.n === 3);
   scoreSplit = false;
 });
 

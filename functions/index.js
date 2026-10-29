@@ -1215,13 +1215,12 @@ exports.demoRequest = onCall({ ...aiOpts, maxInstances: 2 }, async (req) => {
 const A = require("./assess");
 const { rubricFor, totals } = require("./rubric");
 // 비용과 성능을 나누는 하이브리드: 대부분은 빠른(저가) 모델이 하고, 어려운 곳만 고성능 모델이 맡는다.
-//  - 채점 제안: 빠른 모델 2번 → 두 번이 갈리거나 인용문을 근거에서 못 찾은 기준만 고성능 모델이 한 번 더(가운데 값으로 합침)
+//  - 채점 제안: 정확도가 중요해 빠른 모델이 같은 근거를 3번 채점하고 가운데 값과 흔들림을 쓴다(고성능 모델로 올리지 않는다)
 //  - 세특: 수준 판정은 빠른 모델(OPENAI_MODEL), 첫 초안은 고성능, 분량 보정 반복은 빠른 모델. 보정이 구조를 깨거나 3번 넘게 걸리면 고성능으로 올린다
-const ASSESS_FAST_MODEL = modelParam("ASSESS_FAST_MODEL", "gpt-5.6-luna");
-const ASSESS_MODEL = modelParam("ASSESS_MODEL", "gpt-5.6-terra"); // 채점 제안의 고성능 재판정
+const ASSESS_FAST_MODEL = modelParam("ASSESS_FAST_MODEL", "gpt-5.6-luna"); // 채점 제안(제2평정자)
 const SETEUK_MODEL = modelParam("SETEUK_MODEL", "gpt-5.6-terra"); // 세특 첫 초안과 올려 쓴 보정
 const SETEUK_FIX_MODEL = modelParam("SETEUK_FIX_MODEL", "gpt-5.6-luna"); // 세특 분량 보정(압축·보강)
-const ASSESS_FAST_RUNS = 2; // 빠른 모델이 같은 근거를 채점하는 횟수
+const ASSESS_RUNS = 3; // 같은 근거를 AI가 몇 번 채점해 가운데 값과 흔들림을 구하는지
 const ASSESS_AI_CAP = 1500; // 수업 하나에서 평가용 AI 호출 한도(비용 보호)
 const assessAiOpts = { ...aiOpts, cpu: "gcf_gen1", maxInstances: 2 };
 
@@ -1317,7 +1316,7 @@ exports.assess = onCall(opts, async (req) => {
     const reviewCount = Object.values(docs).reduce((n, d) => n + Object.keys(reviewFlags(rubric, d)).length, 0);
     return {
       rubric, groups, students, progress: { done, total, reviewCount }, release: releaseOf(sess), seteukMax: sess.seteukMax || A.SETEUK_MAX.def, seteukRange: [A.SETEUK_MAX.min, A.SETEUK_MAX.max],
-      aiUsed: sess.assessAiCount || 0, aiCap: ASSESS_AI_CAP, aiRuns: ASSESS_FAST_RUNS, thresholds: A.THRESHOLDS,
+      aiUsed: sess.assessAiCount || 0, aiCap: ASSESS_AI_CAP, aiRuns: ASSESS_RUNS, thresholds: A.THRESHOLDS,
     };
   }
 
@@ -1472,33 +1471,21 @@ exports.assessAi = onCall(assessAiOpts, async (req) => {
     const items = crits.filter((c) => !empty[c.id]).map((c) => ({ c, evidence: evidence[c.id] }));
     const patch = {};
     for (const c of crits.filter((x) => empty[x.id])) patch[`ai.${c.id}`] = { level: -1, levels: [-1], spread: 0, quote: "", quoteOk: true, reason: "학생이 쓴 근거가 비어 있음", n: 0, auto: true, t: Date.now() };
-    let ok = 0, failed = 0, escalatedCount = 0;
+    let ok = 0, failed = 0;
     if (items.length) {
-      if (used + ASSESS_FAST_RUNS + 1 > ASSESS_AI_CAP) throw new HttpsError("resource-exhausted", `이 수업의 평가용 AI 호출 한도(${ASSESS_AI_CAP}회)에 가까워 더 받을 수 없어요.`);
-      const eff = [effort === "minimal" ? "low" : effort, "low"];
-      const runOn = async (model, list) => {
-        const text = await callModel({ apiKey, model, messages: A.scorerMessages({ rubric, items: list, deep: deepOf(sess) }), json: true, maxTokens: 1800, efforts: eff });
-        return A.parseScorer(extractJson(text), list);
-      };
-      const settle = (rs) => rs.map((r) => (r.status === "fulfilled" ? r.value : (failed++, console.error("AI 채점 실패:", r.reason?.message), null))).filter(Boolean);
-      // 1) 빠른 모델 2번
-      await bump(ASSESS_FAST_RUNS);
-      const runs = settle(await Promise.allSettled(Array.from({ length: ASSESS_FAST_RUNS }, () => runOn(ASSESS_FAST_MODEL.value(), items))));
-      let combined = A.combineRuns(runs, items);
-      // 2) 갈리거나 인용을 못 찾은 기준(또는 빠른 모델이 답하지 못한 기준)만 고성능 모델이 한 번 더 판정
-      const hard = items.filter(({ c }) => A.needsEscalation(combined[c.id]));
-      const escalated = new Set(hard.map(({ c }) => c.id));
-      if (hard.length) {
-        await bump(1);
-        runs.push(...settle(await Promise.allSettled([runOn(ASSESS_MODEL.value(), hard)])));
-        combined = A.combineRuns(runs, items);
-      }
-      for (const [cid, v] of Object.entries(combined)) { patch[`ai.${cid}`] = { ...v, esc: escalated.has(cid), t: Date.now() }; ok++; }
-      escalatedCount = escalated.size;
+      if (used + ASSESS_RUNS > ASSESS_AI_CAP) throw new HttpsError("resource-exhausted", `이 수업의 평가용 AI 호출 한도(${ASSESS_AI_CAP}회)에 가까워 더 받을 수 없어요.`);
+      await bump(ASSESS_RUNS);
+      const messages = A.scorerMessages({ rubric, items, deep: deepOf(sess) });
+      const runs = (await Promise.allSettled(Array.from({ length: ASSESS_RUNS }, async () => {
+        const text = await callModel({ apiKey, model: ASSESS_FAST_MODEL.value(), messages, json: true, maxTokens: 1800, efforts: [effort === "minimal" ? "low" : effort, "low"] });
+        return A.parseScorer(extractJson(text), items);
+      }))).map((r) => (r.status === "fulfilled" ? r.value : (failed++, console.error("AI 채점 실패:", r.reason?.message), null))).filter(Boolean);
+      const combined = A.combineRuns(runs, items);
+      for (const [cid, v] of Object.entries(combined)) { patch[`ai.${cid}`] = { ...v, t: Date.now() }; ok++; }
       if (!ok) throw new HttpsError("unavailable", "AI 응답을 받지 못했어요. 잠시 뒤에 다시 시도하세요.");
     }
     if (Object.keys(patch).length) await patchAssess(assessRef(code, key), patch);
-    return { ok, auto: crits.length - items.length, failedRuns: failed, escalated: escalatedCount };
+    return { ok, auto: crits.length - items.length, failedRuns: failed };
   }
 
   // ---- 세특 ①② 근거 확인과 수준 판정(경량 모델). 결과는 교사에게 보여 주고, 빈약하면 하향·유지·취소를 고르게 한다. ----
