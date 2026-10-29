@@ -96,6 +96,14 @@ test("1단계 개인 정리와 '입력 중' 표시는 자기 칸만 고칠 수 �
   await assertFails(updateDoc(doc(as("S3"), P("groups/g2")), { "work.s1.findings.S1": { who: "남의 것" } }));
 });
 
+test("수행평가 기록(assess)은 교사도 학생도 직접 읽거나 쓸 수 없다(서버 함수만)", async () => {
+  await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), P("assess/g1")), { scores: { c12: { level: 0 } } }));
+  for (const who of ["T1", "S1", "OUT"]) {
+    await assertFails(getDoc(doc(as(who), P("assess/g1"))));
+    await assertFails(setDoc(doc(as(who), P("assess/g1")), { scores: { c12: { level: 0 } } }));
+  }
+});
+
 test("접속 신호: 자기 문서의 stage·lastSeen만 고칠 수 있다", async () => {
   await assertSucceeds(updateDoc(doc(as("S1"), P("members/S1")), { stage: 3, lastSeen: serverTimestamp() }));
   await assertFails(updateDoc(doc(as("S1"), P("members/S1")), { stage: 8, lastSeen: serverTimestamp() }));

@@ -2,6 +2,7 @@ import { auth, db, call, esc, toast, toastAction, errMsg } from "./fb.js";
 import { waitHtml, startWaitTicker, STEPS } from "./wait.js";
 import { showModal, confirmModal } from "./modal.js";
 import { HELP, helpSimple, helpDetail, fill } from "./help.js";
+import { openResult, seenAt as resSeenAt, markSeen as resMarkSeen } from "./result.js";
 import { signInAnonymously, onAuthStateChanged, setPersistence, browserSessionPersistence, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { doc, getDoc, getDocFromServer, onSnapshot, updateDoc, collection, query, orderBy, serverTimestamp, deleteField } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
@@ -228,6 +229,14 @@ $("#j-btn").onclick = async () => {
   } catch (e) { toast(errMsg(e), true); }
   finally { btn.disabled = false; btn.textContent = label; $("#join-wait")?.remove(); }
 };
+// 수업이 끝난 뒤 점수·세특 보기: 입장할 때와 같은 네 칸으로 확인한다(입장하지 않는다)
+$("#res-join").onclick = async () => {
+  const code = $("#j-code").value.trim().toUpperCase(), groupNo = $("#j-group").value, nickname = $("#j-nick").value.trim(), password = $("#j-pw").value;
+  if (!code || !groupNo || !nickname || !password) return toast("수업 코드, 모둠 번호, 별명, 비밀번호를 모두 입력하세요.", true);
+  if (!S.uid) return toast("연결하는 중이에요. 잠시 후 다시 눌러 주세요.", true);
+  const b = $("#res-join"); b.disabled = true;
+  try { await openResult({ code, groupNo: Number(groupNo), nickname, password }); $("#j-pw").value = ""; } finally { b.disabled = false; }
+};
 // 입장 화면을 보는 동안 입장 기능을 미리 깨워 둔다(첫 입장이 느린 것을 줄인다). 결과는 쓰지 않는다.
 function prewarm() { if (!S.code && !savedCode()) call("joinSession")({}).catch(() => {}); }
 // 한글을 조합하는 중의 Enter(글자 확정)는 입장으로 보지 않는다
@@ -251,6 +260,15 @@ const remember = (x) => { try { sessionStorage.setItem(LAST_KEY, JSON.stringify(
   if (last.code === code) { if (last.group) $("#j-group").value = last.group; if (last.nick) $("#j-nick").value = last.nick; }
   if (!savedCode()) ["#j-group", "#j-nick", "#j-pw"].map((x) => $(x)).find((el) => !el.value)?.focus();
 })();
+
+// '내 결과' 단추: 교사가 점수나 세특 중 하나라도 공개하면 나타나고, 새로 공개된 것을 아직 안 봤으면 강조한다
+function updateResBtn(rel) {
+  const b = $("#res-btn"), any = !!(rel && (rel.score || rel.seteuk));
+  b.classList.toggle("hidden", !any);
+  b.classList.toggle("has-new", any && (rel.t || 1) > resSeenAt(S.code));
+  S.relT = rel?.t || 1;
+}
+$("#res-btn").onclick = async () => { const r = await openResult({ code: S.code }); if (r) { resMarkSeen(S.code, S.relT); $("#res-btn").classList.remove("has-new"); } };
 
 // 로그아웃: 저장 중인 입력을 먼저 올리고, '입력 중' 표시를 지운 뒤, 로그인 정보를 지우고 처음 화면으로 돌아간다
 let leaving = false;
@@ -324,6 +342,7 @@ async function enter(code, joined) {
     renderTeacherNotice(d.notice);
     if ((coachChanged || levelChanged) && S.code) scheduleRender(); // 선생님이 생각 도우미·학교급·심화 활동을 바꾸면 바로 반영한다
     applyStarted(d.started !== false);
+    updateResBtn(d.release);
   }, lost);
   startStartPoll(code);
   // 내 접속 문서: 모둠 이동, 쓴 질문 수, 대화 규칙 위반으로 대화가 멈췄는지(교사가 다시 열면 바로 풀린다)

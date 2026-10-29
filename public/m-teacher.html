@@ -120,10 +120,11 @@
             <div class="row m-actions"><button class="btn btn-sm" id="open-btn" type="button"></button><button class="btn btn-tinted btn-sm" id="present-btn" type="button">크게 띄우기</button><button class="btn btn-tinted btn-sm" id="copy-btn" type="button">코드 복사</button><button class="btn btn-plain btn-sm" id="csv-btn" type="button">기록 CSV</button></div>
           </div>
         </div>
-        <nav class="seg m-nav m-nav4" id="ctabs" aria-label="수업 메뉴">
+        <nav class="seg m-nav m-nav5" id="ctabs" aria-label="수업 메뉴">
           <button data-ctab="live" class="on"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V10M10 19V5M16 19v-6M22 19H2"/></svg>진행 현황</button>
           <button data-ctab="materials"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h12l4 4v12H4z"/><path d="M8 12h8M8 16h6"/></svg>자료 관리</button>
           <button data-ctab="personas"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4.5-6 8-6s7 2 8 6"/></svg>인물 편집</button>
+          <button data-ctab="assess"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>평가</button>
           <button data-ctab="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>수업 설정</button>
         </nav>
 
@@ -178,6 +179,9 @@
           </div>
           <div id="persona-edit"></div>
         </div>
+
+        <!-- 평가: 화면은 assess.js 가 그린다 -->
+        <div id="cpane-assess" class="hidden"><div id="as-root"></div></div>
 
         <!-- 수업 설정 -->
         <div id="cpane-settings" class="hidden">
