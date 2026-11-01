@@ -678,7 +678,7 @@ test("장면: 화면에는 활동 하나와 발문 한 줄만 보이고, 마치�
   await s.pg.click('.stage-tab[data-stage="2"]');
   await s.pg.waitForSelector("#lk-src");
   assert.equal(await s.pg.locator(".scene").count(), 1, "장면은 하나만");
-  assert.match(await sceneQ(s.pg), /처음 내 생각은 어디서 왔을까요/);
+  assert.match(await sceneQ(s.pg), /처음에 왜 그렇게 생각했을까요/);
   assert.equal(await s.pg.locator("#cz, #ch-heard").count(), 0, "다른 활동 칸은 보이지 않는다");
   assert.ok(await s.pg.locator(".nav-foot .sc-next").isDisabled(), "마치기 전에는 '다음'이 닫혀 있다");
   assert.ok(await s.pg.locator('.sc-dot[aria-label^="3."]').isDisabled(), "아직 열리지 않은 장면으로는 못 간다");
@@ -738,7 +738,8 @@ test("학생 모바일: 장면은 휴대폰 폭 안에 들어가고 발문이 �
 // ---------- 사고 과정에 맞춘 단계 흐름 ----------
 const W3 = { ...BASE, s2: { causes: { q1: { level: "법·제도·규칙", text: "일자리 정보가 부족한 제도", t: 1 } },
   checks: { c1: { heard: "청년은 일자리가 없다", question: "취업 비율은 얼마인가?", causeId: "q1", t: 1 } } } };
-const optsOf = (pg, sel) => pg.locator(`${sel} option`).allInnerTexts();
+// 고르기 칩(라디오)의 글자들. sel 은 저장 칸 경로가 든 선택자([data-save="…"])
+const optsOf = (pg, sel) => pg.locator(`.choice:has(input${sel})`).allInnerTexts().then((x) => x.map((t) => t.trim()));
 test("학생: 3단계 — 확인 질문마다 한 장면에서 자료로 판단하고(AI는 내 예상을 쓴 뒤에만), 사실로 확인된 추측만 남기며, 가장 큰 원인을 쓴다", async () => {
   const s = await openStudent(studentFixture(), { work: W3 });
   await login(s.pg);
@@ -759,7 +760,7 @@ test("학생: 3단계 — 확인 질문마다 한 장면에서 자료로 판단�
   await s.pg.waitForSelector('[data-save="s3.causes.q1.status"]');
   assert.ok((await optsOf(s.pg, '[data-save="s3.causes.q1.status"]')).some((o) => /확인돼서/.test(o)));
   await push({ ...direct, direct: { c1: { verdict: "사실이 아니다", source: "2단계 자료 통계표" } } });
-  await s.pg.waitForFunction(() => ![...document.querySelectorAll('[data-save="s3.causes.q1.status"] option')].some((o) => /확인돼서/.test(o.textContent)));
+  await s.pg.waitForFunction(() => ![...document.querySelectorAll('input[data-save="s3.causes.q1.status"]')].some((o) => /확인돼서/.test(o.value)));
   await push({ ...direct, causes: { q1: { status: "확인돼서 남겨요" } } });
   await nextOn(s.pg);
   await s.pg.click(".nav-foot .sc-next");
@@ -795,8 +796,8 @@ test("학생: 4단계 — 우리 생각부터 쓰면 사례가 열리고, 해결
   await push({ before: "먼저 정보를 알리는 방법을 생각했다" });
   await s.pg.waitForSelector(".case"); // 첫 생각을 쓰면 사례 장면이 바로 열린다
   await nextOn(s.pg); await s.pg.click(".nav-foot .sc-next");
-  await s.pg.waitForSelector("#pt");
-  await s.pg.fill("#pt", "누가: 도청이 / 무엇을: 일자리 정보를 / 어떻게: 한곳에 모아 알려 준다");
+  await s.pg.waitForSelector("#pt-who");
+  await s.pg.fill("#pt-who", "도청이"); await s.pg.fill("#pt-what", "일자리 정보를"); await s.pg.fill("#pt-how", "한곳에 모아 알려 준다");
   await s.pg.click('[data-act="add-proposal"]');
   await s.pg.waitForFunction(() => window.__writes.some((x) => Object.entries(x).some(([k, v]) => k.startsWith("work.s4.proposals.") && /일자리 정보가 부족/.test(v.cause))), null, { timeout: 5000 });
   await push({ before: "먼저 정보를 알리는 방법을 생각했다", proposals: P });
@@ -1279,9 +1280,11 @@ test("학생: 4단계 해외 사례 카드(탭 전환, 위험한 링크 차단)�
   await pg.click('[data-act="case-tab"][data-id="uganda"]');
   await pg.waitForFunction(() => document.querySelector(".case")?.innerText.includes("열린 정책"));
   await pg.click(".nav-foot .sc-next:not([disabled])");
-  await pg.waitForSelector("#pt");
-  assert.equal(await pg.locator("#pt-cause, #pt-ref").count(), 0, "해결책 칸 하나만 쓴다");
-  await pg.fill("#pt", "누가: 도청이 / 무엇을: 정착 교육을 / 어떻게: 지역 단체와 함께 운영한다");
+  await pg.waitForSelector("#pt-who");
+  assert.equal(await pg.locator("#pt-cause, #pt-ref").count(), 0, "누가·무엇을·어떻게 세 칸만 쓴다");
+  await pg.click('[data-act="add-proposal"]');
+  assert.match(await toastText(pg), /모두 채워/);
+  await pg.fill("#pt-who", "도청이"); await pg.fill("#pt-what", "정착 교육을"); await pg.fill("#pt-how", "지역 단체와 함께 운영한다");
   await pg.click('[data-act="add-proposal"]');
   await pg.waitForFunction(() => window.__writes.some((w) => Object.keys(w).some((k) => k.startsWith("work.s4.proposals."))));
   const w = await pg.evaluate(() => window.__writes.find((x) => Object.keys(x).some((k) => k.startsWith("work.s4.proposals."))));
@@ -1505,12 +1508,15 @@ test("학생: 마지막 질문은 미리 알리고, 최소 글자 수는 쓰는 
   await s.pg.waitForFunction(() => /마지막 질문이에요/.test(document.querySelector("#chat-left")?.innerText || ""));
   assert.match(await s.pg.getAttribute("#msg", "placeholder"), /마지막 질문/);
   await s.pg.click('.stage-tab[data-stage="4"]');
-  await s.pg.waitForSelector("#pt");
-  await s.pg.fill("#pt", "가".repeat(12));
-  assert.match(await s.pg.locator('.cnt[data-cnt-for="#pt"]').innerText(), /12 \/ 30자/);
-  await s.pg.fill("#pt", "가".repeat(31));
-  assert.match(await s.pg.locator('.cnt[data-cnt-for="#pt"]').innerText(), /✓ 31자/);
-  assert.match(await s.pg.locator('.cnt[data-cnt-for="#pt"]').getAttribute("class"), /ok/);
+  await s.pg.click('.sc-dot[aria-label$="최종 해결책"]').catch(() => {});
+  await s.pg.evaluate(() => window.__push("sessions/ABC234/groups/g1", { picks: { p1: { uid: "anonX", nick: "가람" } }, work: { s1: { problem: { hmw: "어떻게 하면 일자리를 지키면서도 안전을 지킬 수 있을까?" } }, s2: { links: { l1: { source: "뉴스 제목만 봤다", by: "anonX", t: 1 } }, causes: { q1: { level: "개인", text: "일자리가 없었다", t: 1 } } }, s3: { chain: { cause: "일자리 정보가 부족한 제도" } }, s4: { before: "정보를 알리는 방법", proposals: { a: { text: "누가: 도청이 / 무엇을: 정보를 / 어떻게: 알린다", t: 1 } } } } }));
+  await s.pg.click('.sc-dot[aria-label$="최종 해결책"]');
+  await s.pg.waitForSelector('[data-save="s4.final"]');
+  await s.pg.fill('[data-save="s4.final"]', "가".repeat(12));
+  assert.match(await s.pg.locator('.cnt[data-cnt-for="s4.final"]').innerText(), /12 \/ 30자/);
+  await s.pg.fill('[data-save="s4.final"]', "가".repeat(31));
+  assert.match(await s.pg.locator('.cnt[data-cnt-for="s4.final"]').innerText(), /✓ 31자/);
+  assert.match(await s.pg.locator('.cnt[data-cnt-for="s4.final"]').getAttribute("class"), /ok/);
   await s.pg.click('.stage-tab[data-stage="2"]');
   await s.pg.click('.sc-dot[aria-label$="원인 추측"]');
   await s.pg.waitForSelector("#cz");
@@ -2159,22 +2165,22 @@ test("학교급(중학교): 원인 갈래 2개, 사실·의견 가르기, 판정
   const { pg, errors } = await openStudent(st, { session: { chatLimit: 5, level: "middle", deep: {} }, work, scenesSeen: SEEN_INFO });
   await login(pg);
   await pg.click('.stage-tab[data-stage="2"]');
-  await pg.waitForSelector("#ch-fo");
+  await pg.waitForSelector('[data-pick="ch-fo"]');
   await pg.fill("#ch-heard", "이씨: 다들 불안해한다"); await pg.fill("#ch-q", "불안하다고 답한 도민은 몇 %인가?");
   await pg.click('[data-act="add-check"]');
   assert.match(await toastText(pg), /사실인지 의견인지/);
-  await pg.selectOption("#ch-fo", { index: 2 });
+  await pg.click('[data-pick="ch-fo"] .choice >> nth=1');
   await pg.click('[data-act="add-check"]');
   await pg.waitForFunction(() => window.__writes.some((w) => Object.entries(w).some(([k, v]) => k.startsWith("work.s2.checks.") && /의견/.test(v?.fo || ""))));
   await pg.click('.sc-dot[aria-label$="원인 추측"]');
-  await pg.waitForSelector("#cz-lv");
-  assert.deepEqual(await pg.locator("#cz-lv option").allInnerTexts(), ["사람들의 생각·선택", "사회의 규칙·분위기"]);
+  await pg.waitForSelector('[data-pick="cz-lv"]');
+  assert.deepEqual(await pg.locator('[data-pick="cz-lv"] .choice').allInnerTexts(), ["사람들의 생각·선택", "사회의 규칙·분위기"]);
   await pg.click('.stage-tab[data-stage="3"]');
   await pg.waitForSelector('[data-save="s3.direct.c1.verdict"]');
-  assert.deepEqual(await pg.locator('[data-save="s3.direct.c1.verdict"] option').allInnerTexts(), ["선택하세요", "사실이다", "사실이 아니다", "확인할 수 없다"]);
+  assert.deepEqual(await optsOf(pg, '[data-save="s3.direct.c1.verdict"]'), ["사실이다", "사실이 아니다", "확인할 수 없다"]);
   await pg.click('.stage-tab[data-stage="4"]');
   await pg.waitForSelector('[data-save="s4.check.effect"]');
-  assert.match(await pg.locator(".sc-q").innerText(), /괜찮을까요/);
+  assert.match(await pg.locator(".sc-q").innerText(), /정말 효과가 있을까요/);
   await pg.click('.stage-tab[data-stage="5"]');
   await pg.click('.sc-dot[aria-label$="AI 미래 이야기"]');
   await pg.waitForSelector('[data-act="ask-scenario"]');
@@ -2203,7 +2209,7 @@ test("심화 활동(고등학교): 전제·원인 잇기·다른 자료와 만�
   assert.equal(await pg.locator('[data-save="s3.direct.c1.maker"]').count(), 1);
   assert.ok((await dots(pg)).includes("뿌리 따지기"));
   await pg.click('.stage-tab[data-stage="4"]');
-  await pg.waitForSelector("#pt");
+  await pg.waitForSelector("#pt-who");
   assert.match(await pg.locator(".sc-hint").innerText(), /두 개 이상/);
   assert.ok((await dots(pg)).includes("견주기"));
   await pg.click('.stage-tab[data-stage="5"]'); await pg.waitForSelector(".sc-dot");
@@ -2221,12 +2227,12 @@ test("학교급: 예전 수업(학교급 없음)은 심화 장면이 없고 원�
   await login(pg);
   await pg.click('.stage-tab[data-stage="2"]');
   await pg.click('.sc-dot[aria-label$="원인 추측"]');
-  await pg.waitForSelector("#cz-lv");
-  assert.equal(await pg.locator("#cz-lv option").count(), 3);
+  await pg.waitForSelector('[data-pick="cz-lv"]');
+  assert.equal(await pg.locator('[data-pick="cz-lv"] .choice').count(), 3);
   assert.ok(!(await dots(pg)).includes("원인 잇기"));
   await pg.click('.stage-tab[data-stage="3"]');
   await pg.waitForSelector('[data-save="s3.direct.c1.verdict"]');
-  assert.equal(await pg.locator('[data-save="s3.direct.c1.verdict"] option').count(), 5);
+  assert.equal(await pg.locator('input[data-save="s3.direct.c1.verdict"]').count(), 4);
   assert.equal(await pg.locator('[data-save="s3.direct.c1.source2"]').count(), 0);
   await pg.click('.stage-tab[data-stage="4"]');
   await pg.waitForSelector('[data-save="s4.final"]');

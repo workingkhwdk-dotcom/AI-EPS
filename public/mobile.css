@@ -253,3 +253,8 @@ body.m{ --navh:calc(54px + env(safe-area-inset-bottom)); --hdrh:calc(41px + env(
 .m .sc-hint{ font-size:14px; margin-bottom:12px; }
 .m .row2{ grid-template-columns:1fr; gap:0; }
 .m.chat-mode .sc-top{ display:none; }
+/* 이전·다음: 한 줄에 나란히(이전은 작게, 다음은 넓게) */
+.m .nav-foot{ flex-direction:row; align-items:stretch; gap:8px; }
+.m .nav-foot > .btn-plain{ flex:0 0 auto; padding-left:16px; padding-right:16px; }
+.m .nav-foot > .sc-next, .m .nav-foot > .btn-primary, .m .nav-foot > .btn-tinted{ flex:1 1 auto; margin-left:0; }
+.m .who-what-how label{ grid-template-columns:56px 1fr; }
