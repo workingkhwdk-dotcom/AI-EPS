@@ -130,6 +130,7 @@
           <button data-ctab="live" class="on">진행 현황</button>
           <button data-ctab="materials">자료 관리</button>
           <button data-ctab="personas">인물 편집</button>
+          <button data-ctab="assess">평가</button>
           <button data-ctab="settings">수업 설정</button>
         </div>
 
@@ -184,6 +185,9 @@
           </div>
           <div id="persona-edit"></div>
         </div>
+
+        <!-- 평가: 척도표로 채점하고(타당도·신뢰도 점검), 세특 초안을 만들고, 학생에게 점수·세특을 공개한다. 화면은 assess.js 가 그린다 -->
+        <div id="cpane-assess" class="hidden"><div id="as-root"></div></div>
 
         <!-- 수업 설정 -->
         <div id="cpane-settings" class="hidden">

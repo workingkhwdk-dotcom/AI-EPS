@@ -2379,3 +2379,735 @@ test("수업 안내 페이지: 1~7단계·중고 차이·심화 활동·교사 �
     await ctx.close();
   }
 });
+
+// ---------- 평가(교사 채점·공개)와 학생 결과 ----------
+const RUBRIC = require("../functions/rubric");
+const PREVIEW_RESULT = { title: "테스트 수업", groupId: "g1", released: { score: true, seteuk: true }, appealUntil: null,
+  score: { total: 8, max: 100, indiv: 0, group: 8, indivMax: 60, groupMax: 40, done: 1, count: 13, complete: false, labels: ["매우 잘함", "잘함", "보통", "노력 필요"],
+    items: [{ id: "c12", element: "문제 이해와 정의", name: "모둠 문제 정하기", scope: "group", area: "group", max: 10, scored: true, pts: 8, level: "잘함", desc: "문제 문장이 두 바람을 담았다.", note: "점검표 근거가 부족함", appeal: null }] },
+  seteuk: { text: "자료를 비교해 원인을 분석함." } };
+const A_THRESH = { minPairs: 10, exact: 70, adjacent: 95, kappa: 0.6, selfConsistency: 70, recheckExact: 75, bias: 0.4 };
+function assessFixture() {
+  const st = teacherFixture(), base = st.handler;
+  const rubric = RUBRIC.rubricFor("high", { causeMap: true });
+  const S = { scores: {}, release: { score: false, seteuk: false }, seteukText: "", seteukMax: 1500, aiAsked: false, mode: "independent", aiDone: false, auto: { on: false, calib: false }, queueItems: [], observation: 1, paused: false, calib: null, sampleOn: false,
+    job: null, jobItems: [], draft: null, excluded: {}, appealUntil: null, contrib: false };
+  // 세특 초안(서버가 만든 것과 같은 모양)
+  const GEN = (data = {}) => { const sent = (text, ev) => ({ text, evidence: [ev] }); return { text: "제주 사건의 인물을 만나 처음 생각을 점검함. 이를 바탕으로 원인을 따져 봄. 그러나 통계를 확인하며 생각이 바뀜. 이러한 발견을 성찰함.",
+    parts: [{ part: "기", sentences: [sent("제주 사건의 인물을 만나 처음 생각을 점검함.", "e1")] }, { part: "승", sentences: [sent("이를 바탕으로 원인을 따져 봄.", "e2")] }, { part: "전", sentences: [sent("그러나 통계를 확인하며 생각이 바뀜.", "e3")] }, { part: "결", sentences: [sent("이러한 발견을 성찰함.", "e1")] }],
+    dropped: [{ part: "기", text: "리더십이 뛰어남.", why: "근거가 연결되지 않아 뺐어요" }], warnings: ["부분과 부분을 잇는 말이 적어 앞뒤가 끊겨 읽힐 수 있음(승·전·결의 첫 문장)"], bytes: 1480, max: 1500, target: data.decision === "lower" ? 600 : 1500, reason: "범위 내", tries: 2, log: [{ n: 1, bytes: 1650 }, { n: 2, bytes: 1480 }], calls: 2, models: { strong: 1, fast: 1 }, grade: data.grade, emphasis: data.emphasis, decision: data.decision || "keep",
+    evidence: { e1: { label: "내 활동 · 힘든 것", text: "일자리를 구하기 어려움" }, e2: { label: "내 활동 · 내가 쓴 원인 추측(법·제도)", text: "제도가 낯설다" }, e3: { label: "모둠 활동 · 확인된 사실", text: "허가율 약 2%" } } }; };
+  // 서버 작업: 할 일 목록을 jobStep 이 하나씩 처리한다
+  const jobView = () => { const n = (x) => S.jobItems.filter((i) => i.st === x).length; return { ...S.job, total: S.jobItems.length, done: n("done"), failed: n("fail"), current: [], fails: [] }; };
+  const AIC12 = { level: 1, levels: [1, 1, 1], spread: 0, quote: "모두 안전을 바란다", quoteOk: true, reason: "두 바람을 담았으나 근거가 부족", n: 3 };
+  const ev = { c12: [{ id: "e1", label: "같은 점", text: "모두 안전을 바란다" }, { id: "e2", label: "우리가 풀 질문", text: "어떻게 하면 안전을 지키면서도 인권을 존중할 수 있을까?" }], c22: [{ id: "e1", label: "원인 추측", text: "사람들의 불안" }] };
+  const grp = rubric.criteria.filter((c) => c.scope === "group");
+  st.assess = S;
+  st.handler = async (name, data) => {
+    if (name === "assess") {
+      st.calls.push([name, data]);
+      switch (data.action) {
+        case "get": return {
+          rubric, groups: [{ id: "g1", name: "1모둠", members: 2, scored: Object.keys(S.scores).length, total: grp.length, ai: S.aiDone ? 6 : 0, unreviewed: 0, exc: 0, calibSample: false }, { id: "g2", name: "2모둠", members: 0, scored: 0, total: grp.length, ai: 0, unreviewed: 0, exc: 0, calibSample: false }],
+          students: [{ key: "k1", nick: "가람", code: "S-AB12", groupId: "g1", scored: 0, total: 7, ai: S.aiDone ? 6 : 0, unreviewed: 0, exc: 0, appeals: 0, calibSample: S.sampleOn, hasSeteuk: !!S.seteukText, hasDraft: !!S.draft, excluded: S.excluded.k1 || null },
+            { key: "k2", nick: "나래", code: "S-0F3C", groupId: "g1", scored: 0, total: 7, ai: S.aiDone ? 6 : 0, unreviewed: 0, exc: 0, appeals: 0, calibSample: false, hasSeteuk: false, hasDraft: false, excluded: S.excluded.k2 || null }],
+          job: S.job ? jobView() : null, contrib: S.contrib, appealUntil: S.appealUntil,
+          mode: S.mode, auto: S.auto, autoPaused: S.paused, audit: { n: 6, exact: S.paused ? 33 : 100, paused: S.paused }, calib: S.auto.calib ? S.calib : null,
+          queue: { exceptions: S.queueItems.filter((x) => x.type === "exception").length, appeals: S.queueItems.filter((x) => x.type === "appeal").length, observation: S.observation }, aiTotal: { group: 6, student: 6 },
+          progress: { done: Object.keys(S.scores).length, total: 2 * grp.length + 8, reviewCount: 0, unreviewed: Object.values(S.scores).filter((x) => x.src === "ai" && x.reviewed === false).length }, release: S.release, seteukMax: S.seteukMax, seteukRange: [300, 3000], aiUsed: 0, aiCap: 1500, aiRuns: 3, thresholds: A_THRESH };
+        case "subject": {
+          const cs = data.kind === "group" ? grp : rubric.criteria.filter((c) => c.scope === "student");
+          return { kind: data.kind, id: data.id, mode: S.mode, calibSample: S.sampleOn && data.id === "k1", evidence: Object.fromEntries(cs.map((c) => [c.id, ev[c.id] || []])), empty: Object.fromEntries(cs.map((c) => [c.id, !(ev[c.id] || []).length])), scores: S.scores,
+            ai: S.mode === "ai_first" ? (S.aiDone ? { c12: AIC12 } : {}) : S.scores.c12 ? { c12: AIC12 } : {}, hasAi: S.aiAsked || S.aiDone ? { c12: true } : {}, review: {}, seteuk: { text: data.id === "k1" ? S.seteukText : "", t: 0, draft: data.id === "k1" ? S.draft : null }, excluded: S.excluded[data.id] || null };
+        }
+        case "save": {
+          const c = rubric.criteria.find((x) => x.id === data.criterion);
+          if (data.level === 0 && String(data.note || "").length < 8) throw new Error("functions: 가장 높은 수준은 평가 근거를 8자 이상 써야 해요.");
+          S.scores[data.criterion] = { level: data.level, pts: data.level === -1 ? 0 : c.levels[data.level].pts, note: data.note, t: 1, src: "teacher", reviewed: true };
+          return { score: S.scores[data.criterion], ai: data.criterion === "c12" ? { level: 1, levels: [1, 1, 1], spread: 0, quote: "모두 안전을 바란다", quoteOk: true, reason: "두 바람을 담았으나 근거가 부족", n: 3 } : null, review: null };
+        }
+        case "release": S.release = { ...S.release, ...(data.score !== undefined ? { score: data.score } : {}), ...(data.seteuk !== undefined ? { seteuk: data.seteuk } : {}) }; return { release: S.release };
+        case "seteukSave": S.seteukText = data.text; return { text: data.text, bytes: 10, warnings: [] };
+        case "queue": return { items: S.queueItems, total: S.queueItems.length, offset: data.offset || 0, appeals: S.queueItems.filter((x) => x.type === "appeal").length };
+        case "config": if (data.assessAuto) { S.auto = data.assessAuto; return { auto: S.auto }; } if (data.assessMode) { S.mode = data.assessMode; return { mode: S.mode }; }
+          if (data.contrib !== undefined) { S.contrib = data.contrib; return { contrib: S.contrib }; } if (data.appealUntil !== undefined) { S.appealUntil = data.appealUntil; return { appealUntil: S.appealUntil }; }
+          S.seteukMax = data.seteukMax; return { seteukMax: data.seteukMax };
+        case "jobStart": {
+          const live = ["k1", "k2"].filter((k) => !S.excluded[k]);
+          S.jobItems = (data.type === "score" ? ["g1", ...live] : live.filter((k) => !(k === "k1" && (S.seteukText || S.draft)))).map((id) => ({ id, st: "todo" }));
+          S.job = { type: data.type, status: "running", startedAt: 1, finishedAt: null, note: "", summary: null }; S.lastEmphasis = data.emphasis;
+          return { job: jobView() };
+        }
+        case "job": return { job: S.job ? jobView() : null };
+        case "jobStop": S.job.status = "stopped"; return { job: jobView() };
+        case "exclude": if (data.reason) S.excluded[data.id] = { reason: data.reason, label: { absent: "결석", transfer: "전학", other: "기타" }[data.reason], note: data.note || "" }; else delete S.excluded[data.id]; return { excluded: S.excluded[data.id] || null };
+        case "preview": return { ...PREVIEW_RESULT, nickname: data.id === "k1" ? "가람" : "나래", preview: true, releasedNow: S.release };
+        case "export": return { title: "테스트 수업", rubric: { criteria: rubric.criteria.slice(0, 2).map((c) => ({ id: c.id, name: c.name, max: c.max, area: c.scope })), indivMax: 60, total: 100 }, seteukMax: 1500,
+          rows: [{ group: "1모둠", nick: "가람", excluded: "", excludedNote: "", cells: { c11: { pts: 8, level: "잘함" } }, indiv: 8, groupPts: 0, total: 8, complete: false, pending: ["모둠 문제 정하기"], seteuk: "자료를 비교함, \"근거\"를 들어", seteukBytes: 40 },
+            { group: "1모둠", nick: "나래", excluded: "전학", excludedNote: "", cells: {}, indiv: 0, groupPts: 0, total: 0, complete: false, pending: [], seteuk: "", seteukBytes: 0 }] };
+        case "calibStart": S.calib = { key: "k", state: "collecting", reused: false, passed: null, total: null, overall: null, perCriterion: null, sampleSize: 7 }; S.sampleOn = true; return { students: 6, groups: 1, sample: [] };
+        case "confirmAll": for (const k of Object.keys(S.scores)) if (S.scores[k].src === "ai") S.scores[k].reviewed = true; return { confirmed: 1 };
+        case "bulkLevel": S.observation = 0; return { applied: 5, skipped: 1 };
+        case "autoResume": S.paused = false; return { ok: true };
+        case "resolveAppeal": S.queueItems = S.queueItems.filter((x) => x.type !== "appeal"); return { ok: true };
+        case "applyAi": S.scores.c12 = { level: 1, pts: 8, note: "AI 제안: 두 바람을 담았으나 근거가 부족", t: 1, by: "ai", src: "ai", reviewed: false }; return { applied: 1, skipped: 0, subjects: 1 };
+        case "reliability": return { overall: { n: 12, exact: 58.3, adjacent: 100, kappa: 0.52, bias: 0.42 }, byCriterion: [{ id: "c12", name: "모둠 문제 정하기", n: 12, exact: 58.3, adjacent: 100, kappa: 0.52, bias: 0.4 }], recheck: { n: 0, exact: null, adjacent: null, kappa: null, bias: null }, self: { n: 12, same: 75 },
+          distribution: [{ id: "c12", name: "모둠 문제 정하기", n: 12, mean: 72.5, sd: 14.2 }], warnings: ["교사–AI 일치율 58.3%가 기준(70%)보다 낮습니다. 불일치 항목을 다시 살펴보세요."], thresholds: A_THRESH, groups: [{ id: "g1", name: "1모둠", group: 52 }], scored: 12 };
+        case "recheck": return { items: [], left: 0, total: 12 };
+        default: return {};
+      }
+    }
+    if (name === "assessAi") {
+      st.calls.push([name, data]);
+      if (data.action === "jobStep") {
+        if (!S.job || S.job.status !== "running") return { job: S.job ? jobView() : null, worked: false };
+        const it = S.jobItems.find((x) => x.st === "todo");
+        if (it) { it.st = "done"; if (S.job.type === "seteuk" && it.id === "k1") S.draft = { ...GEN({ emphasis: S.lastEmphasis }), t: 2 }; }
+        if (!S.jobItems.some((x) => x.st === "todo")) {
+          S.job.status = "done";
+          if (S.job.type === "score") { S.aiAsked = true; S.aiDone = true; if (S.mode === "ai_first") { S.scores.c12 = { level: 1, pts: 8, note: "AI 제안: 두 바람을 담았으나 근거가 부족", t: 1, by: "ai", src: "ai", reviewed: false }; S.job.summary = { applied: 1, exceptions: 0, skipped: 0 }; } }
+        }
+        return { job: jobView(), worked: !!it };
+      }
+      if (data.action === "seteukPrep") {
+        const cr = (g) => [["depth", "탐구 깊이"], ["logic", "논리적 구성"], ["agency", "자기주도성"], ["connect", "연계성"], ["reflect", "성찰과 확장"]].map(([id, label]) => ({ id, label, weight: 20, grade: g, ai_suspicion: S.poor ? "중간" : "낮음", reason: "근거 기준" }));
+        return S.poor
+          ? { grade: "C", gradeScore: 1.2, criteria: cr("C"), suspicion: { total: 5, level: "중간" }, quality: { has_content: "partial", on_topic: "yes", sincere: "yes", has_specifics: "no" }, factInsufficient: true, richness: { severity: "poor", isPoor: true, issues: ["구체적 근거 전무", "사실이 부족해 목표 분량을 채우기 어려움"], cap: 900 }, inputBytes: 200, ratio: 2.5, target: 1500, suggestedMax: 600, needsAdjustment: true, evidenceCount: 2, t: 1 }
+          : { grade: "A", gradeScore: 3.1, criteria: cr("A"), suspicion: { total: 0, level: "낮음" }, quality: { has_content: "yes", on_topic: "yes", sincere: "yes", has_specifics: "yes" }, factInsufficient: false, richness: { severity: "ok", isPoor: false, issues: [], cap: null }, inputBytes: 1200, ratio: 1.6, target: 1500, suggestedMax: 1500, needsAdjustment: false, evidenceCount: 9, t: 1 };
+      }
+      if (data.action === "seteukGenerate") {
+        if (data.decision === "cancel") return { cancelled: true };
+        return GEN(data);
+      }
+      S.aiAsked = true; S.aiDone = true;
+      return { ok: 3, auto: 1, failedRuns: 0, escalated: 0 };
+    }
+    return base(name, data);
+  };
+  return st;
+}
+
+// 화면 바깥 틀(머리·AI 채점 카드·할 일 줄)에는 개발 용어를 쓰지 않는다(척도표·학생 글 속 '칸'은 학습지 칸이라 따로 본다)
+const JARGON = ["예외 큐", "확정 후보", "교정", "제2평정", "칸", "byte", "감사", "고성능", "재판정", "독립 채점", "수렴"];
+async function noJargon(pg, sel = "#as-root .as-head, #as-root .as-batch, #as-root .as-todos") {
+  const txt = (await pg.locator(sel).allInnerTexts()).join("\n");
+  for (const w of JARGON) assert.ok(!txt.includes(w), `개발 용어 '${w}'가 화면에 있다: ${txt}`);
+}
+
+test("교사 평가: 네 단계 막대가 곧 메뉴이고, 학생 글이 있어야 채점하며, '내가 먼저 채점'이면 AI 의견은 저장한 뒤에만 보인다", async () => {
+  const st = assessFixture(), { pg, errors } = await openTeacher(st);
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-root .as-crit");
+  assert.match(await pg.locator("#as-root .as-head").innerText(), /고등학교 척도표 · 100점 만점\(개인 60 \+ 모둠 40\)/);
+  assert.match(await pg.locator("#as-root .as-head").innerText(), /채점 0 \/ 20항목/, "학생이 없는 2모둠(6항목)은 세지 않는다");
+  // 단계 막대: ① 채점(지금) ② 확인 ③ 세특 쓰기 ④ 학생에게 공개. 가끔 쓰는 것은 오른쪽 위 도구로
+  assert.match(await pg.locator("#as-views").innerText(), /채점[\s\S]*확인[\s\S]*세특 쓰기[\s\S]*학생에게 공개/);
+  assert.equal(await pg.locator("#as-views .as-step.now").getAttribute("data-asv"), "score", "아직 안 끝난 첫 단계를 '지금'으로 짚는다");
+  assert.equal(await pg.locator("#as-views .as-step.on").getAttribute("data-asv"), "score");
+  assert.equal(await pg.locator("#as-views .as-step.on").getAttribute("aria-current"), "step");
+  assert.deepEqual(await pg.locator(".as-tools [data-asv]").allInnerTexts(), ["척도표", "채점 점검", "채점 방식"]);
+  assert.match(await pg.locator(".as-batch").innerText(), /선생님이 먼저 채점해요/);
+  await noJargon(pg);
+  const crit = pg.locator('[data-cid="c12"]');
+  // 학생이 쓴 글을 그대로 보여 주고, 수준마다 점수가 붙어 있다
+  assert.match(await crit.innerText(), /학생이 쓴 글[\s\S]*모두 안전을 바란다/);
+  assert.deepEqual(await crit.locator(".lvopt .tag.b").allInnerTexts(), ["10점", "8점", "6점", "4점", "0점"]);
+  // 쓴 글이 없는 항목(c23)은 미제출만 고를 수 있다
+  const empty = pg.locator('[data-cid="c23"]');
+  assert.match(await empty.innerText(), /쓴 글 없음 → 미제출/);
+  assert.ok(await empty.locator('input[value="1"]').isDisabled());
+  assert.ok(await empty.locator('input[value="-1"]').isEnabled());
+  // AI 의견이 준비됐어도 저장 전에는 잠겨 있다
+  await pg.click("[data-asai]");
+  await pg.waitForFunction(() => /AI 의견을 받았어요/.test(document.querySelector(".toast")?.textContent || ""));
+  assert.match(await crit.innerText(), /AI 의견이 준비돼 있어요/);
+  assert.equal(await crit.locator(".as-ai").count(), 0);
+  // 가장 높은 수준은 평가 근거가 필요하다(서버 메시지를 그대로 보여 준다)
+  await crit.locator('input[value="0"]').check();
+  await crit.locator("[data-assave]").click();
+  await pg.waitForFunction(() => /평가 근거를 8자/.test(document.querySelector(".toast.err")?.textContent || ""));
+  // 한 수준 낮추어 저장하면 그 항목의 AI 의견이 열린다(모델 이름 같은 속사정 없이 결과·이유·근거 문장만)
+  await crit.locator('input[value="1"]').check();
+  await crit.locator("[data-assave]").click();
+  await pg.waitForSelector('[data-cid="c12"] .as-ai');
+  const ai = await pg.locator('[data-cid="c12"] .as-ai').innerText();
+  assert.match(ai, /AI 의견 잘함 8점/); assert.match(ai, /세 번 모두 같음/); assert.match(ai, /근거 문장 확인/); assert.match(ai, /내 채점과 같음/); assert.match(ai, /최종 판단은 선생님/);
+  assert.ok(!/제2평정|고성능|인용 확인/.test(ai));
+  assert.match(await pg.locator('[data-cid="c12"] .tag').filter({ hasText: "선생님 채점" }).first().innerText(), /잘함 8점 · 선생님 채점/);
+  assert.equal(st.calls.filter(([n, d]) => n === "assess" && d.action === "save").length, 2);
+  if (process.env.UI_SHOT) await pg.screenshot({ path: `${process.env.UI_SHOT}/assess-pc.png`, fullPage: true });
+  assert.deepEqual(errors, []);
+});
+
+test("교사 평가: 'AI 점수를 하나씩 확인' — AI 채점 단추 하나, 끝나면 ②로 안내, AI 수준 미리 선택·확인, ② 확인에서 남은 곳 바로 열기, 채점 방식 바꾸기", async () => {
+  const st = assessFixture();
+  st.assess.mode = "ai_first";
+  const { pg, errors } = await openTeacher(st);
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-root .as-batch");
+  // AI 채점 전: 할 일 하나(단추)만, 첫 모둠을 저절로 열지 않는다
+  assert.match(await pg.locator("#as-views .as-step.now").innerText(), /AI 채점[\s\S]*아직 안 했어요/);
+  assert.match(await pg.locator("[data-asbatch]").innerText(), /AI 채점 시작 \(모둠 1 · 학생 2명\)/);
+  assert.equal(await pg.locator(".as-crit").count(), 0);
+  assert.match(await pg.locator("#as-root").innerText(), /AI 채점이 끝나면 여기서 모둠·학생별 점수를 보고 고칠 수 있어요/);
+  await noJargon(pg);
+  // ② 확인을 먼저 누르면 ①로 돌려보낸다
+  await pg.click('#as-views [data-asv="queue"]');
+  await pg.waitForFunction(() => /먼저 ① AI 채점을 해 주세요/.test(document.querySelector("#as-body")?.innerText || ""));
+  await pg.click('#as-body [data-asv="score"]');
+  await pg.waitForSelector("[data-asbatch]");
+  await pg.click("[data-asbatch]");
+  assert.match(await pg.locator(".modal").innerText(), /모둠 1개와 학생 2명[\s\S]*확인 전[\s\S]*창을 닫거나 다른 일을 해도 서버에서[\s\S]*약 10번/);
+  await pg.click(".modal .btn-primary");
+  await pg.waitForFunction(() => /AI 채점 3곳 끝 · AI 점수 1개를 채웠어요/.test(document.querySelector(".toast")?.textContent || ""));
+  // 서버 작업으로 맡기고(jobStart), 화면은 열려 있는 동안 jobStep 으로 하나씩 돕는다
+  assert.deepEqual(st.calls.filter(([n, d]) => n === "assess" && d.action === "jobStart").map(([, d]) => [d.type, d.redo]), [["score", false]]);
+  assert.ok(st.calls.filter(([n, d]) => n === "assessAi" && d.action === "jobStep").length >= 3);
+  assert.equal(st.calls.filter(([n, d]) => n === "assessAi" && d.action === "score").length, 0, "화면이 대상마다 직접 채점하지 않는다");
+  // 끝나면 ① 완료 표시와 ② 확인으로 가는 단추
+  await pg.waitForSelector(".as-batch .notice.green");
+  assert.match(await pg.locator(".as-batch").innerText(), /AI 채점을 마쳤어요[\s\S]*② 확인하러 가기/);
+  assert.match(await pg.locator('#as-views [data-asv="score"]').innerText(), /끝났어요/);
+  // 모둠을 열면 AI 수준이 미리 골라져 있고, 맞으면 ✓ 확인·저장
+  await pg.click('.as-pick [data-asid="g1"]');
+  await pg.waitForSelector('[data-cid="c12"] .tag:has-text("AI 점수 · 확정 전")');
+  assert.match(await pg.locator('[data-cid="c12"] textarea').inputValue(), /^AI 제안: 두 바람을/);
+  assert.match(await pg.locator('[data-cid="c12"] [data-assave]').innerText(), /확인·저장/);
+  assert.match(await pg.locator('[data-cid="c12"] .as-ai').innerText(), /AI 의견 잘함 8점/);
+  await pg.locator('[data-cid="c12"] [data-assave]').click();
+  await pg.waitForSelector('[data-cid="c12"] .tag:has-text("선생님 채점")');
+  // ② 확인: 아직 확인·채점할 곳을 눌러 바로 연다
+  await pg.click('#as-views [data-asv="queue"]');
+  await pg.waitForSelector(".as-todos");
+  assert.match(await pg.locator(".as-todos").innerText(), /AI 점수 확인 \d+개 남음/);
+  await noJargon(pg);
+  await pg.click('[data-asgo="student|k1"]');
+  await pg.waitForSelector('#as-views .as-step.on[data-asv="score"]');
+  await pg.waitForFunction(() => /가람|S-AB12/.test(document.querySelector(".as-sub h3")?.textContent || ""));
+  // 채점 방식: 세 가지 중 하나(서버의 두 설정으로 나눠 저장)
+  await pg.click('.as-tools [data-asv="settings"]');
+  assert.equal(await pg.locator('input[name="as-how"][value="manual"]').isChecked(), true);
+  await pg.locator('input[name="as-how"][value="independent"]').check();
+  await pg.waitForFunction(() => /먼저 채점하는 방식/.test(document.querySelector(".toast")?.textContent || ""));
+  assert.equal(st.assess.mode, "independent"); assert.equal(st.assess.auto.on, false);
+  assert.deepEqual(errors, []);
+});
+
+const R_C12 = RUBRIC.rubricFor("high", {}).criteria.find((c) => c.id === "c12");
+const QITEM = (over) => ({ type: "exception", kind: "group", id: "g1", via: null, cid: "c12", name: R_C12.name, el: "문제 이해와 정의", code: "1모둠", nick: null, groupId: "g1", reasons: ["AI가 세 번 채점했는데 결과가 달랐어요", "AI가 근거로 든 문장이 학생 글에 없어요"], appeal: null,
+  evidence: [{ id: "e1", label: "같은 점", text: "모두 안전을 바란다" }], empty: false, ai: { level: 1, levels: [0, 1, 2], spread: 2, quote: "안전을 바란다", quoteOk: false, reason: "두 바람을 담았으나 근거가 부족", n: 3, esc: true }, score: null, levels: R_C12.levels, max: 10, ...over });
+
+test("교사 평가: '애매한 것만 확인' — ② 확인이 먼저 열리고 할 일 세 줄(직접 정할 점수·협력 점수·AI 점수 확정), 정하기, 이의 신청 처리, 한꺼번에 매기기·확정(선생님이 누름)", async () => {
+  const st = assessFixture();
+  st.assess.auto = { on: true, calib: false }; st.assess.mode = "ai_first"; st.assess.aiDone = true;
+  st.assess.scores.c12 = { level: 1, pts: 8, note: "AI 제안: x", t: 1, by: "ai", src: "ai", reviewed: false, auto: true };
+  st.assess.queueItems = [QITEM({ type: "appeal", id: "g1", via: "k1", appeal: { status: "open", text: "점검표를 다 확인했어요", t: 1 }, reasons: [], score: { level: 1, pts: 8, note: "점검표 근거가 부족함" } }), QITEM({})]; // 서버가 이의 신청을 먼저 정렬한다
+  const { pg, errors } = await openTeacher(st);
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-root .q-card");
+  // AI 채점이 끝났으니 '지금' 단계인 ② 확인이 먼저 열리고, 막대에 남은 일이 보인다
+  assert.equal(await pg.locator("#as-views .as-step.on").getAttribute("data-asv"), "queue");
+  assert.match(await pg.locator("#as-views .as-step.on").innerText(), /확인[\s\S]*직접 정할 것 2개/);
+  assert.match(await pg.locator('#as-views [data-asv="score"]').innerText(), /끝났어요/);
+  const todo = await pg.locator(".as-todos").innerText();
+  assert.match(todo, /직접 정할 점수 2개 남음 \(이의 신청 1건 포함\)/); assert.match(todo, /협력 태도\(관찰\) 점수 1명 남음/); assert.match(todo, /AI가 정한 점수 확정 1개/);
+  await noJargon(pg);
+  // 이의 신청이 먼저, 확인 필요는 까닭과 학생 글·AI 의견(미리 골라진 수준)이 보인다
+  const cards = pg.locator(".q-card");
+  assert.equal(await cards.count(), 2);
+  assert.match(await cards.nth(0).innerText(), /이의 신청[\s\S]*학생 의견: “점검표를 다 확인했어요”/);
+  const ex = cards.nth(1);
+  const exT = await ex.innerText();
+  assert.match(exT, /확인 필요/); assert.match(exT, /AI가 정하지 못한 까닭[\s\S]*세 번 채점했는데 결과가 달랐어요/); assert.match(exT, /모두 안전을 바란다/); assert.match(exT, /AI 의견 잘함[\s\S]*세 번 채점: 매우 잘함 \/ 잘함 \/ 보통/);
+  assert.equal(await ex.locator('input[value="1"]').isChecked(), true);
+  assert.match(await ex.locator(".q-note").inputValue(), /^AI 제안: 두 바람을/);
+  // 이 점수로 정하기 → 저장 호출(모둠 점수로)
+  await ex.locator('input[value="2"]').check();
+  await ex.locator("[data-qsave]").click();
+  await pg.waitForFunction(() => /저장했어요/.test(document.querySelector(".toast")?.textContent || ""));
+  const saved = st.calls.filter(([n, d]) => n === "assess" && d.action === "save").at(-1)[1];
+  assert.deepEqual([saved.kind, saved.id, saved.criterion, saved.level], ["group", "g1", "c12", 2]);
+  // 이의 신청 처리(학생에게 보낼 답)
+  await cards.nth(0).locator(".q-reply").fill("다시 보니 맞아요");
+  await cards.nth(0).locator("[data-qresolve]").click();
+  await pg.waitForFunction(() => /이의 신청을 처리했어요/.test(document.querySelector(".toast")?.textContent || ""));
+  const rs = st.calls.filter(([n, d]) => n === "assess" && d.action === "resolveAppeal").at(-1)[1];
+  assert.deepEqual([rs.id, rs.criterion, rs.reply], ["k1", "c12", "다시 보니 맞아요"]);
+  // (정하기에서 c12 는 선생님이 정했으니 확정할 AI 점수는 다른 항목 하나만 남게 한다)
+  st.assess.scores.c23 = { level: 1, pts: 8, note: "AI 제안: y", t: 1, by: "ai", src: "ai", reviewed: false, auto: true };
+  // 협력 태도 점수 한꺼번에 매기기
+  await pg.waitForSelector(".as-bulk");
+  await pg.selectOption("#as-bulk-lv", "1");
+  await pg.fill("#as-bulk-note", "모둠 활동에 고르게 참여함");
+  await pg.click("[data-asbulk]");
+  await pg.waitForFunction(() => /협력 태도 점수를 5명에게 매겼어요/.test(document.querySelector(".toast")?.textContent || ""));
+  assert.deepEqual(st.calls.filter(([n, d]) => n === "assess" && d.action === "bulkLevel").at(-1)[1], { code: "ABC234", action: "bulkLevel", criterion: "c62", level: 1, note: "모둠 활동에 고르게 참여함" });
+  assert.match(await pg.locator(".as-todos").innerText(), /협력 태도\(관찰\) 점수 다 매겼어요/);
+  // AI가 정한 점수 확정: 선생님이 직접 눌러야 하고 확인 창을 거친다
+  assert.equal(st.calls.filter(([n, d]) => n === "assess" && d.action === "confirmAll").length, 0);
+  await pg.click("[data-asconfirmall]");
+  assert.match(await pg.locator(".modal").innerText(), /AI가 정한 점수 1개를 확정할까요[\s\S]*공개는 ④에서 따로/);
+  await pg.click(".modal .btn-primary");
+  await pg.waitForFunction(() => /1개를 확정했어요/.test(document.querySelector(".toast")?.textContent || ""));
+  assert.equal(st.calls.filter(([n, d]) => n === "assess" && d.action === "confirmAll").length, 1);
+  assert.deepEqual(errors, []);
+});
+
+test("교사 평가: 채점 방식 — AI 자동 확정 멈춤 알림과 다시 켜기, AI를 내 기준에 맞춰 보기(시작·🎯 샘플로 바로 가기·재사용 표시), 다른 방식으로 바꾸면 사라진다", async () => {
+  const st = assessFixture();
+  st.assess.auto = { on: true, calib: false }; st.assess.mode = "ai_first"; st.assess.paused = true;
+  const { pg, errors } = await openTeacher(st);
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-root .as-batch");
+  assert.match(await pg.locator(".as-batch").innerText(), /AI 자동 확정을 멈췄어요/);
+  await pg.click("[data-asresume]");
+  await pg.waitForFunction(() => !/자동 확정을 멈췄어요/.test(document.querySelector(".as-batch")?.innerText || ""));
+  // 채점 방식 화면: 애매한 것만 확인(권장)이 골라져 있고, 맞춰 보기는 선택
+  await pg.click('.as-tools [data-asv="settings"]');
+  assert.equal(await pg.locator('input[name="as-how"][value="auto"]').isChecked(), true);
+  assert.match(await pg.locator("#as-body").innerText(), /애매한 것만 확인 권장[\s\S]*AI 점수를 하나씩 확인[\s\S]*내가 먼저 채점[\s\S]*AI를 내 기준에 맞춰 보기/);
+  assert.equal(await pg.locator("#as-calib-on").isChecked(), false);
+  // 사용하기를 켜면 설정이 서버에 저장된다
+  st.assess.calib = { key: "k", state: "none", reused: false, sampleSize: 0 };
+  await pg.locator("#as-calib-on").check();
+  await pg.waitForFunction(() => /아직 맞춰 보지 않았어요/.test(document.querySelector("#as-body")?.innerText || ""));
+  assert.deepEqual(st.calls.filter(([n, d]) => n === "assess" && d.action === "config" && d.assessAuto).at(-1)[1].assessAuto, { on: true, calib: true });
+  // 시작: 확인 창 → 🎯 샘플 학생이 바로 열리고 AI 점수를 가린다는 안내
+  await pg.click("[data-ascalib]");
+  assert.match(await pg.locator(".modal").innerText(), /샘플의 AI 점수는 가려지니[\s\S]*다른 수업에서도 다시 쓰여요/);
+  await pg.click(".modal .btn-primary");
+  await pg.waitForSelector('#as-views .as-step.on[data-asv="score"]');
+  await pg.waitForSelector(".as-sub");
+  assert.ok(await pg.locator('.as-pick .chip:has-text("🎯")').count() >= 1);
+  assert.match(await pg.locator(".as-sub").innerText(), /AI를 내 기준에 맞춰 보는 샘플/);
+  assert.match(await pg.locator(".as-batch").innerText(), /AI를 내 기준에 맞춰 보는 중/);
+  // 끝난 뒤(다른 수업에서 맞춘 결과를 재사용) 표시
+  st.assess.calib = { key: "k", state: "ready", reused: true, from: "OLD123", t: Date.UTC(2026, 9, 20), passed: 8, total: 12, overall: { n: 40, exact: 85, kappa: 0.71 }, perCriterion: { c11: { n: 6, exact: 100, adjacent: 100, pass: true }, c12: { n: 1, exact: 100, adjacent: 100, pass: false } }, sampleSize: 0 };
+  await pg.reload(); await pg.waitForSelector("#sessions button[data-code]"); await pg.click("#sessions button[data-code]"); await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector(".as-tools");
+  await pg.click('.as-tools [data-asv="settings"]');
+  await pg.waitForSelector(".as-calib.ok");
+  const cal = await pg.locator(".as-calib").innerText();
+  assert.match(cal, /맞춰 봤어요[\s\S]*OLD123[\s\S]*그대로 쓰는 중/); assert.match(cal, /8 \/ 12/); assert.match(cal, /샘플 40개 · 같은 수준 85%/);
+  // 하나씩 확인하는 방식으로 바꾸면 맞춰 보기 카드가 사라지고 서버 설정이 함께 바뀐다
+  await pg.locator('input[name="as-how"][value="manual"]').check();
+  await pg.waitForFunction(() => !document.querySelector("#as-calib-on"));
+  assert.equal(st.assess.auto.on, false); assert.equal(st.assess.mode, "ai_first");
+  assert.deepEqual(errors, []);
+});
+
+test("교사 평가: ④ 공개 — 확정하지 않은 AI 점수가 있으면 화면과 확인 창에서 알려 준다", async () => {
+  const st = assessFixture();
+  st.assess.mode = "ai_first"; st.assess.aiDone = true;
+  st.assess.scores.c12 = { level: 1, pts: 8, note: "AI 제안: x", t: 1, by: "ai", src: "ai", reviewed: false };
+  const { pg, errors } = await openTeacher(st);
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-views");
+  await pg.click('#as-views [data-asv="release"]');
+  await pg.waitForSelector("#as-root .as-rel");
+  assert.match(await pg.locator(".as-rel").innerText(), /확정 전 AI 점수 1개/);
+  await pg.click('[data-asrel="score"]');
+  assert.match(await pg.locator(".modal").innerText(), /확정하지 않은 AI 점수가 1개[\s\S]*학생에게 보이지 않아요/);
+  await pg.click(".modal .btn:has-text('취소')");
+  assert.deepEqual(errors, []);
+});
+
+test("교사 평가: ④ 공개 — 점수와 세특은 따로 공개하고, 공개 전에 확인 창을 거치며, 끄면 바로 꺼진다", async () => {
+  const st = assessFixture(), { pg, errors } = await openTeacher(st);
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-views");
+  await pg.click('#as-views [data-asv="release"]');
+  await pg.waitForSelector("#as-root .as-rel");
+  assert.match(await pg.locator(".as-rel").innerText(), /점수 비공개[\s\S]*세특 비공개/);
+  assert.match(await pg.locator(".as-rel").innerText(), /세특을 저장하지 않은 학생 2명/);
+  await pg.click('[data-asrel="score"]');
+  assert.match(await pg.locator(".modal").innerText(), /내 결과[\s\S]*채점하지 않은 항목이/);
+  await pg.click(".modal .btn-primary");
+  await pg.waitForFunction(() => /점수 공개 중/.test(document.querySelector(".as-rel")?.innerText || ""));
+  assert.match(await pg.locator(".as-rel").innerText(), /세특 비공개/, "점수만 공개되고 세특은 그대로");
+  assert.match(await pg.locator('#as-views [data-asv="release"]').innerText(), /점수만 공개 중/);
+  assert.deepEqual(st.calls.filter(([n, d]) => n === "assess" && d.action === "release").map(([, d]) => ({ score: d.score, seteuk: d.seteuk })), [{ score: true, seteuk: undefined }]);
+  await pg.click('[data-asrel="seteuk"]');
+  await pg.click(".modal .btn-primary");
+  await pg.waitForFunction(() => /세특 공개 중/.test(document.querySelector(".as-rel")?.innerText || ""));
+  // 점수만 끈다 — 확인 창 없이 바로
+  await pg.click('[data-asrel="score"]');
+  await pg.waitForFunction(() => /점수 비공개/.test(document.querySelector(".as-rel")?.innerText || ""));
+  assert.match(await pg.locator(".as-rel").innerText(), /세특 공개 중/);
+  assert.equal(st.assess.release.score, false); assert.equal(st.assess.release.seteuk, true);
+  assert.deepEqual(errors, []);
+});
+
+test("교사 평가: ③ 세특 — 초안 만들기(글 수준·초안·만든 과정은 접어 둠), 직접 고치기 스위치·바이트 카운터·저장 표시, 다음 학생", async () => {
+  const st = assessFixture(), { pg, errors } = await openTeacher(st);
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-root .as-crit");
+  await pg.click('#as-views [data-asv="seteuk"]');
+  await pg.waitForSelector("#as-seteuk");
+  assert.match(await pg.locator("#as-body").innerText(), /세특 쓰기[\s\S]*저장 0 \/ 2명/);
+  assert.equal(await pg.locator("#as-seteuk").getAttribute("readonly"), "", "처음에는 읽기 전용");
+  await pg.selectOption("#as-emp", "growth");
+  await pg.click("[data-asmake]");
+  await pg.waitForSelector(".sk-struct");
+  // 글 수준(5가지 기준은 접어 둔다)
+  const prep = pg.locator(".sk-prep");
+  assert.match(await prep.innerText(), /학생 글 수준 A · 우수[\s\S]*활동 기록 9개/);
+  const prepAll = await prep.textContent();
+  assert.match(prepAll, /탐구 깊이 A/); assert.match(prepAll, /성찰과 확장 A/); assert.match(prepAll, /세특에 등급을 쓰지는 않아요/);
+  // 초안을 만든 과정: 기승전결·문장마다 근거·분량 맞추기(접힘)
+  assert.equal(await pg.locator(".sk-struct").getAttribute("open"), null, "만든 과정은 접혀 있다");
+  assert.equal(await pg.locator(".sk-part").count(), 4);
+  const struct = await pg.locator(".sk-struct").textContent();
+  assert.match(struct, /기 · 문제의식[\s\S]*승 · 과정[\s\S]*전 · 발견[\s\S]*결 · 성찰/);
+  assert.match(struct, /근거: 내 활동 · 힘든 것/);
+  assert.match(struct, /1,480바이트로 맞췄어요\(목표 1,500바이트 · 2번 다듬음\)/); assert.match(struct, /뺀 문장 1개/);
+  assert.ok(!/고성능|빠른 모델|byte/.test(struct));
+  assert.match(await pg.locator("#as-sw").innerText(), /잇는 말이 적어/);
+  const calls = st.calls.filter(([n]) => n === "assessAi").map(([, d]) => d);
+  assert.deepEqual(calls.map((d) => d.action), ["seteukPrep", "seteukGenerate"]);
+  assert.deepEqual([calls[1].emphasis, calls[1].grade, calls[1].decision], ["growth", "A", undefined]);
+  assert.match(await pg.locator("#as-seteuk").inputValue(), /^제주 사건의 인물을 만나/);
+  assert.match(await pg.locator("#as-bytes").innerText(), /\d+ \/ 1,500바이트/);
+  // 직접 고치기 스위치: 켜면 편집 가능, 바이트 카운터 3단계 색, 저장하면 표시와 함께 읽기 전용으로 돌아간다
+  await pg.locator(".sk-sw").click();
+  assert.equal(await pg.locator("#as-seteuk").getAttribute("readonly"), null);
+  assert.ok(await pg.locator(".sk-hint").isVisible());
+  await pg.fill("#as-seteuk", "가".repeat(600));
+  assert.equal(await pg.locator("#as-bytes").getAttribute("class"), "sk-count over");
+  await pg.fill("#as-seteuk", "가".repeat(480));
+  assert.equal(await pg.locator("#as-bytes").getAttribute("class"), "sk-count warn");
+  await pg.fill("#as-seteuk", "자료를 비교해 원인을 분석함.");
+  assert.equal(await pg.locator("#as-bytes").getAttribute("class"), "sk-count ok");
+  await pg.click("[data-asseteuk]");
+  await pg.waitForSelector(".sk-saved");
+  assert.match(await pg.locator(".sk-saved").innerText(), /저장했어요/);
+  assert.equal(st.assess.seteukText, "자료를 비교해 원인을 분석함.");
+  assert.equal(await pg.locator("#as-seteuk").getAttribute("readonly"), "", "저장하면 읽기 전용으로 돌아간다");
+  // 다시 만들면 저장 표시와 편집 상태를 초기화한다
+  await pg.click("[data-asmake]");
+  await pg.waitForFunction(() => !/저장했어요/.test(document.querySelector(".sk-saved")?.innerText || ""));
+  assert.ok(await pg.locator(".sk-struct").count());
+  // 분량을 바꾸면 이전 판정을 지운다
+  await pg.selectOption("#as-max", "1000");
+  await pg.waitForFunction(() => !document.querySelector(".sk-prep"));
+  // 다음 학생으로 넘어간다
+  await pg.click("[data-asnext]");
+  await pg.waitForFunction(() => /1모둠 나래/.test(document.querySelectorAll(".sk-root")[1]?.querySelector("h4")?.textContent || ""));
+  assert.equal(await pg.locator("[data-asnext]").count(), 0, "마지막 학생에게는 다음 단추가 없다");
+  assert.deepEqual(errors, []);
+});
+
+test("교사 평가: ③ 세특 — 이미 저장한 세특은 학생을 열면 그대로 보이고, 저장 수가 단계 막대에 보인다", async () => {
+  const st = assessFixture();
+  st.assess.seteukText = "이미 저장한 세특 글임.";
+  const { pg, errors } = await openTeacher(st);
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-views");
+  assert.match(await pg.locator('#as-views [data-asv="seteuk"]').innerText(), /1 \/ 2명/);
+  await pg.click('#as-views [data-asv="seteuk"]');
+  await pg.waitForSelector("#as-seteuk");
+  assert.equal(await pg.locator("#as-seteuk").inputValue(), "이미 저장한 세특 글임.");
+  assert.match(await pg.locator(".sk-saved").innerText(), /저장된 세특/);
+  assert.deepEqual(errors, []);
+});
+
+test("교사 평가: ③ 세특 — 학생 글이 적으면 짧게 쓰기·분량 맞추기·취소를 고르고, 바꾼 글 수준은 다시 만들 때 그대로 쓴다", async () => {
+  const st = assessFixture(), { pg, errors } = await openTeacher(st);
+  st.assess.poor = true;
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-root .as-crit");
+  await pg.click('#as-views [data-asv="seteuk"]');
+  await pg.waitForSelector("#as-seteuk");
+  await pg.click("[data-asmake]");
+  await pg.waitForSelector(".modal");
+  const m = await pg.locator(".modal").innerText();
+  assert.match(m, /학생 글이 분량에 비해 적어요/); assert.match(m, /1,500바이트/); assert.match(m, /구체적 근거 전무/); assert.match(m, /짧게 쓰기 \(약 600바이트\) · 권장/); assert.match(m, /분량 맞추기/);
+  assert.match(await pg.locator(".sk-prep").innerText(), /학생 글 수준 C[\s\S]*AI가 대신 쓴 글일 수 있어요\(중간\)[\s\S]*학생에게 불이익을 주지 마세요/);
+  // 취소: 만들지 않는다
+  await pg.click(".modal .btn:has-text('취소')");
+  await pg.waitForFunction(() => !document.querySelector(".modal"));
+  assert.ok(!st.calls.some(([n, d]) => n === "assessAi" && d.action === "seteukGenerate"));
+  // 글 수준을 B로 바꾸고 다시: 짧게 쓰기
+  await pg.selectOption("#sk-grade", "B");
+  await pg.click("[data-asmake]");
+  await pg.waitForSelector(".modal");
+  await pg.click(".modal .btn-primary");
+  await pg.waitForSelector(".sk-struct");
+  const gen = st.calls.filter(([n, d]) => n === "assessAi" && d.action === "seteukGenerate").map(([, d]) => d);
+  assert.deepEqual(gen.map((d) => [d.decision, d.grade]), [["lower", "B"]], "선생님이 바꾼 글 수준이 다시 판정해도 그대로 간다");
+  assert.equal(await pg.locator("#sk-grade").inputValue(), "B");
+  assert.match(await pg.locator(".sk-struct").textContent(), /목표 600바이트/);
+  assert.deepEqual(errors, []);
+});
+
+test("교사 평가(휴대폰): 아래 메뉴에 평가가 있고, 단계 막대가 한 줄에 들어가며, 채점·척도표 모두 가로로 넘치지 않는다", async () => {
+  const st = assessFixture(), { pg, errors } = await openTeacher(st, { page: "m-teacher.html", ctxOpts: { userAgent: IPHONE, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true } });
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-root .as-crit");
+  assert.equal(await pg.locator("#ctabs button").count(), 5);
+  const tops = await pg.locator("#as-views .as-step").evaluateAll((bs) => bs.map((b) => Math.round(b.getBoundingClientRect().top)));
+  assert.equal(new Set(tops).size, 1, "네 단계가 한 줄에 있다");
+  assert.ok(await pg.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), "가로로 넘치지 않는다");
+  if (process.env.UI_SHOT) await pg.screenshot({ path: `${process.env.UI_SHOT}/assess-m.png` });
+  await pg.click('.as-tools [data-asv="rubric"]');
+  await pg.waitForSelector(".as-rubric");
+  assert.ok(await pg.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), "척도표도 가로로 넘치지 않는다");
+  assert.equal(await pg.locator(".as-rubric tbody tr:nth-child(2) td:nth-child(2)").evaluate((td) => getComputedStyle(td, "::before").content), '"매우 잘함"', "칸마다 수준 이름이 붙는다");
+  assert.deepEqual(errors, []);
+});
+
+test("교사 평가: ③ 세특 초안 모두 만들기 — 서버 작업으로 맡기고 진행 막대, 끝나면 학생을 열면 초안이 '아직 저장 전'으로 보이고 저장하면 확정", async () => {
+  const st = assessFixture(), { pg, errors } = await openTeacher(st);
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-views");
+  await pg.click('#as-views [data-asv="seteuk"]');
+  await pg.waitForSelector("#as-seteuk");
+  await pg.selectOption("#as-emp", "academic");
+  assert.match(await pg.locator("[data-asskall]").innerText(), /초안 모두 만들기 \(2명\)/);
+  await pg.click("[data-asskall]");
+  assert.match(await pg.locator(".modal").innerText(), /세특 초안 2명[\s\S]*학업역량[\s\S]*1,500바이트[\s\S]*짧게 쓰기[\s\S]*저장되지 않으니/);
+  await pg.click(".modal .btn-primary");
+  await pg.waitForFunction(() => /세특 초안 2명 끝/.test(document.querySelector(".toast")?.textContent || ""));
+  assert.deepEqual(st.calls.filter(([n, d]) => n === "assess" && d.action === "jobStart").map(([, d]) => [d.type, d.emphasis]), [["seteuk", "academic"]]);
+  // 목록에 '초안' 표시, 머리에 초안만 있는 학생 수, 저장 전 표시
+  await pg.waitForFunction(() => /초안만 있음 1명/.test(document.querySelector(".sk-root .meta-line")?.textContent || ""));
+  assert.match(await pg.locator('.as-pick [data-asid="k1"]').innerText(), /초안/);
+  await pg.click('.as-pick [data-asid="k1"]');
+  await pg.waitForFunction(() => /^제주 사건의 인물을 만나/.test(document.querySelector("#as-seteuk")?.value || ""));
+  assert.match(await pg.locator(".sk-draft").innerText(), /AI 초안 · 아직 저장 전/);
+  assert.equal(await pg.locator(".sk-struct").count(), 1, "만든 과정(문장별 근거)도 함께 불러온다");
+  assert.match(await pg.locator("#as-sw").innerText(), /잇는 말이 적어/);
+  await pg.click("[data-asseteuk]");
+  await pg.waitForSelector(".sk-saved");
+  assert.match(st.assess.seteukText, /^제주 사건의 인물을 만나/);
+  assert.equal(await pg.locator(".sk-draft").count(), 0);
+  assert.deepEqual(errors, []);
+});
+
+test("교사 평가: 서버 작업 중에 탭을 다시 열면 진행 막대가 보이고 이어서 돕는다. 멈추기는 서버에 알린다", async () => {
+  const st = assessFixture();
+  st.assess.mode = "ai_first";
+  st.assess.job = { type: "score", status: "running", startedAt: 1, finishedAt: null, note: "", summary: null };
+  st.assess.jobItems = [{ id: "g1", st: "done" }, { id: "k1", st: "todo" }, { id: "k2", st: "todo" }];
+  const slow = st.handler; let hold = true;
+  st.handler = async (name, data) => { if (name === "assessAi" && data.action === "jobStep") while (hold) await new Promise((r) => setTimeout(r, 30)); return slow(name, data); };
+  const { pg, errors } = await openTeacher(st);
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-job");
+  assert.match(await pg.locator("#as-job").innerText(), /AI가 채점하는 중 1 \/ 3[\s\S]*창을 닫거나 다른 일을 해도 서버에서/);
+  await pg.click("[data-asjobstop]");
+  await pg.waitForFunction(() => /멈췄어요/.test(document.querySelector(".toast")?.textContent || "") || !document.querySelector("#as-job"));
+  hold = false;
+  assert.ok(st.calls.some(([n, d]) => n === "assess" && d.action === "jobStop"));
+  await pg.waitForFunction(() => !document.querySelector("#as-job"));
+  assert.deepEqual(errors, []);
+});
+
+test("교사 평가: ① 평가에서 빼기 — 까닭·메모를 고르면 목록과 안내에 표시되고 단계 수에서 빠지며, 다시 넣을 수 있다", async () => {
+  const st = assessFixture(), { pg, errors } = await openTeacher(st);
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-root .as-crit");
+  await pg.click('[data-ask="student"]');
+  await pg.locator("#as-blind").uncheck();
+  await pg.click('.as-pick [data-asid="k2"]');
+  await pg.waitForSelector("[data-asexclude]");
+  await pg.click("[data-asexclude]");
+  assert.match(await pg.locator(".modal").innerText(), /나래 학생을 이번 평가에서 뺄까요[\s\S]*결석[\s\S]*전학[\s\S]*기타/);
+  await pg.locator('.modal input[name="ex-reason"][value="transfer"]').check();
+  await pg.fill("#ex-note", "11월 2일 전학");
+  await pg.click(".modal .btn-primary");
+  await pg.waitForFunction(() => /평가에서 뺐어요/.test(document.querySelector(".toast")?.textContent || ""));
+  assert.deepEqual(st.calls.filter(([n, d]) => n === "assess" && d.action === "exclude").map(([, d]) => [d.id, d.reason, d.note]), [["k2", "transfer", "11월 2일 전학"]]);
+  await pg.waitForSelector(".as-sub .notice.yellow");
+  assert.match(await pg.locator(".as-sub").innerText(), /평가에서 뺀 학생이에요\(전학 · 11월 2일 전학\)/);
+  assert.match(await pg.locator('.as-pick [data-asid="k2"]').innerText(), /전학 · 제외/);
+  assert.match(await pg.locator('#as-views [data-asv="seteuk"]').innerText(), /0 \/ 1명/, "세특 쓰기 단계도 제외한 학생을 세지 않는다");
+  await pg.click("[data-asinclude]");
+  await pg.waitForFunction(() => /다시 평가에 넣었어요/.test(document.querySelector(".toast")?.textContent || ""));
+  await pg.waitForFunction(() => !document.querySelector(".as-sub .notice.yellow"));
+  assert.match(await pg.locator('#as-views [data-asv="seteuk"]').innerText(), /0 \/ 2명/);
+  assert.deepEqual(errors, []);
+});
+
+test("교사 평가: ④ 이의 신청 마감 정하기·없애기, 학생 화면 미리보기, NEIS에 옮길 점수·세특 내려받기", async () => {
+  const st = assessFixture(), { pg, errors } = await openTeacher(st);
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector("#as-views");
+  await pg.click('#as-views [data-asv="release"]');
+  await pg.waitForSelector(".as-deadline");
+  assert.match(await pg.locator(".as-deadline").innerText(), /이의 신청 마감 마감 없음/);
+  // 7일 뒤로
+  await pg.click("[data-asap7]");
+  await pg.waitForFunction(() => /이의 신청 마감을/.test(document.querySelector(".toast")?.textContent || ""));
+  const v = st.calls.filter(([n, d]) => n === "assess" && d.action === "config" && d.appealUntil !== undefined).at(-1)[1].appealUntil;
+  assert.ok(v > Date.now() + 6 * 86400000 && v < Date.now() + 8 * 86400000);
+  assert.match(await pg.locator(".as-deadline").innerText(), /까지/);
+  // 직접 날짜 넣기
+  await pg.fill("#as-ap-until", "2026-12-20T17:00");
+  await pg.click("[data-asapsave]");
+  await pg.waitForFunction(() => /12월 20일/.test(document.querySelector(".as-deadline")?.innerText || ""));
+  assert.equal(new Date(st.assess.appealUntil).getMonth(), 11);
+  await pg.click("[data-asapnone]");
+  await pg.waitForFunction(() => /마감 없음/.test(document.querySelector(".as-deadline")?.innerText || ""));
+  assert.equal(st.assess.appealUntil, null);
+  // 미리보기: 학생 결과 화면을 그대로 보여 주되 이의 단추는 누를 수 없다
+  await pg.selectOption("#as-pv", "k1");
+  await pg.click("[data-aspreview]");
+  await pg.waitForSelector(".modal .res-total");
+  const m = await pg.locator(".modal").innerText();
+  assert.match(m, /미리보기 · 가람의 결과/); assert.match(m, /지금 이 학생에게는 아직 아무것도 보여요|아직 아무것도/); assert.match(m, /모둠 문제 정하기[\s\S]*점검표 근거가 부족함/); assert.match(m, /자료를 비교해 원인을 분석함/);
+  assert.equal(await pg.locator(".modal [data-appeal]").count(), 0, "미리보기에서는 이의 단추를 누를 수 없다");
+  await pg.click(".modal .btn-primary");
+  // 내려받기: BOM 이 붙은 CSV, 머리줄에 항목·영역·총점·세특, 쉼표·따옴표가 든 세특도 한 칸
+  // 파일 이름은 화면이 정한 이름으로 확인한다(헤드리스 브라우저는 한글 이름을 'download'로 바꿔 보여 줄 수 있다)
+  await pg.evaluate(() => { const c = HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click = function () { window.__dlName = this.download; return c.call(this); }; });
+  const [dl] = await Promise.all([pg.waitForEvent("download"), pg.click("[data-asexport]")]);
+  assert.match(await pg.evaluate(() => window.__dlName), /^수행평가_테스트 수업_\d{8}\.csv$/);
+  const txt = fs.readFileSync(await dl.path(), "utf8");
+  assert.equal(txt.charCodeAt(0), 0xfeff);
+  const lines = txt.slice(1).split("\r\n");
+  assert.match(lines[0], /"모둠","별명","평가 제외","인물 이해: 대화와 정리\(10\)","모둠 문제 정하기\(10\)","개인 영역\(60\)","모둠 영역\(40\)","총점\(100\)","빠진 항목","세특","세특 바이트\(최대 1500\)"/);
+  assert.equal(lines[1], '"1모둠","가람","","8","","8","0","8","모둠 문제 정하기(확정 전)","자료를 비교함, ""근거""를 들어","40"');
+  assert.equal(lines[2], '"1모둠","나래","전학","","","","","","","",""', "평가에서 뺀 학생은 점수 칸을 비운다");
+  assert.deepEqual(errors, []);
+});
+
+test("교사 평가: 척도표 — 모둠 기여도 넣기·빼기는 확인 창을 거쳐 저장하고, 취소하면 그대로", async () => {
+  const st = assessFixture(), { pg, errors } = await openTeacher(st);
+  await pg.click('[data-ctab="assess"]');
+  await pg.waitForSelector(".as-tools");
+  await pg.click('.as-tools [data-asv="rubric"]');
+  await pg.waitForSelector("#as-contrib");
+  assert.equal(await pg.locator("#as-contrib").isChecked(), false);
+  assert.match(await pg.locator("#as-body").innerText(), /모둠 기여도 안 넣음[\s\S]*40점 가운데 10점을 학생마다/);
+  // 취소: 그대로
+  await pg.locator("#as-contrib").check();
+  await pg.click(".modal .btn:has-text('취소')");
+  await pg.waitForFunction(() => document.querySelector("#as-contrib") && !document.querySelector("#as-contrib").checked);
+  assert.equal(st.calls.filter(([n, d]) => n === "assess" && d.action === "config" && d.contrib !== undefined).length, 0);
+  // 넣기
+  await pg.locator("#as-contrib").check();
+  assert.match(await pg.locator(".modal").innerText(), /학생마다 다른 모둠 기여도[\s\S]*5점 만점으로 다시 계산/);
+  await pg.click(".modal .btn-primary");
+  await pg.waitForFunction(() => /모둠 기여도를 넣었어요/.test(document.querySelector(".toast")?.textContent || ""));
+  assert.equal(st.assess.contrib, true);
+  await pg.waitForFunction(() => /넣는 중/.test(document.querySelector("#as-body")?.innerText || ""));
+  assert.deepEqual(errors, []);
+});
+
+const RESULT = {
+  title: "테스트 수업", nickname: "가람", groupId: "g1", released: { score: true, seteuk: false },
+  score: { total: 18, max: 100, indiv: 10, group: 8, indivMax: 25, groupMax: 75, done: 2, count: 13, complete: false, labels: ["매우 잘함", "잘함", "보통", "노력 필요"],
+    items: [{ id: "c11", element: "문제 이해와 정의", name: "인물 이해: 대화와 정리", scope: "student", max: 10, scored: true, pts: 10, level: "매우 잘함", desc: "인물이 누구인지·무엇이 힘든지를 알아냈다.", note: "세 가지를 모두 알아냄" },
+      { id: "c12", element: "문제 이해와 정의", name: "모둠 문제 정하기", scope: "group", max: 10, scored: true, pts: 8, level: "잘함", desc: "문제 문장이 두 바람을 담았다.", note: "" },
+      { id: "c21", element: "원인 탐색과 검증", name: "처음 내 생각 돌아보기", scope: "student", max: 5, scored: false, pts: null, level: null, desc: "", note: "" }] },
+};
+test("학생 결과: 입장 화면에서 모둠·별명·비밀번호로 점수를 보고(수업이 끝난 뒤), 세특은 공개된 때만 보인다", async () => {
+  const st = studentFixture(), h0 = st.handler;
+  let reply = RESULT; // 이 테스트 안에서 서버의 답을 바꾼다
+  st.handler = async (name, data) => { if (name === "myResult") { st.calls.push([name, data]); if (data.password === "bad") throw new Error("functions: 비밀번호가 맞지 않습니다."); return reply; } return h0(name, data); };
+  const { pg, errors } = await openStudent(st);
+  await pg.fill("#j-code", "abc234");
+  await pg.click("#res-join");
+  await pg.waitForFunction(() => /모두 입력하세요/.test(document.querySelector(".toast.err")?.textContent || ""));
+  assert.ok(!st.calls.some(([n]) => n === "myResult"), "빈 칸이면 부르지 않는다");
+  await pg.fill("#j-group", "1"); await pg.fill("#j-nick", "가람"); await pg.fill("#j-pw", "bad");
+  await pg.click("#res-join");
+  await pg.waitForFunction(() => /비밀번호가 맞지 않/.test(document.querySelector(".toast.err")?.textContent || ""));
+  await pg.fill("#j-pw", "pw1234");
+  await pg.click("#res-join");
+  await pg.waitForSelector(".modal .res-total");
+  const m = await pg.locator(".modal").innerText();
+  assert.match(m, /가람의 결과/); assert.match(m, /18\s*\/ 100점/); assert.match(m, /내 활동 10 \/ 25점 \+ 우리 모둠 활동 8 \/ 75점/); assert.match(m, /아직 11칸은 채점 전/);
+  assert.match(m, /인물 이해: 대화와 정리[\s\S]*10 \/ 10점[\s\S]*매우 잘함[\s\S]*세 가지를 모두 알아냄/);
+  assert.match(m, /처음 내 생각 돌아보기[\s\S]*채점 전/);
+  assert.ok(!/내 세특/.test(m), "세특은 공개되지 않았으니 보이지 않는다");
+  if (process.env.UI_SHOT) await pg.screenshot({ path: `${process.env.UI_SHOT}/result.png` });
+  assert.deepEqual(st.calls.filter(([n]) => n === "myResult").at(-1)[1], { code: "ABC234", groupNo: 1, nickname: "가람", password: "pw1234" });
+  assert.deepEqual(errors, []);
+  // 세특만 공개된 응답
+  reply = { title: "t", nickname: "가람", groupId: "g1", released: { score: false, seteuk: true }, seteuk: { text: "인물 인터뷰에서 어려움을 파악함." } };
+  await pg.click(".modal .btn-primary");
+  await pg.waitForFunction(() => document.querySelector("#j-pw").value === "", null, { timeout: 5000 }); // 확인 창을 닫으면 비밀번호 칸을 비운다
+  await pg.fill("#j-pw", "pw1234");
+  await pg.click("#res-join");
+  await pg.waitForSelector(".modal .res-seteuk");
+  const m2 = await pg.locator(".modal").innerText();
+  assert.match(m2, /내 세특[\s\S]*인물 인터뷰에서 어려움을 파악함\./); assert.ok(!/내 점수/.test(m2));
+});
+
+test("학생 결과: 확정된 칸마다 '이의가 있어요'로 이의를 보내고, 처리되면 선생님의 답이 보인다", async () => {
+  const st = studentFixture(), h0 = st.handler;
+  let reply = JSON.parse(JSON.stringify(RESULT));
+  reply.score.items.forEach((x) => { x.appeal = null; });
+  st.handler = async (name, data) => {
+    if (name === "myResult") {
+      st.calls.push([name, data]);
+      if (data.appeal) { reply.score.items.find((x) => x.id === data.appeal.criterion).appeal = { status: "open", text: data.appeal.text, reply: "" }; }
+      return reply;
+    }
+    return h0(name, data);
+  };
+  const { pg, errors } = await openStudent(st);
+  await pg.fill("#j-code", "abc234"); await pg.fill("#j-group", "1"); await pg.fill("#j-nick", "가람"); await pg.fill("#j-pw", "pw1234");
+  await pg.click("#res-join");
+  await pg.waitForSelector(".modal .res-total");
+  // 채점된 칸에만 이의 단추가 있다(채점 전 칸에는 없다)
+  assert.equal(await pg.locator(".modal [data-appeal]").count(), 2);
+  await pg.locator('.modal [data-appeal="c12"]').click();
+  await pg.locator(".modal .res-ap-t").fill("점검표를 모두 확인했어요");
+  await pg.locator(".modal [data-appeal-send]").click();
+  await pg.waitForSelector(".modal .tag:has-text('선생님이 확인하는 중')");
+  assert.deepEqual(st.calls.filter(([n]) => n === "myResult").at(-1)[1].appeal, { criterion: "c12", text: "점검표를 모두 확인했어요" });
+  assert.equal(await pg.locator(".modal [data-appeal]").count(), 1, "이의를 낸 칸은 단추가 사라진다");
+  // 처리된 답
+  reply.score.items.find((x) => x.id === "c12").appeal = { status: "resolved", text: "점검표를 모두 확인했어요", reply: "다시 보니 맞아서 고쳤어요" };
+  await pg.click(".modal .btn-primary");
+  await pg.fill("#j-pw", "pw1234");
+  await pg.click("#res-join");
+  await pg.waitForSelector(".modal .res-note:has-text('선생님 답: 다시 보니 맞아서 고쳤어요')");
+  assert.deepEqual(errors, []);
+});
+
+test("학생 결과: 수업 중 선생님이 공개하면 '내 결과' 단추가 나타나 강조되고, 누르면 결과 창, 보고 나면 강조가 사라진다", async () => {
+  const st = studentFixture(), h0 = st.handler;
+  st.handler = async (name, data) => { if (name === "myResult") { st.calls.push([name, data]); return RESULT; } return h0(name, data); };
+  const { pg, errors } = await openStudent(st);
+  await login(pg);
+  assert.ok(await pg.locator("#res-btn").isHidden(), "공개 전에는 단추가 없다");
+  await pg.evaluate(() => window.__push("sessions/ABC234", { chatLimit: 5, release: { score: true, seteuk: false, t: 111 } }));
+  await pg.waitForSelector("#res-btn:not(.hidden)");
+  assert.ok(await pg.locator("#res-btn.has-new").count() === 1);
+  await pg.click("#res-btn");
+  await pg.waitForSelector(".modal .res-total");
+  assert.deepEqual(st.calls.find(([n]) => n === "myResult")[1], { code: "ABC234" }, "수업 중에는 비밀번호 없이 로그인한 계정으로 부른다");
+  await pg.click(".modal .btn-primary");
+  await pg.waitForFunction(() => !document.querySelector("#res-btn").classList.contains("has-new"));
+  // 선생님이 다시 끄면 단추가 사라진다
+  await pg.evaluate(() => window.__push("sessions/ABC234", { chatLimit: 5, release: { score: false, seteuk: false, t: 112 } }));
+  await pg.waitForSelector("#res-btn.hidden", { state: "attached" });
+  assert.deepEqual(errors, []);
+});
+
+test("학생 결과: 이의 신청 마감이 보이고, 지나면 이의 단추가 사라진다. 평가에서 빠진 학생은 점수 대신 안내를 본다", async () => {
+  const st = studentFixture(), h0 = st.handler;
+  let reply = { ...RESULT, appealUntil: Date.now() + 86400000 };
+  st.handler = async (name, data) => { if (name === "myResult") { st.calls.push([name, data]); return reply; } return h0(name, data); };
+  const { pg, errors } = await openStudent(st);
+  await pg.fill("#j-code", "abc234");
+  await pg.waitForSelector("#res-link, [data-res], .res-link", { state: "attached" }).catch(() => {});
+  const open = async () => { await pg.evaluate(async () => { const m = await import("./result.js"); window.__r = m.openResult({ code: "ABC234" }); }); await pg.waitForSelector(".modal .res-total, .modal .notice"); };
+  await open();
+  assert.match(await pg.locator(".modal").innerText(), /까지 항목마다 한 번 신청할 수 있어요/);
+  assert.ok(await pg.locator(".modal [data-appeal]").count() >= 1);
+  await pg.keyboard.press("Escape");
+  reply = { ...RESULT, appealUntil: Date.now() - 1000 };
+  await open();
+  assert.match(await pg.locator(".modal").innerText(), /이의 신청 기간이 끝났어요/);
+  assert.equal(await pg.locator(".modal [data-appeal]").count(), 0);
+  await pg.keyboard.press("Escape");
+  reply = { title: "테스트 수업", nickname: "가람", groupId: "g1", released: { score: true, seteuk: false }, appealUntil: null, excluded: { label: "결석" } };
+  await open();
+  assert.match(await pg.locator(".modal").innerText(), /'결석'\(으\)로 평가에서 빠졌어요/);
+  assert.deepEqual(errors, []);
+});

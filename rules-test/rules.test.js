@@ -96,6 +96,14 @@ test("1단계 개인 정리와 '입력 중' 표시는 자기 칸만 고칠 수 �
   await assertFails(updateDoc(doc(as("S3"), P("groups/g2")), { "work.s1.findings.S1": { who: "남의 것" } }));
 });
 
+test("수행평가 기록(assess)은 교사도 학생도 직접 읽거나 쓸 수 없다(서버 함수만)", async () => {
+  await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), P("assess/g1")), { scores: { c12: { level: 0 } } }));
+  for (const who of ["T1", "S1", "OUT"]) {
+    await assertFails(getDoc(doc(as(who), P("assess/g1"))));
+    await assertFails(setDoc(doc(as(who), P("assess/g1")), { scores: { c12: { level: 0 } } }));
+  }
+});
+
 test("접속 신호: 자기 문서의 stage·lastSeen만 고칠 수 있다", async () => {
   await assertSucceeds(updateDoc(doc(as("S1"), P("members/S1")), { stage: 3, lastSeen: serverTimestamp() }));
   await assertFails(updateDoc(doc(as("S1"), P("members/S1")), { stage: 8, lastSeen: serverTimestamp() }));
@@ -119,7 +127,7 @@ test("수업 문서는 학생이 쓸 수 없고, 교사는 자기 수업만 읽�
   await assertFails(getDoc(doc(as("S1"), "config/teachers")));
   // 교사 가입 기록·승인·시도 횟수는 본인도 읽거나 쓸 수 없다(서버만)
   // 교사가 만든 주제·조사 결과·하루 생성 횟수도 서버(topics 함수)만 읽고 쓴다
-  for (const p of ["teacherAccounts/T1", "teacherSignups/T1", "teacherAttempts/T1", "teacherTopics/t0123456789", "teacherTopics/t0123456789/parts/research", "topicUsage/T1"]) {
+  for (const p of ["teacherAccounts/T1", "teacherSignups/T1", "teacherAttempts/T1", "teacherTopics/t0123456789", "teacherTopics/t0123456789/parts/research", "topicUsage/T1", "teacherAssess/T1/calibrations/k1"]) {
     await assertFails(getDoc(doc(as("T1"), p)));
     await assertFails(setDoc(doc(as("T1"), p), { email: "x@y.kr" }));
   }

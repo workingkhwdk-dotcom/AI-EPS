@@ -87,10 +87,11 @@ body.m.typing{ padding-bottom:16px; }
 
 /* 수업 안의 메뉴: 아이콘 + 이름 4칸 */
 .m .seg.m-nav4{ grid-template-columns:repeat(4,1fr); }
-.m .seg.m-nav4 button{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; padding:5px 2px 4px; border-radius:10px;
+.m .seg.m-nav5{ grid-template-columns:repeat(5,1fr); }
+.m .seg:is(.m-nav4,.m-nav5) button{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; padding:5px 2px 4px; border-radius:10px;
   font-size:11px; font-weight:700; color:var(--ink-3); background:transparent; box-shadow:none; }
-.m .seg.m-nav4 button svg{ width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; }
-.m .seg.m-nav4 button.on{ color:var(--accent); background:var(--accent-tint); box-shadow:none; }
+.m .seg:is(.m-nav4,.m-nav5) button svg{ width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; }
+.m .seg:is(.m-nav4,.m-nav5) button.on{ color:var(--accent); background:var(--accent-tint); box-shadow:none; }
 
 /* 표 → 카드: 학생 현황 */
 .m-teacher .tbl-wrap{ overflow:visible; }
@@ -258,3 +259,10 @@ body.m{ --navh:calc(54px + env(safe-area-inset-bottom)); --hdrh:calc(41px + env(
 .m .nav-foot > .btn-plain{ flex:0 0 auto; padding-left:16px; padding-right:16px; }
 .m .nav-foot > .sc-next, .m .nav-foot > .btn-primary, .m .nav-foot > .btn-tinted{ flex:1 1 auto; margin-left:0; }
 .m .who-what-how label{ grid-template-columns:56px 1fr; }
+
+/* 평가 척도표: 항목마다 카드 한 장, 수준 이름을 칸 앞에 붙인다(PC 표의 열 너비는 쓰지 않는다) */
+.m-teacher .as-rubric thead{ display:none; }
+.m-teacher .as-rubric td, .m-teacher .as-rubric th{ min-width:0; font-size:13.5px; }
+.m-teacher .as-rubric tbody tr{ grid-template-columns:1fr; }
+.m-teacher .as-rubric tr.as-el{ background:none; padding:10px 4px 0; }
+.m-teacher .as-rubric td[data-lv]::before{ content:attr(data-lv); display:block; font-weight:800; color:var(--ink); }

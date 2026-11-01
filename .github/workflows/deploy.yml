@@ -1,0 +1,86 @@
+name: 자동 배포
+# main 에 합쳐진 커밋의 CI(서버·보안 규칙·화면 테스트)가 모두 통과하면, 바로 그 커밋을 Firebase 에 배포한다.
+# 맥(로컬 폴더)의 상태와 상관없이 늘 GitHub main 그대로 올라간다.
+# 필요한 저장소 Secrets(Settings → Secrets and variables → Actions):
+#   FIREBASE_SERVICE_ACCOUNT  배포용 서비스 계정 키(JSON 전체)
+#   FUNCTIONS_ENV             functions/.env 내용 전체(교사 목록·인증 문구·모델 이름 등)
+# 둘 중 하나라도 없으면 배포를 건너뛰고 이유를 남긴다(실패로 표시하지 않는다).
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch: # Actions 탭에서 '지금 main 배포'를 직접 누를 수도 있다
+
+# 배포가 겹치지 않게 한 번에 하나씩, 앞의 배포는 끝까지 마친다
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Firebase 배포
+    # 자동 실행은 main 에 push 된 커밋의 CI 가 성공했을 때만(PR 의 CI 는 제외)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_ID: knue-socialstudies-ai-eps
+    steps:
+      - name: 설정 확인
+        id: secrets
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FENV: ${{ secrets.FUNCTIONS_ENV }}
+        run: |
+          missing=""
+          [ -n "$SA" ] || missing="$missing FIREBASE_SERVICE_ACCOUNT"
+          [ -n "$FENV" ] || missing="$missing FUNCTIONS_ENV"
+          if [ -n "$missing" ]; then
+            echo "::warning::배포를 건너뜁니다. 저장소 Secrets 에 다음 값이 없습니다:$missing (README '자동 배포' 참고)"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.secrets.outputs.ok == 'true'
+        with:
+          # CI 가 통과한 바로 그 커밋을 배포한다(직접 실행이면 지금의 main)
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        if: steps.secrets.outputs.ok == 'true'
+        with: { node-version: 22, cache: npm, cache-dependency-path: functions/package-lock.json }
+
+      - name: 서버 패키지 설치
+        if: steps.secrets.outputs.ok == 'true'
+        run: npm ci
+        working-directory: functions
+
+      - name: 서버 설정(functions/.env) 만들기
+        if: steps.secrets.outputs.ok == 'true'
+        env:
+          FENV: ${{ secrets.FUNCTIONS_ENV }}
+        run: printf '%s\n' "$FENV" > functions/.env
+
+      - name: Google Cloud 로그인
+        if: steps.secrets.outputs.ok == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: 배포(서버 함수·화면·보안 규칙)
+        if: steps.secrets.outputs.ok == 'true'
+        run: npx --yes firebase-tools@13 deploy --only functions,hosting,firestore:rules --project "$PROJECT_ID" --non-interactive
+
+      - name: 결과
+        if: steps.secrets.outputs.ok == 'true'
+        run: |
+          echo "### 배포 완료" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 커밋: \`$(git rev-parse --short HEAD)\` $(git log -1 --format=%s)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 사이트: https://$PROJECT_ID.web.app" >> "$GITHUB_STEP_SUMMARY"
