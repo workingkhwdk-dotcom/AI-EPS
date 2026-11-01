@@ -70,7 +70,7 @@ const TEACHER_SIGNUP_CODE = defineString("TEACHER_SIGNUP_CODE", { default: "" })
 // 수업 전에 미리 해 보려면 체험(demo) 페이지를 쓴다. .env 에 그 줄이 남아 있어도 읽지 않는다.
 
 const REGION = "asia-northeast3"; // 서울
-const MAX_AI_CALLS_PER_GROUP = 150; // 수업별로 정하지 않았을 때의 모둠당 한도(3~5단계)
+const MAX_AI_CALLS_PER_GROUP = 60; // 수업별로 정하지 않았을 때의 모둠당 한도(3~5단계). 보통 수업은 모둠당 20~40회를 쓴다(비용 보호, 교사가 10~500회로 바꿀 수 있음)
 const COACH_LIMIT = 8; // 2단계 생각 도우미: 학생 한 사람이 부를 수 있는 횟수
 const AI_LIMIT_RANGE = [10, 500];
 // 1단계 인물 대화는 학생마다 따로 센다. 횟수가 적어야 질문을 신중하게 고른다.
@@ -880,11 +880,12 @@ function adminCase(b) {
 // ---------- AI 호출 ----------
 
 // 사고량을 바꿔 가며 시도한다(사고에 한도를 다 쓰거나 시간이 오래 걸린 경우 대비). 모두 실패하면 마지막 오류를 던진다.
-async function callModel({ apiKey, model, messages, json = false, maxTokens, efforts }) {
+// cacheKey·tier 는 비용 줄이기(openai.js 참고): 같은 프롬프트 앞부분끼리 캐시 키를 맞추고, 기다려도 되는 일괄 작업은 flex 요금으로 보낸다.
+async function callModel({ apiKey, model, messages, json = false, maxTokens, efforts, cacheKey, tier }) {
   let lastErr;
   for (const effort of [...new Set(efforts)]) {
     try {
-      return await chat({ apiKey, model, messages, json, maxTokens, effort });
+      return await chat({ apiKey, model, messages, json, maxTokens, effort, cacheKey, tier });
     } catch (e) {
       lastErr = e;
       console.error(`AI 호출 실패 model=${model} effort=${effort}:`, e.message);
@@ -1227,9 +1228,11 @@ const ASSESS_FAST_MODEL = modelParam("ASSESS_FAST_MODEL", "gpt-5.6-luna"); // �
 const ASSESS_MODEL = modelParam("ASSESS_MODEL", "gpt-5.6-terra"); // 갈리거나 인용을 못 찾은 기준의 고성능 재판정
 const SETEUK_MODEL = modelParam("SETEUK_MODEL", "gpt-5.6-terra"); // 세특 첫 초안과 올려 쓴 보정
 const SETEUK_FIX_MODEL = modelParam("SETEUK_FIX_MODEL", "gpt-5.6-luna"); // 세특 분량 보정(압축·보강)
+// 일괄 채점·세특의 요금 등급: "flex"(기본, 할인 요금·조금 느림, 실패하면 기본 요금으로 다시) 또는 "default"
+const BULK_TIER = envParam("BULK_TIER", "flex");
 const ASSESS_RUNS = 3; // 같은 근거를 AI가 몇 번 채점해 가운데 값과 흔들림을 구하는지
 const ASSESS_AI_CAP = 1500; // 수업 하나에서 평가용 AI 호출 한도(비용 보호)
-const assessAiOpts = { ...aiOpts, cpu: "gcf_gen1", maxInstances: 2 };
+const assessAiOpts = { ...aiOpts, cpu: "gcf_gen1", maxInstances: 2, timeoutSeconds: 540 }; // 일괄 작업 한 걸음(flex 요금은 느릴 수 있음)
 
 const assessRef = (code, key) => db.doc(`sessions/${code}/assess/${key}`);
 const subjKey = (kind, id) => (kind === "group" ? id : `s_${id}`);
@@ -1811,7 +1814,7 @@ const usedOf = async (code) => ((await db.doc(`sessions/${code}`).get()).data() 
 const capError = () => new HttpsError("resource-exhausted", `이 수업의 평가용 AI 호출 한도(${ASSESS_AI_CAP}회)에 가까워 더 받을 수 없어요.`);
 
 // 모둠 또는 학생 한 곳을 AI가 채점한다(빠른 모델 3번 + 갈리면 고성능 재판정). 결과는 assess 문서의 ai.<기준> 에 저장한다.
-async function aiScoreSubject({ code, sess, members, kind, id }) {
+async function aiScoreSubject({ code, sess, members, kind, id, tier }) {
   const key = subjKey(kind, id);
   const { apiKey, effort, bump } = aiCtx(code);
   const { rubric, evidence, empty } = await loadEvidence(code, sess, kind, id, members);
@@ -1824,7 +1827,7 @@ async function aiScoreSubject({ code, sess, members, kind, id }) {
     if ((await usedOf(code)) + ASSESS_RUNS + 1 > ASSESS_AI_CAP) throw capError();
     await bump(ASSESS_RUNS);
     const messages = A.scorerMessages({ rubric, items, scope: scopeOf(kind) });
-    const one = async () => A.parseScorer(extractJson(await callModel({ apiKey, model: ASSESS_FAST_MODEL.value(), messages, json: true, maxTokens: 1800, efforts: [effort === "minimal" ? "low" : effort, "low"] })), items);
+    const one = async () => A.parseScorer(extractJson(await callModel({ apiKey, model: ASSESS_FAST_MODEL.value(), messages, json: true, maxTokens: 1800, efforts: [effort === "minimal" ? "low" : effort, "low"], tier })), items);
     const settle = (rs) => rs.map((r) => (r.status === "fulfilled" ? r.value : (failed++, console.error("AI 채점 실패:", r.reason?.message), null))).filter(Boolean);
     // 같은 프롬프트라 첫 호출이 끝나 캐시가 만들어진 뒤에 나머지를 보내면 입력 요금이 줄어든다(OpenAI 자동 프롬프트 캐시)
     const runs = settle(await Promise.allSettled([one()]));
@@ -1864,7 +1867,7 @@ async function seteukItems(code, sess, members, id) {
   if (!items.length) throw new HttpsError("failed-precondition", "아직 학생이 쓴 활동 기록이 없어 세특을 만들 수 없어요. (주제만 보고 쓰지 않아요)");
   return { stu, items };
 }
-async function seteukPrepFor({ code, sess, members, id }) {
+async function seteukPrepFor({ code, sess, members, id, tier }) {
   const { apiKey, effort, bump } = aiCtx(code);
   const target = sess.seteukMax || SK.SETEUK_MAX.def, level = levelOf(sess);
   const { stu, items } = await seteukItems(code, sess, members, id);
@@ -1873,7 +1876,7 @@ async function seteukPrepFor({ code, sess, members, id }) {
   let lv;
   for (let i = 0; i < 2 && !lv; i++) {
     await bump(1);
-    try { lv = SK.parseLevel(extractJson(await callModel({ apiKey, model: OPENAI_MODEL.value(), messages: SK.levelMessages({ level, items, targetBytes: target }), json: true, maxTokens: 1500, efforts: [effort === "minimal" ? "low" : effort, "low"] }))); }
+    try { lv = SK.parseLevel(extractJson(await callModel({ apiKey, model: OPENAI_MODEL.value(), messages: SK.levelMessages({ level, items, targetBytes: target }), json: true, maxTokens: 1500, efforts: [effort === "minimal" ? "low" : effort, "low"], tier }))); }
     catch (e) { console.error("수준 판정 실패:", e.message); }
   }
   if (!lv) throw new HttpsError("unavailable", "AI 응답을 받지 못했어요. 잠시 뒤에 다시 시도하세요.");
@@ -1889,7 +1892,7 @@ async function seteukPrepFor({ code, sess, members, id }) {
   return prep;
 }
 // 세특 ④⑤ 초안(기승전결 4부분) + NEIS 바이트 수렴. 만든 초안은 seteuk.draft 에 저장한다(교사가 읽고 고쳐 저장해야 확정본이 된다).
-async function seteukDraftFor({ code, sess, members, id, decision, grade: wantGrade, emphasis: wantEmp }) {
+async function seteukDraftFor({ code, sess, members, id, decision, grade: wantGrade, emphasis: wantEmp, tier }) {
   const { apiKey, effort, bump } = aiCtx(code);
   const target = sess.seteukMax || SK.SETEUK_MAX.def, level = levelOf(sess);
   const { stu, items } = await seteukItems(code, sess, members, id);
@@ -1920,7 +1923,7 @@ async function seteukDraftFor({ code, sess, members, id, decision, grade: wantGr
     calls++;
     await bump(1);
     used_models[strong ? "strong" : "fast"]++;
-    return extractJson(await callModel({ apiKey, model: (strong ? SETEUK_MODEL : SETEUK_FIX_MODEL).value(), messages, json: true, maxTokens: SK.maxTokens(effTarget) + 600, efforts: [effort === "minimal" ? "low" : effort, "low"] }));
+    return extractJson(await callModel({ apiKey, model: (strong ? SETEUK_MODEL : SETEUK_FIX_MODEL).value(), messages, json: true, maxTokens: SK.maxTokens(effTarget) + 600, efforts: [effort === "minimal" ? "low" : effort, "low"], tier }));
   };
   const generate = async (direction, prevText, bytes) => {
     let messages = direction === "init" ? base : SK.fixMessages({ base, parts: lastParts, direction, bytes, effectiveTarget: effTarget, items });
@@ -1990,7 +1993,7 @@ exports.assessAi = onCall(assessAiOpts, async (req) => {
 // 창을 닫아도 1분마다 도는 assessWorker 가 이어서 한다. 대상마다 '맡음(lease)'을 걸어 두 쪽이 같은 대상을 겹쳐 하지 않고,
 // 맡은 쪽이 죽으면 lease 가 지난 뒤 다른 쪽이 다시 맡는다. 마지막 대상을 끝낸 쪽이 한 번만 마무리(AI 점수 적용)한다.
 const jobRef = (code) => db.doc(`assessJobs/${code}`);
-const JOB_LEASE_MS = 6 * 60 * 1000;
+const JOB_LEASE_MS = 10 * 60 * 1000; // 할인 요금(flex)은 느릴 수 있어 함수 시간 한도(9분)보다 길게 둔다
 const JOB_TRIES = 2; // 한 대상을 몇 번까지 다시 해 보는지(맡은 쪽이 죽은 경우 포함)
 const jobLeft = (j) => j.items.some((x) => x.st === "todo" || x.st === "doing");
 function jobView(j) {
@@ -2035,11 +2038,13 @@ async function runJobItem(code, j, idx) {
     const sess = (await db.doc(`sessions/${code}`).get()).data();
     if (!sess) return { ok: false, err: "수업을 찾을 수 없어요", stop: true };
     const members = await membersOf(code);
-    if (j.type === "score") await aiScoreSubject({ code, sess, members, kind: it.kind, id: it.id });
+    // 일괄 작업(전체 채점·세특 모두 만들기)은 기다려도 되는 일이라 할인 요금(flex)으로 보낸다. 실패하면 기본 요금으로 다시 보낸다.
+    const tier = BULK_TIER.value() === "flex" ? "flex" : undefined;
+    if (j.type === "score") await aiScoreSubject({ code, sess, members, kind: it.kind, id: it.id, tier });
     else {
       // 세특 초안 모두 만들기: 학생 글이 분량에 비해 적으면 '짧게 쓰기'(권장, 지어내지 않음)로 만든다. 교사가 읽고 고쳐 저장한다.
-      const prep = await seteukPrepFor({ code, sess, members, id: it.id });
-      await seteukDraftFor({ code, sess, members, id: it.id, decision: prep.needsAdjustment ? "lower" : "keep", grade: prep.grade, emphasis: j.params?.emphasis });
+      const prep = await seteukPrepFor({ code, sess, members, id: it.id, tier });
+      await seteukDraftFor({ code, sess, members, id: it.id, decision: prep.needsAdjustment ? "lower" : "keep", grade: prep.grade, emphasis: j.params?.emphasis, tier });
     }
     return { ok: true };
   } catch (e) {
@@ -2069,7 +2074,7 @@ async function jobStep(code) {
   return { job: jobView((await jobRef(code).get()).data()), worked: true };
 }
 // 창을 닫아도 이어서 하도록 1분마다 돈다. 한 번에 45초 남짓 새 대상을 맡고, 맡은 대상은 끝까지 한다(세특은 길면 3~4분).
-exports.assessWorker = onSchedule({ region: REGION, schedule: "every 1 minutes", timeZone: "Asia/Seoul", cpu: "gcf_gen1", secrets: [OPENAI_API_KEY], timeoutSeconds: 300, maxInstances: 2 }, async () => {
+exports.assessWorker = onSchedule({ region: REGION, schedule: "every 1 minutes", timeZone: "Asia/Seoul", cpu: "gcf_gen1", secrets: [OPENAI_API_KEY], timeoutSeconds: 540, maxInstances: 2 }, async () => {
   const until = Date.now() + 45 * 1000;
   for (const d of (await db.collection("assessJobs").where("status", "==", "running").get()).docs) {
     while (Date.now() < until) { const r = await jobStep(d.id); if (!r.worked || r.job?.status !== "running") break; }

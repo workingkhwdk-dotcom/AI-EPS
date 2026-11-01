@@ -885,7 +885,7 @@ function fillSettings() {
   const r = curRow(); if (!r) return;
   $("#s-title").value = r.title;
   $("#s-groups").value = r.groupCount;
-  $("#s-ailimit").value = r.aiLimit || 150;
+  $("#s-ailimit").value = r.aiLimit || 60;
   $("#s-chatlimit").value = r.chatLimit || 5;
   $("#s-web").value = r.webSearch === false ? "0" : "1";
   $("#s-coach").value = r.coach === false ? "0" : "1";
@@ -1052,7 +1052,7 @@ $("#s-clone").onclick = async () => {
 let piiBy = {}; // 학생 uid → 개인정보 의심 입력 수
 const ALERT_AWAY_MIN = 10;
 function renderAlerts() {
-  const r = curRow(), lim = r?.aiLimit || 150, out = [];
+  const r = curRow(), lim = r?.aiLimit || 60, out = [];
   for (const g of groups) {
     if (g.lastAiError) out.push(["r", `${g.name}: AI 오류 (${g.lastAiError.stage}단계) — ${g.lastAiError.message}`]);
     if ((g.aiCount || 0) >= lim * 0.8) out.push(["y", `${g.name}: AI 사용 ${g.aiCount}/${lim}회 — 한도가 가깝습니다 (수업 설정에서 늘릴 수 있어요)`]);

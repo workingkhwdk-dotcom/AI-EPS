@@ -893,11 +893,11 @@ test("모둠 AI 한도(3~5단계): 한도에 도달하면 막히고, 실패한 �
   await join("A1", c, "가람", "sesame1");
   const g = () => store.get(`sessions/${c}/groups/g1`);
   const verify = () => api.aiRequest({ ...student("A1"), data: { code: c, stage: 3, type: "verify_query", payload: { checkId: "c1" } } });
-  store.set(`sessions/${c}/groups/g1`, { ...g(), aiCount: 149, work: { s1: s1Work, s2: { checks: { c1: { heard: "x", question: "예멘 신청자는 몇 명이었나?", real: "자료에 없다", t: 1 } } } } });
+  store.set(`sessions/${c}/groups/g1`, { ...g(), aiCount: 59, work: { s1: s1Work, s2: { checks: { c1: { heard: "x", question: "예멘 신청자는 몇 명이었나?", real: "자료에 없다", t: 1 } } } } });
   await verify();
-  assert.equal(g().aiCount, 150);
+  assert.equal(g().aiCount, 60);
   await assert.rejects(verify(), /한도/);
-  assert.equal(g().aiCount, 150, "한도 초과 요청이 횟수를 늘리면 안 된다");
+  assert.equal(g().aiCount, 60, "한도 초과 요청이 횟수를 늘리면 안 된다");
   store.set(`sessions/${c}/groups/g1`, { ...g(), aiCount: 10 });
   const realFetch = global.fetch;
   global.fetch = async () => ({ ok: false, status: 500, text: async () => "boom" });
@@ -909,7 +909,7 @@ test("모둠 AI 한도(3~5단계): 한도에 도달하면 막히고, 실패한 �
 // ---------- 수업 설정·복제·자동 닫힘 ----------
 test("수업 설정: AI 한도·웹 검색·자동 닫힘을 교사만, 올바른 값으로만 바꿀 수 있다", async () => {
   const c = await mk();
-  assert.equal(store.get(`sessions/${c}`).aiLimit, 150);
+  assert.equal(store.get(`sessions/${c}`).aiLimit, 60);
   const upd = (data) => api.updateSession({ ...teacher, data: { code: c, ...data } });
   await upd({ aiLimit: 20, webSearch: false, autoCloseHours: 4 });
   assert.deepEqual([store.get(`sessions/${c}`).aiLimit, store.get(`sessions/${c}`).webSearch, store.get(`sessions/${c}`).autoCloseHours], [20, false, 4]);

@@ -74,14 +74,14 @@ function toolResultText(r) {
 // 사고 없이(none) 답하게 되지만, Responses API 는 정한 사고량(REASONING_EFFORT, 기본 low)으로 생각하고 답한다.
 // 앞 차례의 출력(사고 항목·도구 호출)을 다음 차례 입력에 그대로 이어 붙인다(사고 모델은 도구 결과와 함께 자기 사고 항목이 필요하다).
 // 반환: { content, lookups: [{ query, found, summary, sources }] }
-async function chatWithLookup({ apiKey, model, event, messages, maxTokens, effort, search }) {
+async function chatWithLookup({ apiKey, model, event, messages, maxTokens, effort, search, cacheKey }) {
   const f = lookupTool(event).function;
   const tools = [{ type: "function", name: f.name, description: f.description, parameters: f.parameters }];
   const input = messages.map((m) => ({ role: m.role, content: m.content }));
   const lookups = [];
   for (let round = 0; round <= MAX_LOOKUPS; round++) {
     const canLookup = lookups.length < MAX_LOOKUPS && round < MAX_LOOKUPS; // 마지막 차례에는 반드시 답하게 한다
-    const r = await respondTools({ apiKey, model, input, tools, toolChoice: canLookup ? "auto" : "none", maxTokens, effort });
+    const r = await respondTools({ apiKey, model, input, tools, toolChoice: canLookup ? "auto" : "none", maxTokens, effort, cacheKey });
     if (!canLookup || !r.calls.length) return { content: r.text, lookups };
     input.push(...r.output);
     for (const c of r.calls) {

@@ -29,9 +29,43 @@ function effortFor(model, effort, { tools = false } = {}) {
 const HEADROOM = { none: 300, minimal: 800, low: 2500, medium: 8000, high: 16000, xhigh: 24000, max: 32000 };
 const headroom = (effort) => HEADROOM[effort] ?? 2500;
 
-function buildBody({ model, messages, json = false, maxTokens = 700, effort, tools }) {
+// 비용 줄이기
+//  - cacheKey: 같은 앞부분(시스템 프롬프트)을 쓰는 호출끼리 같은 키를 주면 OpenAI 프롬프트 캐시가 더 잘 맞아 입력 요금이 준다.
+//  - tier "flex": 기다려도 되는 일괄 작업(수업 뒤 채점·세특)을 할인 요금(flex)으로 보낸다. 느리거나 자원이 없으면
+//    (자원 부족 429, flex 를 받지 않는 모델의 400, 5xx, 시간 초과) 같은 요청을 기본 요금으로 한 번 더 보낸다(withFlex).
+const FLEX_TIMEOUT_MS = 120 * 1000;
+// 캐시 키를 따로 주지 않으면, 긴 시스템 프롬프트(캐시는 약 1천 토큰 이상부터)의 해시를 키로 쓴다.
+const promptKey = (text) => (String(text || "").length >= 1500 ? "s:" + require("crypto").createHash("sha1").update(String(text)).digest("hex").slice(0, 24) : "");
+const keyOf = (messages) => promptKey(messages?.[0]?.role === "system" ? messages[0].content : "");
+function costOpts(body, { cacheKey, tier } = {}) {
+  if (cacheKey) body.prompt_cache_key = String(cacheKey).slice(0, 64);
+  if (tier === "flex") body.service_tier = "flex";
+  return body;
+}
+async function postJson(url, apiKey, body, timeoutMs) {
+  const ctl = timeoutMs ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => ctl.abort(), timeoutMs) : null;
+  try {
+    return await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` }, body: JSON.stringify(body), ...(ctl ? { signal: ctl.signal } : {}) });
+  } finally { clearTimeout(timer); }
+}
+// 인증 오류(401·403)만 빼고 다시 보낸다(모델이 flex 를 받지 않는 400 도 포함)
+const flexRetryable = (status) => status !== 401 && status !== 403;
+// flex 로 보내고, 실패하면 기본 요금으로 다시 보낸다. flex 가 아니면 그대로 한 번 보낸다.
+async function withFlex(url, apiKey, body) {
+  if (body.service_tier !== "flex") return postJson(url, apiKey, body);
+  try {
+    const res = await postJson(url, apiKey, body, FLEX_TIMEOUT_MS);
+    if (res.ok || !flexRetryable(res.status)) return res;
+    console.warn(`flex 요금 실패(${res.status}), 기본 요금으로 다시 보냄`);
+  } catch (e) { console.warn(`flex 요금 실패(${e.name === "AbortError" ? "시간 초과" : e.message}), 기본 요금으로 다시 보냄`); }
+  const { service_tier, ...plain } = body;
+  return postJson(url, apiKey, plain);
+}
+
+function buildBody({ model, messages, json = false, maxTokens = 700, effort, tools, cacheKey, tier }) {
   const eff = effortFor(model, effort, { tools: !!tools?.length });
-  const body = { model, messages, max_completion_tokens: maxTokens + (isReasoning(model) ? headroom(eff) : 0) };
+  const body = costOpts({ model, messages, max_completion_tokens: maxTokens + (isReasoning(model) ? headroom(eff) : 0) }, { cacheKey: cacheKey ?? keyOf(messages), tier });
   if (tools?.length) body.tools = tools;
   if (supportsTemperature(model)) body.temperature = 0.8;
   if (isReasoning(model) && eff) body.reasoning_effort = eff;
@@ -51,11 +85,7 @@ function extractJson(text) {
 // 응답 메시지 전체를 돌려준다(도구 호출 포함). 보이는 답도 도구 호출도 없으면 오류.
 async function chatMessage(opts) {
   const { apiKey } = opts;
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify(buildBody(opts)),
-  });
+  const res = await withFlex("https://api.openai.com/v1/chat/completions", apiKey, buildBody(opts));
   if (!res.ok) {
     const t = await res.text();
     throw new Error(`OpenAI ${res.status}: ${t.slice(0, 300)}`);
@@ -126,9 +156,9 @@ async function respondCited(opts) {
 // 새 모델(GPT-5.6 등)에서도 인물이 원래 정한 사고량(low)으로 생각하고 답한다.
 //  - input: [{ role, content }] 대화와, 앞 차례의 출력 항목(reasoning·function_call)·function_call_output 을 그대로 잇는다.
 //  - toolChoice: "auto"(필요하면 부름) | "none"(마지막 차례: 반드시 글로 답함)
-function buildToolBody({ model, input, tools, toolChoice = "auto", maxTokens = 700, effort }) {
+function buildToolBody({ model, input, tools, toolChoice = "auto", maxTokens = 700, effort, cacheKey }) {
   const eff = effortFor(model, effort);
-  const body = { model, input, tools, tool_choice: toolChoice, max_output_tokens: maxTokens + (isReasoning(model) ? headroom(eff) : 0) };
+  const body = costOpts({ model, input, tools, tool_choice: toolChoice, max_output_tokens: maxTokens + (isReasoning(model) ? headroom(eff) : 0) }, { cacheKey: cacheKey ?? keyOf(input) });
   if (isReasoning(model) && eff) body.reasoning = { effort: eff };
   return body;
 }
@@ -157,4 +187,4 @@ async function respond(opts) {
   return parseResponses(await res.json());
 }
 
-module.exports = { chat, chatMessage, respond, respondCited, parseCited, buildBody, buildResponsesBody, parseResponses, extractJson, isReasoning, headroom, effortFor, buildToolBody, respondTools };
+module.exports = { promptKey, keyOf, withFlex, FLEX_TIMEOUT_MS, chat, chatMessage, respond, respondCited, parseCited, buildBody, buildResponsesBody, parseResponses, extractJson, isReasoning, headroom, effortFor, buildToolBody, respondTools };
