@@ -24,6 +24,7 @@ const { fromStored } = require("./topicData");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { AUTO_CLOSE_CHOICES, autoCloseDue, staleAnonymousUids, warmSchedule, pingWarm } = require("./maintenance");
 const { LEVELS, LENSES_BY, levelOf, defaultDeep, deepOf, sanitizeDeep } = require("./level");
+const { STAGE_MIN_DEFAULT, stageMinOf, sanitizeStageMin, applyClock } = require("./clock");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -174,6 +175,12 @@ function sessionSettings(d) {
     if (!deep) throw new HttpsError("invalid-argument", "심화 활동 설정이 올바르지 않습니다.");
     out.deep = deep;
   }
+  // 단계별 시간(분, clock.js). 지금 돌고 있는 단계의 시간은 바뀌지 않고, 다음에 시작하는 단계부터 적용된다.
+  if (d?.stageMin !== undefined) {
+    const sm = sanitizeStageMin(d.stageMin);
+    if (!sm) throw new HttpsError("invalid-argument", "단계별 시간은 1~120분 사이로 정하세요.");
+    out.stageMin = sm;
+  }
   return out;
 }
 
@@ -305,6 +312,7 @@ exports.createSession = onCall(opts, async (req) => {
     aiLimit: MAX_AI_CALLS_PER_GROUP, chatLimit: CHAT_LIMIT, webSearch: true, coach: true, autoCloseHours: 0,
     level, deep: defaultDeep(level), // 심화 활동을 따로 보내지 않으면 학교급의 기본값
     contrib: true, // 수행평가에 모둠 기여도(학생마다 다른 모둠 영역 점수)를 넣는다. 평가 탭 '채점 방식'에서 끌 수 있다
+    stageMin: { ...STAGE_MIN_DEFAULT }, // 단계별 시간(분). 수업지도안의 배분이 기본값(clock.js)
     ...settings,
     createdAt: FieldValue().serverTimestamp(),
   });
@@ -454,7 +462,7 @@ exports.joinSession = onCall(fastOpts, async (req) => {
     credRef.set({ ...saved, uid: auth.uid, groupId, fails: 0, lockUntil: 0 }),
     studentCase(code, sess, auth.uid, undefined, b),
   ]);
-  return { groupId, nickname, started: sess.started !== false, chatLimit: sess.chatLimit || CHAT_LIMIT, level: levelOf(sess), deep: deepOf(sess), case: caseData };
+  return { groupId, nickname, started: sess.started !== false, chatLimit: sess.chatLimit || CHAT_LIMIT, level: levelOf(sess), deep: deepOf(sess), case: caseData, now: Date.now() }; // now: 단계 시간을 맞추는 서버 시각
 });
 
 // 학생의 인물 ID: 서버 전용 배정 문서에서 읽는다(옛 방식으로 학생 문서에 있던 값도 받아 준다)
@@ -599,8 +607,23 @@ exports.updateSession = onCall(opts, async (req) => {
     patch.started = true;
     patch.startedAt = FieldValue().serverTimestamp();
     patch.openedAt = FieldValue().serverTimestamp();
+    // 단계 시간을 쓰는 수업(이 기능 뒤에 만든 수업, stageMin 이 있음)은 시작과 함께 1단계 시간이 흐른다
+    if (sess.stageMin && !sess.clock) patch.clock = applyClock(null, { op: "go", stage: 1 }, stageMinOf(sess), Date.now());
   }
   Object.assign(patch, sessionSettings(req.data));
+  // 단계 시간 조작(clock.js): 반 전체의 단계와 남은 시간. 시작 전 수업에서 단계를 시작하면 수업도 함께 시작한다.
+  if (req.data?.clock !== undefined) {
+    if (sess.closed) throw new HttpsError("failed-precondition", "닫힌 수업입니다. 먼저 수업을 여세요.");
+    let next;
+    try { next = applyClock(sess.clock || null, req.data.clock, stageMinOf({ ...sess, ...patch }), Date.now()); }
+    catch (e) { throw new HttpsError("invalid-argument", e.message); }
+    patch.clock = next ?? FieldValue().delete();
+    if (next && sess.started === false && !patch.started) {
+      patch.started = true;
+      patch.startedAt = FieldValue().serverTimestamp();
+      patch.openedAt = FieldValue().serverTimestamp();
+    }
+  }
   // 선생님 한마디: 학생 화면 위쪽에 띄우는 짧은 공지. groups 를 주면 그 모둠에만, 빈 글이면 지운다.
   if (req.data?.notice !== undefined) {
     const text = String(req.data.notice?.text ?? req.data.notice ?? "").trim().slice(0, NOTICE_MAX);
@@ -625,8 +648,8 @@ exports.updateSession = onCall(opts, async (req) => {
     patch.groupCount = n;
   }
   if (Object.keys(patch).length) await db.doc(`sessions/${code}`).update(patch);
-  // 지운 한마디(FieldValue)는 응답으로 보낼 수 없으므로 null 로 돌려준다
-  return { ...patch, ...(patch.notice && !patch.notice.text ? { notice: null } : {}) };
+  // 지운 한마디·시계(FieldValue)는 응답으로 보낼 수 없으므로 null 로 돌려준다. now: 교사 화면이 기기 시계 오차를 맞추는 서버 시각
+  return { ...patch, ...(patch.notice && !patch.notice.text ? { notice: null } : {}), ...("clock" in patch && !patch.clock?.stage ? { clock: null } : {}), now: Date.now() };
 });
 
 // ---------- 교사: 인물 항목 편집 (말투·삶의 이야기·의견·편지만) ----------
@@ -767,7 +790,7 @@ exports.cloneSession = onCall(opts, async (req) => {
   batch.set(db.doc(`sessions/${newCodeStr}`), {
     teacherUid: auth.uid, title, eventId: sess.eventId, ...(sess.topicId ? { topicId: sess.topicId } : {}), groupCount: sess.groupCount, closed: false, started: false,
     aiLimit: sess.aiLimit || MAX_AI_CALLS_PER_GROUP, chatLimit: sess.chatLimit || CHAT_LIMIT, webSearch: sess.webSearch !== false, coach: sess.coach !== false, autoCloseHours: sess.autoCloseHours || 0,
-    ...(sess.level ? { level: sess.level } : {}), ...(sess.deep ? { deep: deepOf(sess) } : {}), contrib: sess.contrib !== false,
+    ...(sess.level ? { level: sess.level } : {}), ...(sess.deep ? { deep: deepOf(sess) } : {}), contrib: sess.contrib !== false, stageMin: stageMinOf(sess),
     createdAt: FieldValue().serverTimestamp(),
   });
   for (let i = 1; i <= sess.groupCount; i++) batch.set(db.doc(`sessions/${newCodeStr}/groups/g${i}`), { name: `${i}모둠`, aiCount: 0, memberCount: 0, guardCount: 0, work: {} });
@@ -854,7 +877,7 @@ exports.getCase = onCall(fastOpts, async (req) => {
   const [sess, mem] = await Promise.all([db.doc(`sessions/${code}`).get(), db.doc(`sessions/${code}/members/${auth.uid}`).get()]);
   if (!sess.exists || !mem.exists) throw new HttpsError("permission-denied", "이 수업의 참여자가 아닙니다.");
   if (await closeIfDue(code, sess.data())) throw new HttpsError("failed-precondition", CLOSED_MSG);
-  return studentCase(code, sess.data(), auth.uid, mem.data());
+  return { ...(await studentCase(code, sess.data(), auth.uid, mem.data())), now: Date.now() }; // now: 단계 시간을 맞추는 서버 시각
 });
 
 // 교사용 주제 전체: 인물별 근거 진술·출처 검증 현황, 자료 전체

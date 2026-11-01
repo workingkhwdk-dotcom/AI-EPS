@@ -325,7 +325,7 @@ function studentFixture() {
   return st;
 }
 const HELP_KEYS = ["1-pick", "1-chat", "1-note", "1-group", "2", "3", "4", "5", "6", "7"];
-async function openStudent(st, { member = {}, work = {}, group = {}, session = { chatLimit: 5 }, page = "index.html", ctxOpts, help = false, chatLocked = false, picks = { p1: { uid: "anonX", nick: "가람" } }, chat = [{ id: "c1", input: "안녕하세요", output: "네, 안녕하세요", model: "m" }], scenesSeen = [] } = {}) {
+async function openStudent(st, { member = {}, work = {}, group = {}, session = { chatLimit: 5 }, page = "index.html", ctxOpts, help = false, chatLocked = false, clock = false, picks = { p1: { uid: "anonX", nick: "가람" } }, chat = [{ id: "c1", input: "안녕하세요", output: "네, 안녕하세요", model: "m" }], scenesSeen = [] } = {}) {
   // 대부분의 테스트는 단계 안내 팝업을 이미 본 상태에서 시작한다(팝업이 화면을 가리므로). help:true 로 처음 보는 학생을 만든다.
   const s = await newPage(({ member, work, group, session, seen, chat, chatLocked, picks }) => {
     if (seen) { try { localStorage.setItem("eps_help_ABC234_g1_가람", JSON.stringify(seen)); } catch {} }
@@ -333,6 +333,7 @@ async function openStudent(st, { member = {}, work = {}, group = {}, session = {
     window.__docs = { "sessions/ABC234": session, "sessions/ABC234/members/anonX": { groupId: "g1", nickname: "가람", ...(chatLocked ? { chatLocked: true, conduct: { strikes: 3, total: 3 } } : {}), ...member }, "sessions/ABC234/groups/g1": { work, picks, ...group } };
     window.__cols = { "sessions/ABC234/members/anonX/chat": chat };
   }, st.handler, { member, work, group, session, seen: help ? (scenesSeen.length ? scenesSeen : null) : [...HELP_KEYS, ...scenesSeen], chat, chatLocked, picks }, ctxOpts);
+  if (clock) await s.pg.clock.install();
   await s.pg.goto(`${base}/${page}`);
   await s.pg.waitForSelector("#j-pw");
   return s;
@@ -3122,5 +3123,165 @@ test("학생 결과: 이의 신청 마감이 보이고, 지나면 이의 단추�
   reply = { title: "테스트 수업", nickname: "가람", groupId: "g1", released: { score: true, seteuk: false }, appealUntil: null, excluded: { label: "결석" } };
   await open();
   assert.match(await pg.locator(".modal").innerText(), /'결석'\(으\)로 평가에서 빠졌어요/);
+  assert.deepEqual(errors, []);
+});
+
+// ---------- 단계 시간 ----------
+const M = 60 * 1000;
+// 학생 화면: 서버가 수업 문서의 clock 을 바꾼 것처럼. leftMs 는 지금부터 남은 시간
+const pushClock = (pg, c, leftMs) => pg.evaluate(([c, leftMs]) => window.__push("sessions/ABC234", { chatLimit: 5, clock: c && { ...c, endsAt: c.paused ? null : Date.now() + leftMs, left: c.paused ? leftMs : null } }), [c, leftMs]);
+
+test("학생 단계 시간: 들어오면 선생님이 연 단계로 옮겨 가 주어진 시간이 팝업으로 뜨고, 연 단계보다 앞으로는 못 가며, 다음 단계를 열면 모두 옮겨 간다", async () => {
+  const st = studentFixture(), { pg, errors } = await openStudent(st);
+  await login(pg);
+  assert.ok(await pg.locator("#clock-chip").isHidden(), "단계 시간을 안 쓰면 칩이 없다");
+  await pushClock(pg, { stage: 2, min: 20, add: 0, ev: "go", t: 1 }, 20 * M);
+  await pg.waitForSelector("#clock-layer.clk-intro");
+  const pop = await pg.locator("#clock-layer").innerText();
+  assert.match(pop, /2단계 · 원인 찾기/); assert.match(pop, /20분/); assert.match(pop, /주어진 시간/);
+  assert.equal(await pg.getAttribute('#tabs [data-stage="2"]', "aria-current"), "step", "선생님이 연 단계로 옮겨 간다");
+  assert.match(await pg.locator("#clock-chip").innerText(), /20분/);
+  await pg.click("#clock-layer"); // 눌러서 바로 닫는다
+  await pg.waitForSelector("#clock-layer.hidden", { state: "attached" });
+  // 3단계는 잠겨 있다(탭·다음 단추)
+  assert.equal(await pg.getAttribute('#tabs [data-stage="3"]', "aria-disabled"), "true");
+  await pg.click('#tabs [data-stage="3"]', { force: true });
+  assert.match(await pg.locator(".toast").last().innerText(), /선생님이 열어 주면/);
+  assert.equal(await pg.getAttribute('#tabs [data-stage="2"]', "aria-current"), "step");
+  assert.match(await pg.locator(".nav-foot [data-locked]").innerText(), /3단계는 선생님이 열어요/);
+  assert.ok(await pg.locator(".nav-foot [data-locked]").isDisabled());
+  // 지나온 단계로 돌아가 고칠 수는 있다
+  await pg.click('#tabs [data-stage="1"]');
+  assert.equal(await pg.getAttribute('#tabs [data-stage="1"]', "aria-current"), "step");
+  // 선생님이 3단계를 열면 모두 3단계로
+  await pushClock(pg, { stage: 3, min: 20, add: 0, ev: "go", t: 2 }, 20 * M);
+  await pg.waitForFunction(() => document.querySelector('#tabs [data-stage="3"]')?.getAttribute("aria-current") === "step");
+  await pg.waitForSelector("#clock-layer.clk-intro");
+  assert.match(await pg.locator("#clock-layer").innerText(), /3단계 · 사실 확인/);
+  // 시간 추가·멈춤
+  await pushClock(pg, { stage: 3, min: 20, add: 5, addNow: 5, ev: "add", t: 3 }, 12 * M);
+  await pg.waitForSelector("#clock-layer.clk-add");
+  assert.match(await pg.locator("#clock-layer").innerText(), /\+5분[\s\S]*시간이 늘었어요/);
+  await pushClock(pg, { stage: 3, min: 20, add: 5, ev: "pause", paused: true, t: 4 }, 12 * M);
+  await pg.waitForFunction(() => /⏸ 12:00/.test(document.querySelector("#clock-chip")?.innerText || ""));
+  // 끄면 자유롭게
+  await pushClock(pg, null);
+  await pg.waitForSelector("#clock-chip.hidden", { state: "attached" });
+  assert.equal(await pg.getAttribute('#tabs [data-stage="5"]', "aria-disabled"), null);
+  assert.deepEqual(errors, []);
+});
+
+test("학생 단계 시간: 5분 단위를 지나면 남은 시간이 펄스로 겹쳐 떴다 사라지고, 1분이 남으면 초 단위 카운트다운, 끝나면 알리기만 한다", async () => {
+  const st = studentFixture(), { pg, errors } = await openStudent(st, { clock: true });
+  await login(pg);
+  await pushClock(pg, { stage: 1, min: 30, add: 0, ev: "go", t: 1 }, 10 * M + 2000);
+  await pg.waitForSelector("#clock-layer.clk-intro");
+  assert.match(await pg.locator("#clock-layer").innerText(), /10:02[\s\S]*남은 시간/, "중간에 들어오면 남은 시간을 보여 준다");
+  await pg.clock.runFor(2600); // 10:00 을 지난다(띄운 안내는 2.6초 뒤에 사라지므로 그 전에 본다)
+  await pg.waitForSelector("#clock-layer.clk-mark.on");
+  assert.match(await pg.locator("#clock-layer").innerText(), /10분[\s\S]*남았어요/);
+  await pg.clock.runFor(4000);
+  await pg.waitForSelector("#clock-layer.hidden", { state: "attached" });
+  assert.ok(await pg.locator("#clock-cd").isHidden(), "1분 넘게 남으면 카운트다운이 없다");
+  // 같은 조작(t)인 채로 남은 시간만 줄여 1분 아래로(크게 건너뛰면 5분 안내는 띄우지 않는다)
+  await pushClock(pg, { stage: 1, min: 30, add: 0, ev: "go", t: 1 }, 55 * 1000);
+  await pg.clock.runFor(500);
+  await pg.waitForSelector("#clock-cd:not(.hidden)");
+  assert.ok(await pg.locator("#clock-layer").evaluate((el) => el.classList.contains("hidden")), "건너뛰면 안내를 띄우지 않는다");
+  assert.match(await pg.locator("#clock-cd").innerText(), /남은 시간\s*5[0-5]\s*초/);
+  assert.match(await pg.locator("#clock-chip").innerText(), /0:5[0-5]/);
+  await pushClock(pg, { stage: 1, min: 30, add: 0, ev: "go", t: 1 }, 8 * 1000);
+  await pg.clock.runFor(500);
+  await pg.waitForFunction(() => document.querySelector("#clock-cd")?.classList.contains("last"));
+  await pg.clock.runFor(9000);
+  await pg.waitForSelector("#clock-layer.clk-end");
+  assert.match(await pg.locator("#clock-layer").innerText(), /시간 끝[\s\S]*계속 쓸 수 있어요/);
+  assert.ok(await pg.locator("#clock-cd").isHidden());
+  assert.match(await pg.locator("#clock-chip").innerText(), /시간 끝/);
+  assert.equal(await pg.getAttribute('#tabs [data-stage="1"]', "aria-current"), "step", "저절로 넘어가지 않는다");
+  assert.ok(await pg.locator("#panel textarea, #panel input").first().isEnabled());
+  assert.deepEqual(errors, []);
+});
+
+// 교사 화면: 수업 목록(실시간)의 이 수업 행을 바꾼 것처럼
+const pushRow = (pg, extra) => pg.evaluate((extra) => {
+  Object.assign(window.__cols.sessions[0], extra);
+  const docs = window.__cols.sessions.map((d) => ({ id: d.id, data: () => d }));
+  (window.__subs.sessions || []).forEach((cb) => cb({ docs }));
+}, extra);
+
+test("교사 단계 시간: 남은 시간·시간 더하기·멈춤·다음 단계(확인 창)·다른 단계·끄기, 크게 띄우기에도 보인다", async () => {
+  const st = teacherFixture(), { pg, errors } = await openTeacher(st, { session: { started: true, stageMin: { 1: 30, 2: 20, 3: 15, 4: 25, 5: 20, 6: 10, 7: 20 } } });
+  await pg.waitForSelector("#clock-card:not(.hidden)");
+  assert.match(await pg.locator("#clock-card").innerText(), /꺼져 있어요/);
+  await pg.selectOption("#clk-pick", "2");
+  await pg.click('[data-clk="start"]');
+  await pg.waitForFunction(() => window.__log.includes("updateSession"));
+  assert.deepEqual(st.calls.find((c) => c[0] === "updateSession")[1], { code: "ABC234", clock: { op: "go", stage: 2 } });
+  const now = await pg.evaluate(() => Date.now());
+  await pushRow(pg, { clock: { stage: 2, min: 20, add: 0, endsAt: now + 4 * M + 30 * 1000, left: null, ev: "go", t: now } });
+  await pg.waitForFunction(() => /2단계 · 원인 찾기/.test(document.querySelector("#clock-card")?.innerText || ""));
+  assert.match(await pg.locator("#clk-time").innerText(), /^4:[23]\d$/);
+  assert.match(await pg.locator(".clk-t-next").innerText(), /3단계 사실 확인 \(15분\)/, "수업에서 정한 시간");
+  st.calls.length = 0;
+  await pg.click('[data-clk="add"][data-min="3"]');
+  await pg.waitForFunction(() => window.__log.filter((n) => n === "updateSession").length >= 2);
+  assert.deepEqual(st.calls.find((c) => c[0] === "updateSession")[1], { code: "ABC234", clock: { op: "add", min: 3 } });
+  await pg.click('[data-clk="pause"]');
+  await pg.waitForFunction(() => window.__log.filter((n) => n === "updateSession").length >= 3);
+  assert.deepEqual(st.calls.filter((c) => c[0] === "updateSession")[1][1].clock, { op: "pause" });
+  // 다음 단계: 시간이 남았으면 확인 창에 남은 시간을 알린다. 취소하면 보내지 않는다
+  st.calls.length = 0;
+  await pg.click('[data-clk="next"]');
+  assert.match(await pg.locator(".modal").innerText(), /3단계로 넘어갈까요[\s\S]*모든 학생 화면이[\s\S]*남았어요/);
+  await pg.click('.modal .btn:has-text("취소")');
+  assert.ok(!st.calls.some((c) => c[0] === "updateSession"));
+  await pg.click('[data-clk="next"]');
+  await pg.click('.modal .btn:has-text("3단계 시작")');
+  await pg.waitForFunction(() => window.__log.filter((n) => n === "updateSession").length >= 4);
+  assert.deepEqual(st.calls.find((c) => c[0] === "updateSession")[1].clock, { op: "go", stage: 3 });
+  // 시간이 지나면 넘친 시간을 보여 준다
+  await pushRow(pg, { clock: { stage: 3, min: 15, add: 0, endsAt: now - 65 * 1000, left: null, ev: "go", t: now + 1 } });
+  await pg.waitForFunction(() => /\+1:0\d/.test(document.querySelector("#clk-time")?.innerText || ""));
+  assert.match(await pg.locator("#clk-meta").innerText(), /시간이 지났어요/);
+  // 크게 띄우기에도 단계와 시간이 보인다
+  await pg.click("#present-btn");
+  assert.ok(await pg.locator("#p-clock").isVisible());
+  assert.match(await pg.locator("#p-clock").innerText(), /3단계 · 사실 확인 · 시간 끝/);
+  await pg.keyboard.press("Escape");
+  // 다른 단계로·끄기
+  st.calls.length = 0;
+  await pg.locator(".clk-t-more summary").click();
+  await pg.selectOption("#clk-pick", "1");
+  await pg.click('[data-clk="go"]');
+  assert.match(await pg.locator(".modal").innerText(), /1단계로 넘어갈까요[\s\S]*돌아와요/);
+  await pg.click('.modal .btn:has-text("1단계 시작")');
+  await pg.waitForFunction(() => window.__log.filter((n) => n === "updateSession").length >= 5);
+  assert.deepEqual(st.calls.find((c) => c[0] === "updateSession")[1].clock, { op: "go", stage: 1 });
+  await pg.click('[data-clk="stop"]');
+  await pg.click('.modal .btn:has-text("끄기")');
+  await pg.waitForFunction(() => window.__log.filter((n) => n === "updateSession").length >= 6);
+  assert.deepEqual(st.calls.filter((c) => c[0] === "updateSession").pop()[1].clock, { op: "stop" });
+  assert.deepEqual(errors, []);
+});
+
+test("교사 단계 시간: 새 수업 만들기와 수업 설정에서 단계별 시간(기본은 수업지도안 배분)을 바꿔 보낸다. 대기 중인 수업에는 시간 카드가 없다", async () => {
+  const st = teacherFixture(), { pg, errors } = await openTeacher(st, { session: { started: false } });
+  assert.ok(await pg.locator("#clock-card").isHidden(), "시작 전에는 대기실만");
+  await pg.click('#ctabs [data-ctab="settings"]');
+  assert.equal(await pg.inputValue('#s-stagemin [data-sm="1"]'), "30", "예전 수업은 기본값");
+  await pg.fill('#s-stagemin [data-sm="4"]', "30");
+  assert.match(await pg.locator("#s-stagemin").innerText(), /합계 150분/);
+  await pg.click("#s-save");
+  await pg.waitForFunction(() => window.__log.includes("updateSession"));
+  assert.deepEqual(st.calls.find((c) => c[0] === "updateSession")[1].stageMin, { 1: 30, 2: 20, 3: 20, 4: 30, 5: 20, 6: 10, 7: 20 });
+  await pg.click("#back-btn");
+  await pg.click("#new-toggle");
+  assert.deepEqual(await pg.$$eval("#t-stagemin [data-sm]", (els) => els.map((e) => Number(e.value))), [30, 20, 20, 25, 20, 10, 20]);
+  assert.match(await pg.locator("#t-stagemin").innerText(), /합계 145분[\s\S]*150분[\s\S]*3\.0차시/);
+  await pg.fill('#t-stagemin [data-sm="1"]', "35");
+  await pg.click("#create-btn");
+  await pg.waitForFunction(() => window.__log.includes("createSession"));
+  assert.deepEqual(st.calls.find((c) => c[0] === "createSession")[1].stageMin, { 1: 35, 2: 20, 3: 20, 4: 25, 5: 20, 6: 10, 7: 20 });
   assert.deepEqual(errors, []);
 });

@@ -1289,3 +1289,69 @@ input[type=email]{ font:inherit; font-size:16px; width:100%; padding:11px 13px; 
 .composer .chat-left{ display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
 .chat-left .chat-next{ margin:2px 0 4px; font-size:13px; padding:7px 14px; min-height:0; }
 .chat-left.out .chat-next{ color:#fff; }
+/* ---------- 단계 시간(clock.js) ---------- */
+/* 머리글 칩: 남은 시간. 1분 이하면 노랑, 끝나면 빨강 */
+.clock-chip{ font-variant-numeric:tabular-nums; }
+.clock-chip.warn{ background:#F59E0B; border-color:#F59E0B; color:#1F1300; }
+.clock-chip.over{ background:#C2183F; border-color:#C2183F; color:#fff; }
+body:not(.m):not(.t):has(#app) .clock-chip.warn{ background:#F59E0B; color:#1F1300; }
+body:not(.m):not(.t):has(#app) .clock-chip.over{ background:#C2183F; color:#fff; }
+/* 선생님이 아직 열지 않은 단계 */
+.stage-tab.locked{ opacity:.45; cursor:not-allowed; }
+.stage-tab.locked b::after{ content:"🔒"; font-size:9px; margin-left:1px; vertical-align:top; }
+/* 화면 위에 겹쳐 떴다가 사라지는 시간 안내(단계 시작·5분 단위·시간 추가·시간 끝) */
+.clk-layer{ position:fixed; inset:0; z-index:70; display:flex; align-items:center; justify-content:center; padding:16px; background:rgba(6,14,40,0); cursor:pointer; transition:background .35s ease; }
+.clk-layer.on{ background:rgba(6,14,40,0.38); }
+.clk-layer.out{ background:rgba(6,14,40,0); }
+.clk-card{ position:relative; min-width:min(86vw,300px); padding:26px 28px 24px; border-radius:28px; background:var(--surface); color:var(--ink); text-align:center; box-shadow:0 30px 70px -20px rgba(0,0,0,.55);
+  transform:scale(.86); opacity:0; transition:transform .45s var(--ease), opacity .3s ease; }
+.clk-layer.on .clk-card{ transform:scale(1); opacity:1; }
+.clk-layer.out .clk-card{ transform:scale(1.06); opacity:0; }
+.clk-stage{ font-size:14px; font-weight:800; color:var(--accent); }
+.clk-big{ font-size:64px; line-height:1.1; font-weight:900; letter-spacing:-.02em; margin:6px 0 4px; font-variant-numeric:tabular-nums; color:var(--navy); }
+.clk-sub{ font-size:15px; color:var(--ink-2); font-weight:600; }
+.clk-mark .clk-big{ font-size:76px; }
+.clk-add .clk-big{ color:var(--green-ink); }
+.clk-end .clk-big{ color:var(--danger); font-size:52px; }
+/* 펄스: 카드 뒤에서 퍼져 나가는 고리 두 겹 */
+.clk-ring{ position:absolute; inset:0; border-radius:28px; border:3px solid var(--blue); opacity:0; pointer-events:none; }
+.clk-layer.on .clk-ring{ animation:clkPulse 1.3s ease-out 2; }
+.clk-layer.on .clk-ring.r2{ animation-delay:.45s; }
+.clk-end .clk-ring{ border-color:var(--danger); }
+.clk-add .clk-ring{ border-color:var(--green); }
+@keyframes clkPulse{ 0%{ transform:scale(1); opacity:.7; } 100%{ transform:scale(1.35); opacity:0; } }
+/* 1분 이하: 초 단위 카운트다운(누르기를 막지 않는다) */
+.clk-cd{ position:fixed; top:calc(70px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%); z-index:35; pointer-events:none;
+  display:flex; align-items:baseline; gap:6px; padding:8px 18px 8px 14px; border-radius:999px; background:rgba(245,158,11,0.96); color:#1F1300; box-shadow:0 12px 30px -10px rgba(0,0,0,.45); font-variant-numeric:tabular-nums; }
+.clk-cd b{ font-size:34px; line-height:1; font-weight:900; min-width:1.3em; text-align:center; }
+.clk-cd-k, .clk-cd-u{ font-size:13px; font-weight:800; }
+.clk-cd svg{ width:26px; height:26px; align-self:center; transform:rotate(-90deg); }
+.clk-cd circle{ fill:none; stroke:currentColor; stroke-width:4; stroke-dasharray:60; stroke-linecap:round; opacity:.8; }
+.clk-cd.last{ background:rgba(194,24,63,0.96); color:#fff; }
+.clk-cd.beat b{ animation:clkBeat .5s ease-out; }
+@keyframes clkBeat{ 0%{ transform:scale(1.25); } 100%{ transform:scale(1); } }
+.m .clk-cd{ top:calc(58px + env(safe-area-inset-top)); }
+/* 교사: 단계별 시간 입력(수업 만들기·수업 설정) */
+.stage-min{ display:grid; grid-template-columns:repeat(auto-fill,minmax(118px,1fr)); gap:8px; }
+.sm-cell{ display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:12px; background:var(--fill); }
+.sm-cell span{ flex:1; min-width:0; font-size:13px; font-weight:800; line-height:1.25; }
+.sm-cell small{ display:block; font-size:11px; font-weight:600; color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sm-cell input{ width:58px; flex:none; text-align:center; padding:6px 4px; }
+.sm-sum{ grid-column:1 / -1; }
+/* 교사: 단계 시간 카드 */
+.clock-card{ border:2px solid var(--accent-tint); }
+.clk-t-top{ display:flex; justify-content:space-between; align-items:flex-end; gap:12px; }
+.clk-t-stage{ font-size:17px; }
+.clk-t-time{ font-size:40px; font-weight:900; line-height:1; color:var(--navy); font-variant-numeric:tabular-nums; }
+.clk-t-time.warn{ color:var(--warn); }
+.clk-t-time.over{ color:var(--danger); }
+.clk-t-time.paused{ opacity:.5; }
+.clk-t-bar{ height:8px; border-radius:99px; background:var(--fill-strong); margin:10px 0 6px; overflow:hidden; }
+.clk-t-bar i{ display:block; height:100%; background:var(--accent); border-radius:99px; transition:width .5s linear; }
+.clk-t-acts{ margin-top:10px; align-items:center; }
+.clk-t-next{ margin-top:10px; }
+.clk-t-more{ margin-top:10px; }
+/* 크게 띄우기: 단계와 남은 시간 */
+.p-clock{ font-size:clamp(22px,4vw,44px); font-weight:900; color:var(--navy); font-variant-numeric:tabular-nums; padding:6px 22px; border-radius:999px; background:var(--accent-tint); }
+.p-clock.warn{ background:var(--warn-tint); color:var(--warn); }
+.p-clock.over{ background:var(--danger-tint); color:var(--danger); }

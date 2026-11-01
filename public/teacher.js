@@ -5,6 +5,7 @@ import { initTopics, loadTopics, topicClassTitle, topicReady } from "./topics.js
 import { runTour } from "./tour.js";
 // 평가 탭(assess.js, 큰 파일)은 평가 탭을 처음 열 때 불러온다(교사 화면이 빨리 열리게)
 const openAssess = (code) => import("./assess.js").then((m) => m.openAssess(code)).catch((e) => toast(errMsg(e), true));
+import { STAGE_MIN_DEFAULT, leftOf, mmss, offsetFrom } from "./clock.js";
 startWaitTicker();
 import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { collection, query, where, orderBy, onSnapshot, getDocs, getDocsFromServer } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -235,7 +236,7 @@ $("#create-btn").onclick = async () => {
   try {
     const title = $("#t-title").value;
     const ev = caseArgs($("#t-event").value);
-    const { data } = await call("createSession")({ title, ...ev, groupCount: Number($("#t-groups").value), chatLimit: Number($("#t-chatlimit").value), level: $("#t-level").value });
+    const { data } = await call("createSession")({ title, ...ev, groupCount: Number($("#t-groups").value), chatLimit: Number($("#t-chatlimit").value), level: $("#t-level").value, stageMin: readStageMin("t") });
     toast(`수업을 만들었습니다. 코드: ${data.code}`);
     toggleNew(false);
     openSession(data.code, title.trim() || "수업", ev.topicId);
@@ -892,6 +893,7 @@ function fillSettings() {
   $("#s-auto").value = String(r.autoCloseHours || 0);
   $("#s-level").value = r.level === "middle" ? "middle" : "high";
   renderDeep(r.deep || {});
+  renderStageMin("s", r.stageMin);
   $("#s-topic-card").classList.toggle("hidden", !r.topicId);
   $("#s-guide").style.whiteSpace = "pre-wrap";
   $("#s-guide").textContent = studentGuide();
@@ -930,7 +932,7 @@ $("#s-save").onclick = async () => {
     await call("updateSession")({
       code: current, title: $("#s-title").value, groupCount: Number($("#s-groups").value),
       aiLimit: Number($("#s-ailimit").value), chatLimit: Number($("#s-chatlimit").value), webSearch: $("#s-web").value === "1", coach: $("#s-coach").value === "1", autoCloseHours: Number($("#s-auto").value),
-      level, deep,
+      level, deep, stageMin: readStageMin("s"),
     });
     toast("저장했습니다");
     setTimeout(fillSettings, 400);
@@ -984,6 +986,7 @@ function renderOpen() {
       : `<span class="tag">진행 중</span> <span class="meta-line">끝나면 '수업 닫기'</span>`;
   renderLobby();
   renderNoticeCard();
+  renderClock();
 }
 
 // ---------- 대기실: 모두 들어왔는지 확인하고 수업 시작 ----------
@@ -1187,6 +1190,7 @@ function renderPresent() {
   $("#p-url").textContent = `${location.host}/`;
   $("#p-code").textContent = current;
   if (!$("#p-qr").dataset.code || $("#p-qr").dataset.code !== current) { $("#p-qr").innerHTML = qrSvg(joinUrl()); $("#p-qr").dataset.code = current; }
+  tickClock();
   $("#p-count").innerHTML = `<b>${members.length}명</b> 입장${members.length ? ` · 접속 중 ${online}명` : ""}`;
 }
 $("#present-btn").onclick = openPresent;
@@ -1244,3 +1248,103 @@ function stuckMin(g) {
   const min = Math.floor((Date.now() - c.t) / 60000);
   return min >= STUCK_MIN ? min : 0;
 }
+
+// ---------- 단계 시간(clock.js, 서버 functions/clock.js) ----------
+// 반 전체가 같은 단계에서 활동하도록 교사가 단계와 남은 시간을 정한다. 학생은 연 단계까지만 갈 수 있고,
+// 다음 단계를 열면 모두 그 단계로 옮겨 간다. 시간이 끝나도 저절로 넘어가지 않는다(시간 더하기나 다음 단계는 교사가 고른다).
+const STAGE_KEYS = Object.keys(STAGE_MIN_DEFAULT);
+function renderStageMin(prefix, vals) {
+  const v = { ...STAGE_MIN_DEFAULT, ...(vals || {}) };
+  $(`#${prefix}-stagemin`).innerHTML = STAGE_KEYS.map((k) => `<label class="sm-cell"><span>${k}단계<small>${esc(STAGE_NAMES[k])}</small></span><input type="number" min="1" max="120" inputmode="numeric" data-sm="${k}" value="${v[k]}" aria-label="${k}단계 ${esc(STAGE_NAMES[k])} 시간(분)" /></label>`).join("")
+    + `<div class="sm-sum meta-line" data-sm-sum></div>`;
+  sumStageMin(prefix);
+}
+const readStageMin = (prefix) => Object.fromEntries([...document.querySelectorAll(`#${prefix}-stagemin [data-sm]`)].map((el) => [el.dataset.sm, Number(el.value)]));
+function sumStageMin(prefix) {
+  const v = readStageMin(prefix), tot = Object.values(v).reduce((a, b) => a + (b || 0), 0);
+  const el = document.querySelector(`#${prefix}-stagemin [data-sm-sum]`);
+  if (el) el.textContent = `합계 ${tot}분 (수업 열기 5분을 더하면 ${tot + 5}분 · 50분 수업 ${((tot + 5) / 50).toFixed(1)}차시)`;
+}
+for (const p of ["t", "s"]) $(`#${p}-stagemin`).addEventListener("input", () => sumStageMin(p));
+renderStageMin("t");
+
+let clockOff = 0, clockSig = "";
+const clockNow = () => curRow()?.clock || null;
+async function clockOp(op, okMsg) {
+  const sent = Date.now();
+  try {
+    const { data } = await call("updateSession")({ code: current, clock: op });
+    clockOff = offsetFrom(data?.now, sent);
+    if (okMsg) toast(okMsg);
+  } catch (e) { toast(errMsg(e), true); }
+}
+function renderClock() {
+  const card = $("#clock-card"); if (!card) return;
+  const r = curRow(), c = clockNow();
+  const hide = !r || !!r.closed || r.started === false;
+  card.classList.toggle("hidden", hide);
+  if (hide) { clockSig = ""; return; }
+  const sm = { ...STAGE_MIN_DEFAULT, ...(r.stageMin || {}) };
+  const sig = JSON.stringify([c, sm]);
+  if (sig === clockSig) return tickClock();
+  clockSig = sig;
+  const stageOpts = (sel) => STAGE_KEYS.map((k) => `<option value="${k}" ${Number(k) === sel ? "selected" : ""}>${k}단계 ${esc(STAGE_NAMES[k])} (${sm[k]}분)</option>`).join("");
+  if (!c) {
+    $("#clock-body").innerHTML = `<p class="desc">단계 시간이 꺼져 있어요. 시작하면 모든 학생에게 주어진 시간이 보이고, 학생은 선생님이 연 단계까지만 갈 수 있어요.</p>
+      <div class="row"><select id="clk-pick" aria-label="시작할 단계">${stageOpts(1)}</select><button class="btn btn-primary btn-sm" type="button" data-clk="start">이 단계 시간 시작</button></div>`;
+    return;
+  }
+  const n = c.stage, next = n < 7 ? n + 1 : null;
+  $("#clock-body").innerHTML = `<div class="clk-t-top"><div><div class="meta-line">지금 단계</div><b class="clk-t-stage">${n}단계 · ${esc(STAGE_NAMES[n])}</b></div><div class="clk-t-time" id="clk-time" aria-live="off"></div></div>
+    <div class="clk-t-bar" aria-hidden="true"><i id="clk-bar"></i></div>
+    <div class="meta-line" id="clk-meta"></div>
+    <div class="row clk-t-acts"><span class="meta-line">시간 더하기</span>${[1, 3, 5].map((m) => `<button class="btn btn-tinted btn-sm" type="button" data-clk="add" data-min="${m}">+${m}분</button>`).join("")}
+      <button class="btn btn-plain btn-sm" type="button" data-clk="${c.endsAt == null ? "resume" : "pause"}">${c.endsAt == null ? "▶ 이어서" : "⏸ 멈춤"}</button></div>
+    ${next ? `<button class="btn btn-primary m-block clk-t-next" type="button" data-clk="next">다음 단계로: ${next}단계 ${esc(STAGE_NAMES[next])} (${sm[next]}분) →</button>` : `<div class="notice muted">마지막 단계예요. 끝나면 '시간 끄기'나 '수업 닫기'를 누르세요.</div>`}
+    <details class="clk-t-more"><summary class="meta-line">다른 단계로 옮기기 · 시간 끄기</summary>
+      <div class="row" style="margin-top:8px"><select id="clk-pick" aria-label="옮길 단계">${stageOpts(n)}</select><button class="btn btn-tinted btn-sm" type="button" data-clk="go">이 단계로 (처음부터)</button></div>
+      <div class="row" style="margin-top:8px"><button class="btn btn-plain btn-sm" type="button" data-clk="stop">시간 끄기</button><span class="meta-line">끄면 학생이 단계를 자유롭게 오가요</span></div></details>`;
+  tickClock();
+}
+function tickClock() {
+  const c = clockNow(), r = curRow();
+  const left = leftOf(c, clockOff), paused = c?.endsAt == null;
+  const pc = $("#p-clock");
+  if (pc) {
+    pc.classList.toggle("hidden", !c || !r || !!r.closed);
+    if (c) {
+      const txt = `${c.stage}단계 · ${STAGE_NAMES[c.stage]} · ${paused ? "⏸ " : ""}${left > 0 ? mmss(left) : "시간 끝"}`;
+      if (pc.textContent !== txt) pc.textContent = txt;
+      pc.classList.toggle("warn", left <= 60000); pc.classList.toggle("over", left <= 0);
+    }
+  }
+  const t = $("#clk-time"); if (!t || !c) return;
+  const tot = (c.min || 0) + (c.add || 0);
+  t.textContent = left > 0 ? mmss(left) : `+${mmss(-left)}`;
+  t.className = `clk-t-time${left <= 60000 ? " warn" : ""}${left <= 0 ? " over" : ""}${paused ? " paused" : ""}`;
+  $("#clk-bar").style.width = `${Math.max(0, Math.min(100, (left / (tot * 60000)) * 100))}%`;
+  $("#clk-meta").textContent = `주어진 시간 ${c.min}분${c.add ? ` + 더한 시간 ${c.add}분` : ""}${paused ? " · 멈춤" : left <= 0 ? " · 시간이 지났어요(시간을 더하거나 다음 단계로)" : ""}`;
+}
+setInterval(() => { if (current) tickClock(); }, 500);
+$("#clock-body").onclick = async (e) => {
+  const b = e.target.closest("[data-clk]"); if (!b) return;
+  const c = clockNow(), sm = { ...STAGE_MIN_DEFAULT, ...(curRow()?.stageMin || {}) }, act = b.dataset.clk;
+  const pick = Number($("#clk-pick")?.value || 1);
+  b.disabled = true;
+  try {
+    if (act === "start") await clockOp({ op: "go", stage: pick }, `${pick}단계 시간을 시작했어요`);
+    else if (act === "add") await clockOp({ op: "add", min: Number(b.dataset.min) }, `${b.dataset.min}분 더했어요`);
+    else if (act === "pause") await clockOp({ op: "pause" }, "시간을 멈췄어요");
+    else if (act === "resume") await clockOp({ op: "resume" }, "시간이 다시 흘러요");
+    else if (act === "next" || act === "go") {
+      const to = act === "next" ? c.stage + 1 : pick, left = leftOf(c, clockOff);
+      const early = left > 0 ? ` 아직 ${mmss(left)} 남았어요.` : "";
+      const back = to < c.stage ? " 앞 단계에 있는 학생은 이 단계로 돌아와요." : "";
+      if (await confirmModal(`${to}단계로 넘어갈까요?`, `모든 학생 화면이 ${to}단계 ${esc(STAGE_NAMES[to])}(으)로 옮겨 가고 ${sm[to]}분이 새로 흘러요.${early}${back}`, `${to}단계 시작`, "취소"))
+        await clockOp({ op: "go", stage: to }, `${to}단계를 시작했어요`);
+    } else if (act === "stop") {
+      if (await confirmModal("단계 시간을 끌까요?", "학생 화면의 남은 시간이 사라지고, 학생이 모든 단계를 자유롭게 오갈 수 있어요. 언제든 다시 시작할 수 있어요.", "끄기", "취소"))
+        await clockOp({ op: "stop" }, "단계 시간을 껐어요");
+    }
+  } finally { b.disabled = false; }
+};

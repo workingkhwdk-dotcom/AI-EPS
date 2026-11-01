@@ -266,3 +266,5 @@ body.m{ --navh:calc(54px + env(safe-area-inset-bottom)); --hdrh:calc(41px + env(
 .m-teacher .as-rubric tbody tr{ grid-template-columns:1fr; }
 .m-teacher .as-rubric tr.as-el{ background:none; padding:10px 4px 0; }
 .m-teacher .as-rubric td[data-lv]::before{ content:attr(data-lv); display:block; font-weight:800; color:var(--ink); }
+/* 단계 시간 칩: 머리글이 좁으니 작게 */
+.m .clock-chip{ font-size:11.5px; padding:4px 8px; }

@@ -3,6 +3,7 @@ import { waitHtml, startWaitTicker, STEPS } from "./wait.js";
 import { showModal, confirmModal } from "./modal.js";
 import { HELP, helpSimple, helpDetail, fill } from "./help.js";
 import { openResult, seenAt as resSeenAt, markSeen as resMarkSeen } from "./result.js";
+import { studentClock, offsetFrom } from "./clock.js";
 import { signInAnonymously, onAuthStateChanged, setPersistence, browserSessionPersistence, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { doc, getDoc, getDocFromServer, onSnapshot, updateDoc, collection, query, orderBy, serverTimestamp, deleteField } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
@@ -201,7 +202,9 @@ $("#j-btn").onclick = async () => {
   $("#join-wait")?.remove();
   btn.insertAdjacentHTML("afterend", `<div id="join-wait">${waitHtml({ steps: STEPS.join, compact: true })}</div>`);
   try {
+    const sent = Date.now();
     const r = (await call("joinSession")({ code, groupNo: Number(groupNo), nickname, password })).data;
+    r.clockOff = offsetFrom(r.now, sent);
     $("#j-pw").value = "";
     remember({ code, group: groupNo, nick: nickname });
     saveCode(code);
@@ -282,13 +285,14 @@ async function enter(code, joined) {
   let ss;
   if (joined) {
     Object.assign(S, { code, groupId: joined.groupId, nick: joined.nickname });
-    S.info = joined.case; S.started = joined.started; S.chatLimit = joined.chatLimit || 5;
+    S.info = joined.case; S.started = joined.started; S.chatLimit = joined.chatLimit || 5; S.clockOff = joined.clockOff || 0;
     setLevel(joined);
   } else {
     const mSnap = await getDoc(memberRef);
     if (!mSnap.exists()) { saveCode(null); return; }
     Object.assign(S, { code, groupId: mSnap.data().groupId, nick: mSnap.data().nickname });
-    const [info, sess] = await Promise.all([call("getCase")({ code }), getDoc(doc(db, `sessions/${code}`))]);
+    const sent = Date.now();
+    const [info, sess] = await Promise.all([call("getCase")({ code }).then((x) => ((S.clockOff = offsetFrom(x.data?.now, sent)), x)), getDoc(doc(db, `sessions/${code}`))]);
     S.info = info.data; ss = sess.data() || {};
     // 선생님이 '수업 시작'을 누르기 전(started === false)에는 대기실을 보여 준다. 값이 없는 예전 수업은 시작된 것으로 본다.
     S.started = ss.started !== false; S.chatLimit = ss.chatLimit || 5; S.coach = ss.coach !== false;
@@ -300,6 +304,8 @@ async function enter(code, joined) {
   $("#join").classList.add("hidden");
   showArea();
   addHelpButton();
+  clk = clk || studentClock({ stageName: (n) => STAGES[n - 1].name, esc, toast, mountChip: (el) => $("#help-btn").before(el) });
+  clk.setOffset(S.clockOff);
   $("#who").textContent = `${S.groupId.replace("g", "")}모둠 · ${S.nick}`;
   $("#logout").classList.remove("hidden");
   resetIdle(); startWaitTicker(); renderNet();
@@ -322,6 +328,7 @@ async function enter(code, joined) {
     if ((coachChanged || levelChanged) && S.code) scheduleRender(); // 선생님이 생각 도우미·학교급·심화 활동을 바꾸면 바로 반영한다
     applyStarted(d.started !== false);
     updateResBtn(d.release);
+    applyClock(d.clock);
   }, lost);
   startStartPoll(code);
   // 내 접속 문서: 모둠 이동, 쓴 질문 수, 대화 규칙 위반으로 대화가 멈췄는지(교사가 다시 열면 바로 풀린다)
@@ -394,7 +401,7 @@ function applyStarted(started) {
   const was = S.started; S.started = started;
   if (S.started !== was) {
     showArea();
-    if (S.started) { toast("수업이 시작됐어요! 🎉"); render(true); setTimeout(() => maybeHelp(), 300); warmAi(); }
+    if (S.started) { toast("수업이 시작됐어요! 🎉"); render(true); setTimeout(() => maybeHelp(), 300); warmAi(); applyClock(S.clockRaw); }
     else renderWait();
   } else if (!S.started) renderWait();
 }
@@ -411,6 +418,28 @@ function startStartPoll(code) {
   document.addEventListener("visibilitychange", () => { if (!document.hidden) check(); });
   window.addEventListener("online", check);
 }
+
+// ---------- 단계 시간(clock.js) ----------
+// 선생님이 단계 시간을 쓰면 반 전체가 같은 단계에서 활동한다. 선생님이 연 단계까지만 갈 수 있고(지나온 단계로 돌아가 고치는 것은 된다),
+// 선생님이 다음 단계를 열면 모두 그 단계로 옮겨 간다. 시간이 끝나도 쓰던 것은 계속 쓸 수 있고, 넘어가는 것은 선생님이 정한다.
+let clk = null;
+const maxStage = () => (S.clock?.stage || 7);
+function applyClock(c) {
+  S.clockRaw = c || null;
+  if (!S.started) return; // 대기실에서는 시간을 보이지 않는다(시작하면 applyStarted 가 다시 부른다)
+  const prev = S.clock, next = c?.stage ? c : null;
+  S.clock = next;
+  clk?.update(next);
+  if (!next) { if (prev) { lastTabs = ""; renderTabs(); scheduleRender(); } return; }
+  const opened = next.ev === "go" && next.t !== prev?.t && prev !== undefined;
+  if (S.stage > next.stage) { goTo(next.stage); toast(`선생님이 ${next.stage}단계로 모두 모았어요`); }
+  else if (S.stage < next.stage && (opened || !prev)) {
+    goTo(next.stage);
+    if (prev) toast(`선생님이 ${next.stage}단계 ${STAGES[next.stage - 1].name}을(를) 열었어요`);
+  }
+  else { lastTabs = ""; renderTabs(); scheduleRender(); }
+}
+const lockedMsg = (n) => toast(`${n}단계는 선생님이 열어 주면 갈 수 있어요 🔒`);
 
 // 선생님 한마디: 화면 위쪽에 붙는 띠로 보여 준다(우리 모둠에 보낸 것만). 닫으면 같은 말은 다시 뜨지 않는다.
 const NOTICE_SEEN = "eps_tnotice_seen";
@@ -518,8 +547,8 @@ onAuthStateChanged(auth, async (u) => {
 
 // ---------- 이동 ----------
 function renderTabs() {
-  const html = STAGES.map((s) => { const done = !!S.info && stageDone(s.n);
-    return `<button class="stage-tab ${S.stage === s.n ? "on" : ""} ${done ? "done" : ""}" data-stage="${s.n}" aria-label="${s.n}단계 ${s.name}${done ? " (완료)" : ""}" aria-current="${S.stage === s.n ? "step" : "false"}"><b>${s.n}</b><span>${IS_M ? s.short : s.name}</span></button>`; }).join("")
+  const html = STAGES.map((s) => { const done = !!S.info && stageDone(s.n), lock = s.n > maxStage();
+    return `<button class="stage-tab ${S.stage === s.n ? "on" : ""} ${done ? "done" : ""} ${lock ? "locked" : ""}" data-stage="${s.n}" aria-label="${s.n}단계 ${s.name}${done ? " (완료)" : ""}${lock ? " (선생님이 아직 열지 않음)" : ""}" aria-current="${S.stage === s.n ? "step" : "false"}"${lock ? ' aria-disabled="true"' : ""}><b>${s.n}</b><span>${IS_M ? s.short : s.name}</span></button>`; }).join("")
     + `<div class="stage-now" aria-hidden="true">${S.stage}단계 · ${esc(STAGES[S.stage - 1].name)}</div>`; // 좁은 PC 화면에서만 보임(번호 원만 남기므로 지금 단계 이름을 따로 알려 준다)
   if (html === lastTabs) return;
   lastTabs = html;
@@ -553,6 +582,7 @@ function sceneNow(n = S.stage) {
 function stageDone(n) { return scenesOf(n).every(passed); }
 // target: 장면 id, 1단계 작은 단계 이름(pick·chat·note·group), 'last'(마지막 장면). 없으면 아직 안 마친 첫 장면.
 function goTo(stage, target) {
+  if (stage > maxStage()) return lockedMsg(stage); // 단계 시간을 쓰는 동안은 선생님이 연 단계까지만
   flushAll();
   S.stage = stage;
   const list = scenesOf(stage), open = firstOpen(list);
@@ -591,6 +621,7 @@ function sceneFoot(list, i) {
     : S.stage > 1 ? `<button class="btn btn-plain" data-go="${S.stage - 1}" data-sub="last">← ${S.stage - 1}단계</button>` : "<span></span>";
   const cls = `btn ${ok ? "btn-primary" : "btn-tinted"} sc-next`, dis = ok ? "" : `disabled title="이 활동을 마치면 넘어갈 수 있어요"`;
   const next = i < list.length - 1 ? `<button class="${cls}" data-scene="${list[i + 1].id}" ${dis}>다음 →</button>`
+    : S.stage < 7 && S.stage + 1 > maxStage() ? `<button class="btn btn-tinted" type="button" disabled data-locked="${S.stage + 1}">🔒 ${S.stage + 1}단계는 선생님이 열어요</button>`
     : S.stage < 7 ? `<button class="${cls}" data-go="${S.stage + 1}" ${dis}>다음: ${S.stage + 1}단계 ${esc(STAGES[S.stage].name)} →</button>`
     : ok ? `<span class="sc-end">모두 마쳤어요. 수고했어요! 👏</span>` : "";
   return `<div class="nav-foot">${prev}${next}</div>`;
