@@ -22,7 +22,7 @@ const demo = require("./demo");
 const { makeTopicApi } = require("./topicApi");
 const { fromStored } = require("./topicData");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
-const { AUTO_CLOSE_CHOICES, autoCloseDue, staleAnonymousUids } = require("./maintenance");
+const { AUTO_CLOSE_CHOICES, autoCloseDue, staleAnonymousUids, warmSchedule, pingWarm } = require("./maintenance");
 const { LEVELS, LENSES_BY, levelOf, defaultDeep, deepOf, sanitizeDeep } = require("./level");
 
 admin.initializeApp();
@@ -365,6 +365,7 @@ async function moveMember(code, groupId, fromUid, toUid) {
 //  - 입장 속도: 읽기는 가능한 한 동시에 하고, 비밀번호 해시는 다른 요청을 막지 않는 비동기로 하며,
 //    화면에 필요한 수업 내용(studentCase)을 함께 돌려줘 getCase 를 따로 부르지 않아도 되게 한다.
 exports.joinSession = onCall(fastOpts, async (req) => {
+  if (req.data?.warm === true) return { warm: true }; // 미리 깨우기(warmUp): 로그인·수업 확인 없이 바로 끝나고 아무것도 읽거나 쓰지 않는다
   const auth = requireAuth(req);
   const code = sessCode(req.data?.code);
   const groupNo = parseInt(req.data?.groupNo, 10);
@@ -492,6 +493,7 @@ async function studentCase(code, sess, uid, member, bundle) {
 // 학생: 이 모둠에서 내가 대화할 인물을 고른다. 모둠원마다 서로 다른 인물이어야 하고, 대화를 시작한 뒤에는 바꿀 수 없다.
 //  - 사건마다 정한 축(제주는 난민 신청자)의 인물은 모둠에 꼭 한 명 있어야 한다. 그 인물을 맡은 학생이 다른 인물로 바꿔 모둠에서 없어지는 것은 막는다.
 exports.choosePersona = onCall(fastOpts, async (req) => {
+  if (req.data?.warm === true) return { warm: true }; // 미리 깨우기(warmUp): 로그인·수업 확인 없이 바로 끝나고 아무것도 읽거나 쓰지 않는다
   const auth = requireAuth(req);
   const code = sessCode(req.data?.code);
   const pid = String(req.data?.personaId || "");
@@ -826,6 +828,7 @@ exports.resetMaterials = onCall(opts, async (req) => {
 //  - 학생: { code } → 내 인물의 이름과 편지, 3단계 실제 자료, 4단계 해외 사례 카드, 7단계 이후 전개(사건 개요는 화면에 보이지 않지만 함께 보낸다). 인물의 역할·근거·출처는 보내지 않는다.
 //  - 교사: { eventId } → 인물별 근거 진술·출처 검증 현황, 자료 전체
 exports.getCase = onCall(fastOpts, async (req) => {
+  if (req.data?.warm === true) return { warm: true }; // 미리 깨우기(warmUp): 로그인·수업 확인 없이 바로 끝나고 아무것도 읽거나 쓰지 않는다
   const auth = requireAuth(req);
 
   // 교사: 기본 주제(eventId), 내가 만든 주제(topicId), 내 수업의 주제(code + admin)
@@ -2166,6 +2169,18 @@ exports.autoCloseSessions = onSchedule({ region: REGION, schedule: "every 30 min
     if (autoCloseDue(d.data(), members)) await d.ref.update({ closed: true, closedAuto: true });
   }
 });
+
+// 수업 시간대 미리 깨우기(maintenance.js 의 pingWarm). MIN_INSTANCES=1 은 하루 종일 요금이 붙지만, 이것은 깨우는 순간에만 붙는다.
+// 시간대는 functions/.env 의 WARM_SCHEDULE(한국 시간 cron, 기본 평일 8:00~16:55 5분마다)로 바꾸고, off 면 만들지 않는다.
+const WARM_SCHEDULE = warmSchedule(process.env.WARM_SCHEDULE);
+if (WARM_SCHEDULE) {
+  exports.warmUp = onSchedule({ region: REGION, schedule: WARM_SCHEDULE, timeZone: "Asia/Seoul", cpu: "gcf_gen1", memory: "128MiB", timeoutSeconds: 60, maxInstances: 1, retryCount: 0 }, async () => {
+    const project = process.env.GCLOUD_PROJECT || JSON.parse(process.env.FIREBASE_CONFIG || "{}").projectId;
+    const r = await pingWarm({ region: REGION, project });
+    const bad = r.filter((x) => !x.ok);
+    if (bad.length) console.warn("미리 깨우기 실패:", JSON.stringify(bad));
+  });
+}
 
 // 학생이 로그아웃·재입장하며 쌓인 익명 계정 중 30일 넘게 쓰지 않은 것을 지운다(교사의 구글 계정은 건드리지 않는다). 매주 일요일 새벽.
 exports.cleanAnonymousUsers = onSchedule({ region: REGION, schedule: "every sunday 04:00", timeZone: "Asia/Seoul", cpu: "gcf_gen1", maxInstances: 1 }, async () => {

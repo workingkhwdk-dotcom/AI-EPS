@@ -20,4 +20,21 @@ const staleAnonymousUids = (users, now = Date.now(), days = ANON_KEEP_DAYS) =>
     .filter((u) => now - Date.parse(u.metadata?.lastSignInTime || u.metadata?.creationTime || 0) > days * 86400000)
     .map((u) => u.uid);
 
-module.exports = { toMs, AUTO_CLOSE_CHOICES, lastActivityMs, autoCloseDue, staleAnonymousUids, ANON_KEEP_DAYS };
+// 수업 시간대 미리 깨우기: MIN_INSTANCES(항상 켜 두기)는 하루 종일 요금이 붙는다. 대신 수업이 있는 시간대에만
+// 몇 분마다 학생이 처음 부르는 함수들에 { warm: true } 를 보내 켜 둔다. 요청을 처리하는 순간에만 요금이 붙어 거의 공짜다.
+// WARM_SCHEDULE: 한국 시간 cron(기본 평일 8:00~16:55, 5분마다). off 면 쓰지 않는다.
+const WARM_FUNCTIONS = ["joinSession", "choosePersona", "getCase", "aiRequest"];
+const WARM_DEFAULT = "*/5 8-16 * * 1-5";
+const warmSchedule = (v) => { const t = String(v ?? "").trim(); return t.toLowerCase() === "off" ? null : t || WARM_DEFAULT; };
+// 호출 가능 함수(onCall)를 HTTPS 로 직접 부른다. 실패해도 다음 차례에 다시 부르므로 결과만 모아 돌려준다.
+async function pingWarm({ region, project, fetchImpl = fetch, names = WARM_FUNCTIONS, timeoutMs = 20000 }) {
+  return Promise.all(names.map(async (name) => {
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), timeoutMs);
+    try {
+      const res = await fetchImpl(`https://${region}-${project}.cloudfunctions.net/${name}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data: { warm: true } }), signal: ctl.signal });
+      return { name, ok: !!res.ok, status: res.status };
+    } catch (e) { return { name, ok: false, error: e.message }; } finally { clearTimeout(timer); }
+  }));
+}
+
+module.exports = { WARM_FUNCTIONS, WARM_DEFAULT, warmSchedule, pingWarm, toMs, AUTO_CLOSE_CHOICES, lastActivityMs, autoCloseDue, staleAnonymousUids, ANON_KEEP_DAYS };

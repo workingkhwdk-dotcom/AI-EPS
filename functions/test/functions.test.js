@@ -140,6 +140,15 @@ const chatDocs = (uid) => [...store.entries()].filter(([k]) => k.startsWith(`ses
 const groupLogs = () => [...store.entries()].filter(([k]) => k.startsWith(`sessions/${code}/groups/g1/logs/`)).map(([, v]) => v);
 const setWork = (work) => store.set(`sessions/${code}/groups/g1`, { ...store.get(`sessions/${code}/groups/g1`), work });
 
+test("입장·인물 고르기·사건 자료도 미리 깨우기({ warm: true })는 로그인 없이 바로 끝나고 아무것도 쓰지 않는다", async () => {
+  const before = store.size;
+  for (const f of ["joinSession", "choosePersona", "getCase"]) {
+    assert.deepEqual(await api[f]({ data: { warm: true } }), { warm: true }, f);
+    await assert.rejects(api[f]({ data: { warm: "yes" } }), undefined, `${f}: warm 이 true 가 아니면 평소처럼 로그인을 확인한다`);
+  }
+  assert.equal(store.size, before);
+});
+
 test("aiRequest 미리 깨우기({ warm: true })는 로그인·수업 확인 없이 바로 끝나고 아무것도 쓰지 않는다", async () => {
   assert.deepEqual(await api.aiRequest({ data: { warm: true } }), { warm: true });
   await assert.rejects(api.aiRequest({ data: { warm: "yes" } }));
