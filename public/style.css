@@ -317,12 +317,26 @@ details.example[open]{ padding-bottom:10px; }
 .f-head{ margin-bottom:6px; }
 .f-row{ font-size:14px; margin-top:4px; white-space:pre-wrap; word-break:break-word; }
 .f-row span{ display:inline-block; min-width:92px; font-size:12px; font-weight:800; color:var(--ink-3); }
-.board{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; }
-.b-col{ background:var(--fill); border-radius:14px; padding:12px; font-size:13.5px; }
-.b-h{ font-weight:800; font-size:15px; margin-bottom:6px; }
-.b-h small{ display:block; font-size:11.5px; font-weight:600; color:var(--ink-3); }
-.b-r{ margin-top:6px; white-space:pre-wrap; word-break:break-word; }
-.b-r span{ display:block; font-size:11.5px; font-weight:800; color:var(--accent); }
+.board{ display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:12px; }
+/* 친구들이 만난 사람 카드: 흰 카드 + 위쪽 색 띠, 머리(얼굴·이름·만난 친구), 세 가지는 이름표와 글을 한 줄씩, '정말 그럴까?'는 노란 말풍선 */
+.b-col{ position:relative; display:flex; flex-direction:column; gap:12px; background:var(--surface); border-radius:18px; padding:16px; font-size:14px;
+  box-shadow:0 0 0 1px var(--sep), 0 6px 18px -12px rgba(6,34,107,0.35); overflow:hidden; }
+.b-col::before{ content:""; position:absolute; left:0; right:0; top:0; height:4px; background:linear-gradient(90deg,var(--green),var(--blue)); }
+.b-h{ display:flex; align-items:center; gap:10px; }
+.b-h .avatar{ flex:none; }
+.b-t{ display:flex; flex-direction:column; min-width:0; line-height:1.3; }
+.b-t b{ font-size:16px; font-weight:800; }
+.b-t small{ font-size:12px; font-weight:600; color:var(--ink-3); }
+.b-rows{ display:flex; flex-direction:column; gap:8px; }
+.b-r{ display:flex; flex-direction:column; align-items:flex-start; gap:3px; }
+.b-r span{ font-size:11.5px; font-weight:800; color:var(--accent); background:var(--accent-tint); border-radius:999px; padding:2px 8px; justify-self:start; white-space:nowrap; }
+.b-r p{ margin:0; white-space:pre-wrap; word-break:break-word; line-height:1.55; }
+.b-doubt{ margin-top:auto; background:var(--warn-tint); color:var(--ink); border-radius:12px; padding:9px 12px; font-size:13.5px; line-height:1.5; word-break:break-word; }
+.b-doubt span{ display:block; font-size:11.5px; font-weight:800; color:var(--warn); margin-bottom:1px; }
+.b-status{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-bottom:12px; }
+.b-count{ font-size:12.5px; font-weight:800; color:var(--green-ink); background:var(--green-tint); border-radius:999px; padding:3px 10px; }
+.b-who{ font-size:12.5px; font-weight:700; color:var(--ink-2); background:var(--fill); border-radius:999px; padding:3px 10px; }
+.b-who.off{ color:var(--ink-3); font-weight:600; border:1px dashed var(--fill-strong); background:none; }
 .starters{ display:flex; gap:6px; flex-wrap:wrap; padding:4px 14px 10px; }
 
 /* 7단계 흐름 */
@@ -612,7 +626,8 @@ body.presenting{ overflow:hidden; }
   body:not(.m):not(.t) .letter{ padding:24px 28px; margin-bottom:var(--gap); }
   body:not(.m):not(.t) .split-side > * + *{ margin-top:0; }
   body:not(.m):not(.t) .board{ gap:16px; }
-  body:not(.m):not(.t) .b-col, body:not(.m):not(.t) .finding, body:not(.m):not(.t) .mat-item{ padding:16px 18px; }
+  body:not(.m):not(.t) .b-col{ padding:18px 20px; }
+  body:not(.m):not(.t) .finding, body:not(.m):not(.t) .mat-item{ padding:16px 18px; }
   body:not(.m):not(.t) .mat{ gap:14px; }
   body:not(.m):not(.t) .nav-foot{ margin-top:8px; padding-top:var(--gap); border-top:1px solid var(--sep); }
   body:not(.m):not(.t) .chat-head{ padding:18px 24px; }
@@ -1079,7 +1094,8 @@ input[type=email]{ font:inherit; font-size:16px; width:100%; padding:11px 13px; 
 .recall > span{ display:block; font-size:11.5px; font-weight:800; color:var(--ink-3); margin-bottom:1px; }
 .quote{ border-left:4px solid var(--accent); background:var(--accent-tint); border-radius:0 12px 12px 0; padding:11px 14px; font-size:16px; }
 .quote .meta-line{ margin-bottom:2px; }
-.card.flat.item{ margin-bottom:10px; }
+.card.flat.item{ margin-bottom:10px; background:var(--surface); border-radius:16px; box-shadow:0 0 0 1px var(--sep), 0 4px 14px -10px rgba(6,34,107,0.3); }
+.recall{ border-left:3px solid var(--accent); }
 .review{ margin-top:10px; } .review .ai-out{ margin-top:6px; }
 .ai-block{ margin-top:14px; }
 .row2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }

@@ -1159,12 +1159,15 @@ function chatBody() {
   </div></div></div>`;
 }
 
-// 1단계: 친구들이 만난 사람들을 나란히 본다(제출한 사람만)
+// 1단계: 친구들이 만난 사람들을 나란히 본다(제출한 사람만). 사람마다 카드 하나: 누구를 누가 만났는지, 세 가지, '정말 그럴까?'
 function boardBody() {
-  const all = submitted(), done = all.length, total = Math.max(S.memberCount, done);
-  return `<div class="meta-line">제출 ${done} / ${total}명${done < total ? " · 친구들이 제출하면 여기에 바로 보여요" : ""}</div>
-    <div class="board">${all.map((f) => `<div class="b-col"><div class="b-h">${esc(f.persona || "인물")}<small>${esc(f.nick || "")}</small></div>
-      <div class="b-r"><span>누구</span>${esc(f.who || f.text || "")}</div><div class="b-r"><span>힘든 것</span>${esc(f.hard || "")}</div><div class="b-r"><span>바라는 것</span>${esc(f.want || "")}</div>${txt(f.premise) ? `<div class="b-r"><span>당연하게 여기는 것</span>${esc(f.premise)}</div>` : ""}${txt(f.doubt) ? `<div class="b-r"><span>정말 그럴까?</span>${esc(f.doubt)}</div>` : ""}</div>`).join("")}</div>`;
+  const all = submitted().sort((a, b) => (b.id === S.uid) - (a.id === S.uid)), done = all.length, total = Math.max(S.memberCount, done); // 내 카드가 먼저
+  const row = (k, v) => (txt(v) ? `<div class="b-r"><span>${k}</span><p>${esc(v)}</p></div>` : "");
+  const status = `<div class="b-status"><span class="b-count">${done} / ${total}명 제출</span>${all.map((f) => `<span class="b-who">${f.id === S.uid ? "나" : esc(f.nick || "")}</span>`).join("")}${done < total ? `<span class="b-who off">${total - done}명 기다리는 중</span>` : ""}</div>`;
+  return `${status}<div class="board">${all.map((f) => `<article class="b-col">
+      <header class="b-h"><span class="avatar sm">${esc((f.persona || "?").slice(0, 1))}</span><span class="b-t"><b>${esc(f.persona || "인물")}</b><small>${f.id === S.uid ? "내가" : `${esc(f.nick || "친구")}${josa(f.nick || "친구", "이", "가")}`} 만났어요</small></span></header>
+      <div class="b-rows">${row("누구", f.who || f.text)}${row("힘든 것", f.hard)}${row("바라는 것", f.want)}${row("당연한 생각", f.premise)}</div>
+      ${txt(f.doubt) ? `<div class="b-doubt"><span>정말 그럴까?</span>${esc(f.doubt)}</div>` : ""}</article>`).join("")}</div>`;
 }
 
 // 2단계: 처음 내 생각이 어디서 왔는지 쓰고 모둠에 보인다. 남의 문제를 '나와 비슷한 점' 찾기로 억지로 잇지 않고, 내가 당연하게 믿어 온 것에서 출발한다.

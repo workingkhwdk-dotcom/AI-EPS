@@ -1142,7 +1142,7 @@ test("학생: 정리를 제출하면 친구들이 만난 사람들을 함께 읽
   await s.pg.waitForSelector(".board");
   assert.match(await s.pg.locator(".sc-q").innerText(), /친구들이 만난 사람들/);
   const body = await s.pg.locator("#panel").innerText();
-  assert.match(body, /나래/); assert.match(body, /범죄가 늘었다/); assert.match(body, /제출 2 \/ 2명/);
+  assert.match(body, /나래/); assert.match(body, /범죄가 늘었다/); assert.match(body, /2 \/ 2명 제출/); assert.match(body, /나래가 만났어요/);
   await s.pg.click('.sc-dot[aria-label$="제출"]');
   await s.pg.click('[data-act="edit-note"]');
   await s.pg.waitForFunction(() => window.__writes.some((x) => x["work.s1.findings.anonX.submitted"] === false));
