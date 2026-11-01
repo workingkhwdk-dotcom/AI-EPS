@@ -34,11 +34,13 @@ test("검색 도메인 제한: 목록이 있을 때만 allowed_domains 를 보�
 });
 
 // ---------- 수업 시간대 미리 깨우기 ----------
-test("미리 깨우기 시간표: 비우면 평일 8~16시 5분마다, off 면 쓰지 않음, 직접 정하면 그대로", () => {
+test("미리 깨우기 시간표: 기본은 끔(가장 저렴), on 이면 평일 8~16시 5분마다, 직접 정하면 그대로", () => {
   const { warmSchedule, WARM_DEFAULT } = require("../maintenance");
-  assert.equal(warmSchedule(undefined), WARM_DEFAULT);
-  assert.equal(warmSchedule(""), "*/5 8-16 * * 1-5");
+  assert.equal(warmSchedule(undefined), null);
+  assert.equal(warmSchedule(""), null);
   assert.equal(warmSchedule("OFF"), null);
+  assert.equal(warmSchedule("on"), WARM_DEFAULT);
+  assert.equal(WARM_DEFAULT, "*/5 8-16 * * 1-5");
   assert.equal(warmSchedule(" */10 9-15 * * 1-5 "), "*/10 9-15 * * 1-5");
 });
 

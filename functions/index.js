@@ -2171,7 +2171,7 @@ exports.autoCloseSessions = onSchedule({ region: REGION, schedule: "every 30 min
 });
 
 // 수업 시간대 미리 깨우기(maintenance.js 의 pingWarm). MIN_INSTANCES=1 은 하루 종일 요금이 붙지만, 이것은 깨우는 순간에만 붙는다.
-// 시간대는 functions/.env 의 WARM_SCHEDULE(한국 시간 cron, 기본 평일 8:00~16:55 5분마다)로 바꾸고, off 면 만들지 않는다.
+// 기본은 끔(가장 저렴). functions/.env 의 WARM_SCHEDULE 을 on(평일 8:00~16:55 5분마다) 또는 한국 시간 cron 으로 두면 켠다.
 const WARM_SCHEDULE = warmSchedule(process.env.WARM_SCHEDULE);
 if (WARM_SCHEDULE) {
   exports.warmUp = onSchedule({ region: REGION, schedule: WARM_SCHEDULE, timeZone: "Asia/Seoul", cpu: "gcf_gen1", memory: "128MiB", timeoutSeconds: 60, maxInstances: 1, retryCount: 0 }, async () => {

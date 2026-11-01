@@ -350,7 +350,8 @@ test("학생: 입장 폼 — 빈 칸이면 요청하지 않고, 틀린 비밀번
   await pg.click("#j-btn");
   assert.equal(st.joined.length, 0);
   await pg.fill("#j-pw", "bad"); await pg.click("#j-btn");
-  await pg.waitForFunction(() => window.__log.filter((n) => n === "joinSession").length >= 2); // 입장 미리 깨우기 + 이번 요청
+  await pg.waitForFunction(() => window.__log.filter((n) => n === "joinSession").length >= 1); // 이번 요청(미리 깨우기는 { warm: true } 라 따로 셈)
+  assert.ok(await pg.evaluate(() => window.__warm >= 1), "입장 화면을 열면 입장 기능을 미리 깨운다");
   assert.ok(!(await pg.locator("#app").isVisible()));
   await pg.fill("#j-pw", "pw1234"); await pg.click("#j-btn");
   await pg.waitForSelector("#app:not(.hidden)");
