@@ -1262,3 +1262,12 @@ input[type=email]{ font:inherit; font-size:16px; width:100%; padding:11px 13px; 
 .q-card textarea{ margin-top:10px; }
 .res-ap{ margin-top:6px; font-size:13px; }
 .res-ap textarea{ min-height:64px; }
+/* PC 2열 정리: 대화 장면의 이전·다음은 넓은 대화 화면 폭에 맞추고, 자료 관리의 분류 카드는 같은 줄끼리 높이를 맞추며,
+   홀수 번째로 남는 마지막 카드(새 분류 만들기 등)는 한 줄을 다 쓴다 */
+@media (min-width:900px){
+  body:not(.m):not(.t) .scene.sid-chat + .nav-foot{ max-width:none; }
+}
+@media (min-width:1100px){
+  body:not(.m):not(.t) #mat-body, body:not(.m):not(.t) #persona-check{ align-items:stretch; }
+  body:not(.m):not(.t) #mat-body > :last-child:nth-child(odd), body:not(.m):not(.t) #persona-check > :last-child:nth-child(odd){ grid-column:1 / -1; }
+}

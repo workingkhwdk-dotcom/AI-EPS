@@ -35,6 +35,7 @@ const stubs = {
     export const getDoc = async (r) => (window.__docs[r.p] ? { exists: () => true, data: () => window.__docs[r.p] } : { exists: () => false });
     export const getDocFromServer = async (r) => (window.__docs[r.p] ? { exists: () => true, data: () => window.__docs[r.p] } : { exists: () => false });
     export const getDocs = async (r) => ({ docs: (window.__cols[r.p] || []).map((d) => ({ id: d.id, data: () => d })) });
+    export const getDocsFromServer = async (r) => { window.__serverReads = (window.__serverReads || 0) + 1; return { docs: (window.__cols[r.p] || []).map((d) => ({ id: d.id, data: () => d })) }; };
     export const updateDoc = async (r, data) => { window.__writes.push(data); if (window.__hangWrites) await new Promise(() => {}); };
     const subs = (window.__subs = window.__subs || {});
     const docSnap = (p) => ({ exists: () => p in window.__docs, data: () => window.__docs[p] || {} });
@@ -47,7 +48,7 @@ const stubs = {
     };`,
   "firebase-functions.js": `
     export const getFunctions = () => ({});
-    export const httpsCallable = (_f, name) => async (data) => { window.__log.push(name); return { data: await window.__fn(name, data) }; };`,
+    export const httpsCallable = (_f, name) => async (data) => { if (data?.warm) { window.__warm = (window.__warm || 0) + 1; return { data: { warm: true } }; } window.__log.push(name); return { data: await window.__fn(name, data) }; };`,
 };
 
 let srv, browser, base;
@@ -1017,6 +1018,17 @@ test("교사: 대기실에서 모둠별 입장 현황을 보고, 모둠을 옮�
   await pg.click('.modal .btn:has-text("수업 시작")');
   await pg.waitForFunction(() => window.__log.includes("updateSession"));
   assert.deepEqual(st.calls.find((c) => c[0] === "updateSession")[1], { code: "ABC234", started: true });
+  assert.deepEqual(errors, []);
+});
+
+test("교사 대기실: 실시간 알림이 오지 않아도(학교 와이파이에서 연결이 막힌 경우) 몇 초마다 서버에서 다시 읽어 새로 들어온 학생이 보인다", async () => {
+  const st = teacherFixture(), { pg, errors } = await openTeacher(st, { session: { started: false }, online: true });
+  await pg.waitForSelector("#lobby:not(.hidden)");
+  assert.doesNotMatch(await pg.locator("#lobby-body").innerText(), /다온/);
+  // 실시간 알림(__push) 없이 서버의 학생 목록만 바뀐다
+  await pg.evaluate(() => { window.__cols["sessions/ABC234/members"].push({ id: "u9", groupId: "g2", nickname: "다온", stage: 1, lastSeen: { toMillis: () => Date.now() } }); });
+  await pg.waitForFunction(() => /다온/.test(document.querySelector("#lobby-body")?.innerText || ""), null, { timeout: 8000 });
+  assert.match(await pg.locator("#lobby-body").innerText(), /3명/);
   assert.deepEqual(errors, []);
 });
 

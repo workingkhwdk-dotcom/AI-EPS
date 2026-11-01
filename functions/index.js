@@ -898,7 +898,10 @@ const REVIEW_LABELS_MID = { feasibility: "정말 할 수 있을까", stakeholder
 
 // AI 호출의 단일 관문: 인증 → 모둠 확인 → GYR 게이트 → 횟수 한도 → OpenAI → (1단계) 상위 AI 감독 → 로그
 //  - 1단계 인물 대화는 학생별 횟수(chatLimit)로, 3~5단계는 모둠 횟수(aiLimit)로 센다.
-exports.aiRequest = onCall(aiOpts, async (req) => {
+// 학생이 가장 자주 기다리는 호출이라 입장 함수처럼 MIN_INSTANCES 를 따른다(수업 시간에만 1로 올리면 첫 답이 빨라진다).
+// { warm: true } 는 미리 깨우기만 하고 바로 끝난다(학생 화면이 수업이 시작될 때 한 번 부른다).
+exports.aiRequest = onCall({ ...aiOpts, minInstances: MIN_INSTANCES }, async (req) => {
+  if (req.data?.warm === true) return { warm: true };
   const auth = requireAuth(req);
   const { stage, type, payload = {} } = req.data || {};
   const code = sessCode(req.data?.code);

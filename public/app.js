@@ -356,6 +356,7 @@ async function enter(code, joined) {
   renderTabs();
   render(true);
   startPresence();
+  warmAi();
   maybeHelp();
 }
 
@@ -384,12 +385,15 @@ function syncMyPick() {
     toast("선생님이 인물 선택을 풀어 주셨어요. 다시 골라 주세요.");
   }
 }
+// AI 함수를 미리 깨워 둔다(첫 인물 대화가 늦지 않게). 결과는 쓰지 않는다. 한 화면에서 한 번만.
+let warmed = false;
+function warmAi() { if (warmed || !S.started || document.documentElement.classList.contains("demo")) return; warmed = true; call("aiRequest")({ warm: true }).catch(() => {}); }
 // 수업 시작 여부 반영. 실시간 알림이나 아래 확인(폴링) 중 먼저 온 쪽이 처리한다.
 function applyStarted(started) {
   const was = S.started; S.started = started;
   if (S.started !== was) {
     showArea();
-    if (S.started) { toast("수업이 시작됐어요! 🎉"); render(true); setTimeout(() => maybeHelp(), 300); }
+    if (S.started) { toast("수업이 시작됐어요! 🎉"); render(true); setTimeout(() => maybeHelp(), 300); warmAi(); }
     else renderWait();
   } else if (!S.started) renderWait();
 }

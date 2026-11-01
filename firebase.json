@@ -32,6 +32,24 @@
             "value": "public, max-age=86400"
           }
         ]
+      },
+      {
+        "source": "**/*.@(webp|png|ico|jpg|svg)",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=86400"
+          }
+        ]
+      },
+      {
+        "source": "vendor/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=604800"
+          }
+        ]
       }
     ]
   },
