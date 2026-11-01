@@ -31,7 +31,8 @@ export function offsetFrom(serverNow, sentAt, gotAt = Date.now()) {
 
 // ---------- 학생 화면 ----------
 // stageName(n): 단계 이름, esc: HTML 이스케이프, toast: 짧은 알림, mountChip(el): 머리글에 칩을 붙이는 곳
-export function studentClock({ stageName, esc, toast, mountChip }) {
+// demo: 체험 화면(선생님 없음). 시간이 끝나도 '선생님 안내'가 아니라 계속하면 된다고 알린다.
+export function studentClock({ stageName, esc, toast, mountChip, demo = false }) {
   let clock = null, off = 0, lastT = null, lastLeft = null, ended = false, tick = null, hideTimer = null;
 
   const chip = document.createElement("button");
@@ -70,7 +71,7 @@ export function studentClock({ stageName, esc, toast, mountChip }) {
     const big = fresh ? `${tot}분` : left > 0 ? mmss(left) : "0:00";
     const sub = fresh ? "이 단계에 주어진 시간이에요"
       : clock.endsAt == null ? `선생님이 시간을 잠깐 멈췄어요 · 주어진 시간 ${tot}분`
-      : left > 0 ? `남은 시간 · 주어진 시간 ${tot}분` : "시간이 끝났어요. 선생님 안내를 기다려요";
+      : left > 0 ? `남은 시간 · 주어진 시간 ${tot}분` : demo ? "시간이 끝났어요. 체험에서는 계속할 수 있어요" : "시간이 끝났어요. 선생님 안내를 기다려요";
     show("intro", `${head()}<div class="clk-big">${big}</div><div class="clk-sub">${esc(sub)}</div>`, 4000);
   }
   function mark(min) {
@@ -89,7 +90,7 @@ export function studentClock({ stageName, esc, toast, mountChip }) {
     // 시간 끝: 한 번 알린다(계속 쓸 수 있다)
     if (running && left <= 0 && !ended) {
       ended = true;
-      show("end", `${head()}<div class="clk-big">시간 끝</div><div class="clk-sub">선생님 안내를 기다려요. 쓰던 것은 계속 쓸 수 있어요</div>`, 4000);
+      show("end", `${head()}<div class="clk-big">시간 끝</div><div class="clk-sub">${demo ? "체험에서는 시간이 지나도 계속할 수 있어요" : "선생님 안내를 기다려요. 쓰던 것은 계속 쓸 수 있어요"}</div>`, 4000);
       try { navigator.vibrate?.([60, 80, 60]); } catch {}
     }
     if (left > 0) ended = false;
