@@ -2561,7 +2561,7 @@ test("교사 평가: 'AI 점수를 하나씩 확인' — AI 채점 단추 하나
   assert.match(await pg.locator("#as-views .as-step.now").innerText(), /AI 채점[\s\S]*아직 안 했어요/);
   assert.match(await pg.locator("[data-asbatch]").innerText(), /AI 채점 시작 \(모둠 1 · 학생 2명\)/);
   assert.equal(await pg.locator(".as-crit").count(), 0);
-  assert.match(await pg.locator("#as-root").innerText(), /AI 채점이 끝나면 여기서 모둠·학생별 점수를 보고 고칠 수 있어요/);
+  assert.equal(await pg.locator(".as-sub").count(), 0, "AI 채점 전에는 모둠을 저절로 열지 않는다");
   await noJargon(pg);
   // ② 확인을 먼저 누르면 ①로 돌려보낸다
   await pg.click('#as-views [data-asv="queue"]');

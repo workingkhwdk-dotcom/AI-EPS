@@ -1271,3 +1271,17 @@ input[type=email]{ font:inherit; font-size:16px; width:100%; padding:11px 13px; 
   body:not(.m):not(.t) #mat-body, body:not(.m):not(.t) #persona-check{ align-items:stretch; }
   body:not(.m):not(.t) #mat-body > :last-child:nth-child(odd), body:not(.m):not(.t) #persona-check > :last-child:nth-child(odd){ grid-column:1 / -1; }
 }
+/* 평가: 수준은 한 줄 칩으로 고르고, 고른 수준의 기준만 아래 한 줄에 */
+.as-lv.chips{ display:flex; flex-wrap:wrap; gap:8px; margin:12px 0 6px; }
+.as-lv.chips .lvopt{ display:inline-flex; align-items:center; gap:6px; padding:8px 14px; border-radius:999px; }
+.as-lv.chips .lvopt input{ position:absolute; opacity:0; width:1px; height:1px; margin:0; }
+.as-lv.chips .lvopt .lvd{ display:none; }
+.as-lv.chips .lvopt.cur, .as-lv.chips .lvopt:has(input:checked){ background:var(--accent); border-color:var(--accent); color:#fff; }
+.as-lv.chips .lvopt.cur .tag.b, .as-lv.chips .lvopt:has(input:checked) .tag.b{ background:rgba(255,255,255,.22); color:#fff; }
+.as-lv.chips .lvopt:has(input:focus-visible){ outline:3px solid var(--accent-tint); outline-offset:2px; }
+.lv-now{ font-size:13.5px; color:var(--ink-2); background:var(--surface-2); border-radius:10px; padding:8px 12px; margin-bottom:10px; line-height:1.55; }
+.as-more{ display:flex; flex-wrap:wrap; gap:12px 28px; align-items:center; margin-top:14px; padding-top:12px; border-top:1px solid var(--sep); }
+.as-more .row{ gap:8px; align-items:center; }
+.as-pickwrap{ margin-top:16px; padding-top:14px; border-top:1px solid var(--sep); }
+.as-more .row{ flex-wrap:nowrap; }
+.as-more select{ width:auto; min-width:170px; }

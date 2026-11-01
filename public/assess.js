@@ -194,16 +194,17 @@ function render() {
 }
 
 // ---------- ① 채점 ----------
-function scoreHtml() { return runHtml() + browserHtml(); }
+// AI 채점 단추와 모둠·학생 고르기를 한 카드에 둔다(카드 하나 = 할 일 하나)
+function scoreHtml() { return runHtml().replace(/<\/div>$/, `<div class="as-pickwrap">${pickerHtml()}</div></div>`) + browserHtml(); }
 // AI 채점 카드: 지금 방식에 맞는 한 줄 안내와 단추 하나. 확정과 공개는 늘 선생님이 직접 누른다.
 function runHtml() {
   const d = st.data, how = howOf(d), left = aiLeftOf(d), started = aiStarted(d), S = stepsOf(d);
   if (st.job?.type === "score" && st.job.status === "running") return `<div class="card as-batch">${jobHtml("score")}</div>`;
   const indep = how === "independent";
   const title = indep ? "선생님이 먼저 채점해요" : "AI가 먼저 채점해요";
-  const desc = how === "auto" ? "학생이 쓴 글을 AI가 척도표에 맞춰 세 번씩 채점해요. 세 번 결과가 같고 근거가 분명한 점수는 정해 두고, 애매한 것만 <b>② 확인</b>으로 보내요."
-    : how === "manual" ? "AI가 먼저 채점해 수준을 골라 둬요. 아래에서 모둠·학생을 하나씩 열어 맞으면 <b>✓ 확인</b>, 다르면 고쳐서 저장해요."
-    : "아래에서 모둠·학생을 골라 먼저 채점해요. AI 의견은 미리 준비해 두고, 선생님이 저장한 항목만 보여 줘요.";
+  const desc = how === "auto" ? "확실한 점수는 AI가 정하고, 애매한 것만 <b>② 확인</b>으로 보내요."
+    : how === "manual" ? "AI가 고른 수준이 맞으면 <b>✓ 확인</b>, 다르면 고쳐요."
+    : "AI 의견은 선생님이 저장한 항목만 보여요.";
   const runLabel = `✨ ${indep ? "AI 의견 준비" : started ? "남은 곳 AI 채점" : "AI 채점 시작"} (모둠 ${left.g} · 학생 ${left.s}명)`;
   const nLive = liveStudents(d).length, done = nLive > 0 && !left.n;
   const notes = [
@@ -220,7 +221,7 @@ const pausedHtml = () => `<div class="notice yellow" style="margin:10px 0 0">선
 
 function browserHtml() {
   const d = st.data;
-  const head = `<div class="card">${pickerHtml()}${st.id ? "" : `<div class="meta-line" style="margin-top:8px">${aiStarted(d) || howOf(d) === "independent" ? "모둠이나 학생을 누르면 항목별 점수와 학생이 쓴 글이 열려요." : "AI 채점이 끝나면 여기서 모둠·학생별 점수를 보고 고칠 수 있어요. 지금 눌러서 미리 볼 수도 있어요."}</div>`}</div>`;
+  const head = "";
   if (!st.id) return head;
   if (!st.sub) return head + busy();
   const s = st.sub, cs = critsOf(st.kind);
@@ -233,14 +234,14 @@ function browserHtml() {
     <div class="row" style="justify-content:space-between"><div><h3 style="margin:0">${esc(subjLabel())}</h3><div class="meta-line">채점 ${done} / ${cs.length}항목 · 지금까지 ${total} / ${maxT}점</div></div>
       <div class="row">${st.kind === "student" && !ex ? `<button class="btn btn-plain btn-sm" data-asexclude type="button" title="결석·전학 등으로 이 학생을 이번 평가에서 뺍니다">평가에서 빼기</button>` : ""}<button class="btn btn-tinted btn-sm" data-asai type="button" ${st.busy ? "disabled" : ""}>${gotAi ? "AI 다시 채점" : "AI 채점"}</button>
         ${d.mode === "ai_first" && !d.auto?.on && cs.some((c) => c.ai && s.ai[c.id] && !s.scores[c.id]) ? `<button class="btn btn-primary btn-sm" data-asapply type="button" ${st.busy ? "disabled" : ""}>AI 점수 모두 적용</button>` : ""}</div></div>
-    ${exNote}${calibNote}<div class="meta-line" style="margin:6px 0 2px">${s.mode === "ai_first" ? "AI가 고른 수준이 미리 표시돼 있어요. 학생 글을 보고 맞으면 <b>✓ 확인·저장</b>, 다르면 고쳐서 저장해요." : "AI 의견은 선생님이 수준을 <b>저장한 뒤에만</b> 보여요(먼저 보면 AI 판단에 끌리기 쉬워요)."}</div></div>`
+    ${exNote}${calibNote}</div>`
     + cs.map((c) => criterionHtml(c, s)).join("");
 }
 function pickerHtml() {
   const list = subjList(), how = howOf(st.data);
   const sorted = st.kind === "student" && st.blind ? [...list].sort((a, b) => a.code.localeCompare(b.code)) : list;
   const flags = (x) => `${x.excluded ? ` <span class="tag x">${esc(x.excluded.label)} · 제외</span>` : ""}${x.exc ? ` <span class="tag y">확인 ${x.exc}</span>` : ""}${how === "manual" && x.unreviewed ? ` <span class="tag b">확인 전 ${x.unreviewed}</span>` : ""}`;
-  return `<div class="row" style="justify-content:space-between;margin-bottom:8px"><h4 style="margin:0">모둠·학생별 점수</h4>
+  return `<div class="row" style="justify-content:space-between;margin-bottom:8px"><h4 style="margin:0">채점할 모둠·학생</h4>
       ${st.kind === "student" ? `<label class="chk" title="별명 대신 코드로, 모둠과 상관없는 순서로 보여 줘요(먼저 본 학생에게 끌리지 않게)"><input type="checkbox" id="as-blind" ${st.blind ? "checked" : ""}> 이름 가리고 채점</label>` : ""}</div>
     <div class="seg" style="margin-bottom:8px"><button data-ask="group" class="${st.kind === "group" ? "on" : ""}">모둠별 (${st.data.groups[0]?.total || 0}항목)</button><button data-ask="student" class="${st.kind === "student" ? "on" : ""}">학생별 (${st.data.students[0]?.total || 0}항목)</button></div>
     <div class="chipbar as-pick">${sorted.map((x) => `<button class="chip sm ${subjId(x) === st.id ? "on" : ""}" data-asid="${esc(subjId(x))}">${x.calibSample ? "🎯 " : ""}${esc(subjName(x))}${flags(x)} <span class="as-n">${x.scored}/${x.total}</span></button>`).join("") || `<span class="meta-line">아직 대상이 없어요.</span>`}</div>`;
@@ -250,6 +251,8 @@ function subjLabel() {
   return x ? subjName(x) : "";
 }
 
+// 고른 수준의 기준(척도표 문장)을 칩 아래 한 줄로만 보여 준다. 고르기 전에는 안내 한 줄.
+const lvNow = (desc) => `<div class="lv-now">${desc ? esc(desc) : "수준을 고르면 그 기준이 여기에 보여요."}</div>`;
 function criterionHtml(c, s) {
   const sc = s.scores[c.id], ai = s.ai[c.id], ev = s.evidence[c.id] || [], empty = s.empty[c.id], rv = s.review[c.id];
   // AI가 먼저 채점하는 방식에서는 아직 채점하지 않은 항목에 AI 수준을 미리 골라 둔다(선생님이 학생 글을 보고 확인하거나 고친다)
@@ -265,8 +268,8 @@ function criterionHtml(c, s) {
     ${c.deepNotes.length ? `<div class="notice muted" style="margin:8px 0 0">심화 활동: ${c.deepNotes.map(esc).join(" ")}</div>` : ""}
     <details class="as-ev" open><summary>학생이 쓴 글 ${empty ? `<span class="tag r">쓴 글 없음 → 미제출</span>` : `<span class="meta-line">(${ev.length}개)</span>`}</summary>
       ${ev.length ? ev.map((e) => `<div class="logline"><div class="q">${esc(e.label)}</div><div class="a">${esc(e.text)}</div></div>`).join("") : `<div class="meta-line">기록이 없어요.</div>`}</details>
-    <div class="as-lv">${c.levels.map((l) => lv(l.idx, l.label, l.pts, l.desc, empty)).join("")}${lv(-1, "미제출", 0, "쓴 글이 없어 평가할 수 없음", !empty)}</div>
-    <label class="lbl" for="note-${c.id}">평가 근거 <span class="meta-line">· 점수를 공개하면 학생에게 보여요 · 가장 높거나 낮은 수준, AI와 두 수준 이상 다르면 8자 이상</span></label>
+    <div class="as-lv chips">${c.levels.map((l) => lv(l.idx, l.label, l.pts, l.desc, empty)).join("")}${lv(-1, "미제출", 0, "쓴 글이 없어 평가할 수 없음", !empty)}</div>${lvNow(cur === -1 ? "쓴 글이 없어 평가할 수 없음" : c.levels.find((l) => l.idx === cur)?.desc)}
+    <label class="lbl" for="note-${c.id}">평가 근거 <span class="meta-line">· 학생에게 보여요</span></label>
     <textarea id="note-${c.id}" maxlength="500" rows="2" placeholder="예) 세 가지를 모두 알아냈고 인물의 말을 근거로 씀">${esc(sc?.note ?? (pre !== null && ai?.reason ? `AI 제안: ${ai.reason}` : ""))}</textarea>
     <div class="row" style="margin-top:8px"><button class="btn btn-primary btn-sm" data-assave="${c.id}" type="button">${unrev || (pre !== null) ? "✓ 확인·저장" : "저장"}</button>
       ${sc && !unrev ? `<span class="meta-line">저장됨${sc.revs?.length ? ` · 고친 기록 ${sc.revs.length}번` : ""}</span>` : ""}</div>
@@ -346,7 +349,7 @@ function queueCard(it) {
     <details class="as-ev" open><summary>학생이 쓴 글 ${it.empty ? `<span class="tag r">쓴 글 없음</span>` : `<span class="meta-line">(${(it.evidence || []).length}개)</span>`}</summary>
       ${(it.evidence || []).length ? it.evidence.map((e) => `<div class="logline"><div class="q">${esc(e.label)}</div><div class="a">${esc(e.text)}</div></div>`).join("") : `<div class="meta-line">기록이 없어요.</div>`}</details>
     ${ai && !ai.auto ? `<div class="as-ai"><b>AI 의견</b> ${esc(lvlLabelL(it.levels, ai.level))}${ai.spread ? ` <span class="tag y">세 번 결과가 달랐어요</span>` : ""}${ai.reason ? `<div class="meta-line">${esc(ai.reason)}</div>` : ""}${ai.quote ? `<div class="meta-line">근거로 든 문장: “${esc(ai.quote)}”</div>` : ""}<div class="meta-line">세 번 채점: ${ai.levels.map((l) => esc(lvlLabelL(it.levels, l))).join(" / ")}</div></div>` : ""}
-    <div class="as-lv">${[...it.levels.map((l) => [l.idx, l.label, l.pts, l.desc]), [-1, "미제출", 0, "쓴 글이 없어 평가할 수 없음"]].map(([idx, label, pts, desc]) => `<label class="lvopt ${pre === idx ? "cur" : ""}"><input type="radio" name="q-${esc(key)}" value="${idx}" ${pre === idx ? "checked" : ""} ${(idx === -1) !== !!it.empty ? "disabled" : ""}><span class="lvh"><b>${esc(label)}</b> <span class="tag b">${pts}점</span></span><span class="lvd">${esc(desc)}</span></label>`).join("")}</div>
+    <div class="as-lv chips">${[...it.levels.map((l) => [l.idx, l.label, l.pts, l.desc]), [-1, "미제출", 0, "쓴 글이 없어 평가할 수 없음"]].map(([idx, label, pts, desc]) => `<label class="lvopt ${pre === idx ? "cur" : ""}"><input type="radio" name="q-${esc(key)}" value="${idx}" ${pre === idx ? "checked" : ""} ${(idx === -1) !== !!it.empty ? "disabled" : ""}><span class="lvh"><b>${esc(label)}</b> <span class="tag b">${pts}점</span></span><span class="lvd">${esc(desc)}</span></label>`).join("")}</div>${lvNow(pre === -1 ? "쓴 글이 없어 평가할 수 없음" : it.levels.find((l) => l.idx === pre)?.desc)}
     <textarea class="q-note" maxlength="500" rows="2" placeholder="평가 근거 (점수를 공개하면 학생에게 보여요)">${esc(it.score?.note ?? (ai?.reason && !ai.auto ? `AI 제안: ${ai.reason}` : ""))}</textarea>
     <div class="row" style="margin-top:8px"><button class="btn btn-primary btn-sm" data-qsave type="button">✓ 이 점수로 정하기</button>
       ${it.type === "appeal" ? `<input type="text" class="q-reply" maxlength="300" placeholder="학생에게 보낼 답(선택)" style="flex:1;min-width:140px"><button class="btn btn-tinted btn-sm" data-qresolve type="button">이의 신청 처리 완료</button>` : ""}</div></div>`;
@@ -385,11 +388,11 @@ function seteukHtml() {
   const nSk = live.filter((x) => x.hasSeteuk).length, nDraft = live.filter((x) => !x.hasSeteuk && x.hasDraft).length, nNew = live.filter((x) => !x.hasSeteuk && !x.hasDraft).length;
   const running = st.job?.status === "running";
   const all = running && st.job.type === "seteuk" ? jobHtml("seteuk")
-    : nNew ? `<div class="row" style="margin-top:10px"><button class="btn btn-tinted btn-sm" data-asskall type="button" ${running ? "disabled" : ""}>✨ 초안 모두 만들기 (${nNew}명)</button><span class="meta-line">${running ? "AI 채점이 끝난 뒤에 할 수 있어요." : "창을 닫아도 서버에서 이어서 만들어요."}</span></div>` : "";
+    : nNew ? `<div class="row" style="margin-top:10px"><button class="btn btn-tinted btn-sm" data-asskall type="button" ${running ? "disabled" : ""}>✨ 초안 모두 만들기 (${nNew}명)</button><span class="meta-line">${running ? "AI 채점이 끝난 뒤에 할 수 있어요." : ""}</span></div>` : "";
   return `<div class="card sk-root"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><h3 style="margin:0">세특 쓰기</h3><div class="meta-line">저장 ${nSk} / ${live.length}명${nDraft ? ` · 초안만 있음 ${nDraft}명` : ""}</div></div>
       <div class="row"><label class="meta-line">분량 <select id="as-max">${[1000, 1500, 2000].map((n) => `<option value="${n}" ${d.seteukMax === n ? "selected" : ""}>${n.toLocaleString()}바이트 (한글 약 ${Math.round(n / 3)}자)</option>`).join("")}</select></label>
       <label class="meta-line">강조할 점 <select id="as-emp">${EMP.map(([k, n]) => `<option value="${k}" ${st.emphasis === k ? "selected" : ""}>${n}</option>`).join("")}</select></label></div></div>
-    <div class="meta-line" style="margin-top:6px">학생이 수업에서 쓴 글만 바탕으로 초안을 만들어요(하지 않은 활동은 쓰지 않아요). 초안은 꼭 읽고 고친 뒤 저장하세요.</div>
+    <div class="meta-line" style="margin-top:6px">초안은 꼭 읽고 고친 뒤 저장하세요.</div>
     ${all}
     <div class="chipbar as-pick" style="margin-top:10px">${list.map((x) => `<button class="chip sm ${x.key === st.id ? "on" : ""}" data-asid="${esc(x.key)}">${esc(stuName(x))}${x.hasSeteuk ? " ✓" : x.hasDraft ? ' <span class="tag b">초안</span>' : ""}${x.excluded ? ` <span class="tag x">제외</span>` : ""}</button>`).join("") || `<span class="meta-line">학생이 없어요.</span>`}</div>
     ${live.length && nSk === live.length ? `<div class="row" style="margin-top:10px">${goBtn("release", "모두 저장했어요 · ④ 공개로 →")}</div>` : ""}</div>
@@ -426,7 +429,7 @@ function prepHtml(p) {
     ${susp !== "낮음" ? `<div class="sk-warn">🤖 AI가 대신 쓴 글일 수 있어요(${susp}): 내용이 추상적이거나 기계적인 문체가 보여요. 학생 글을 직접 확인해 보세요. 이 판정만으로 학생에게 불이익을 주지 마세요.</div>` : ""}
     ${p.richness.isPoor ? `<div class="sk-warn">⚠️ 학생 글이 적어요: ${p.richness.issues.map(esc).join(", ") || "분량에 비해 적음"}</div>` : ""}
     <details class="as-ev"><summary>수준은 어떻게 정했나요?</summary><div class="sk-crit">${p.criteria.map((c) => `<span class="sk-pill g-${GRADE_CLS[c.grade]}" title="${esc(c.reason)}">${esc(c.label)} ${c.grade}${c.ai_suspicion !== "낮음" ? ` 🤖${c.ai_suspicion}` : ""}</span>`).join("")}</div>
-      <div class="meta-line" style="margin-top:6px">탐구 깊이·논리·자기주도·연계·성찰 다섯 가지를 보고 정해요(평균 ${p.gradeScore} / 4). 수준은 표현의 밀도에만 쓰고 세특에 등급을 쓰지는 않아요. 수준을 바꾼 뒤 <b>초안 다시 만들기</b>를 누르면 반영돼요.</div></details></div>`;
+      <div class="meta-line" style="margin-top:6px">${p.gradeFrom?.by === "rubric" ? `평가척도표 점수(만점의 ${p.gradeFrom.pct}%)로 정했어요. 위 다섯 가지는 참고예요.` : `위 다섯 가지로 정했어요(평균 ${p.gradeScore} / 4).`} 수준은 문장의 밀도에만 쓰고, 세특에 등급을 쓰지는 않아요.</div></details></div>`;
 }
 function structureHtml(g) {
   const last = g.log.at(-1)?.bytes ?? g.bytes;
@@ -491,21 +494,16 @@ function releaseHtml() {
     <button class="btn ${on ? "btn-plain" : "btn-primary"} btn-sm" data-asrel="${k}" type="button">${on ? "공개 끄기" : `${name} 공개하기`}</button></div>`;
   const until = d.appealUntil, past = until && until < Date.now();
   const deadline = `<div class="as-deadline"><div><b>이의 신청 마감</b> <span class="tag ${until ? (past ? "x" : "b") : "x"}">${until ? `${esc(fmtDate(until))}${past ? " · 지남" : "까지"}` : "마감 없음"}</span></div>
-    <div class="meta-line">마감이 지나면 학생 화면에서 이의 신청 단추가 사라져요.</div>
     <div class="row" style="margin-top:6px"><input type="datetime-local" id="as-ap-until" value="${until ? toLocalInput(until) : ""}" aria-label="이의 신청 마감 날짜와 시각"><button class="btn btn-tinted btn-sm" data-asapsave type="button">마감 저장</button><button class="btn btn-plain btn-sm" data-asap7 type="button">오늘부터 7일 뒤로</button>${until ? `<button class="btn btn-plain btn-sm" data-asapnone type="button">마감 없애기</button>` : ""}</div></div>`;
   return `<div class="card"><h3 style="margin:0 0 4px">학생에게 공개하기</h3>
-    <div class="meta-line">공개하면 학생이 자기 화면의 <b>내 결과</b>에서 봐요(수업이 끝난 뒤에도 입장 정보로 볼 수 있어요). 점수와 세특은 따로 공개하고, 끄면 바로 안 보여요.${nEx ? ` 평가에서 뺀 학생 ${nEx}명에게는 점수 대신 안내가 보여요.` : ""}</div>
+    <div class="meta-line">학생의 <b>내 결과</b>에 보여요. 끄면 바로 안 보여요.${nEx ? ` 평가에서 뺀 학생 ${nEx}명에게는 점수 대신 안내가 보여요.` : ""}</div>
     <div class="as-rel">
-      ${row("score", "점수", r.score, left.length ? `⚠ ${left.join(" · ")}` : "✓ 모두 채점·확정했어요", "학생은 항목별 점수·수준·평가 근거를 보고, 항목마다 한 번 이의 신청을 할 수 있어요. 이의 신청은 ② 확인에 모여요.")}
+      ${row("score", "점수", r.score, left.length ? `⚠ ${left.join(" · ")}` : "✓ 모두 채점·확정했어요", "이의 신청은 ② 확인에 모여요.")}
       ${deadline}
       ${row("seteuk", "세특", r.seteuk, nSk < nStu ? `⚠ 세특을 저장하지 않은 학생 ${nStu - nSk}명` : "✓ 모든 학생의 세특을 저장했어요", "")}
-    </div></div>
-    <div class="card"><h4 style="margin:0 0 4px">학생 화면 미리보기</h4>
-      <div class="meta-line">학생이 '내 결과'에서 보게 될 화면이에요. 공개하기 전에 평가 근거가 학생에게 알맞은 말인지 살펴보세요. 확정한 점수만 보여요.</div>
-      <div class="row as-pv" style="margin-top:8px"><select id="as-pv" aria-label="미리 볼 학생">${d.students.map((x) => `<option value="${esc(x.key)}">${esc(stuName(x))}${x.excluded ? ` (${esc(x.excluded.label)} · 제외)` : ""}</option>`).join("")}</select><button class="btn btn-tinted btn-sm" data-aspreview type="button" ${d.students.length ? "" : "disabled"}>미리보기</button></div></div>
-    <div class="card"><h4 style="margin:0 0 4px">NEIS에 옮기기</h4>
-      <div class="meta-line">학생마다 항목별 점수, 개인·모둠 영역 합계, 총점과 저장한 세특을 엑셀에서 열리는 파일(CSV)로 내려받아요. 확정한 점수만 넣고, 확정 전·채점 전 항목은 따로 적어 줘요. 학생은 모둠과 별명으로 나오니 이름은 직접 맞춰 주세요.</div>
-      <div class="row" style="margin-top:8px"><button class="btn btn-primary btn-sm" data-asexport type="button">점수·세특 내려받기</button></div></div>`;
+    </div>
+    <div class="as-more"><div class="row as-pv"><b>학생 화면 미리보기</b><select id="as-pv" aria-label="미리 볼 학생">${d.students.map((x) => `<option value="${esc(x.key)}">${esc(stuName(x))}${x.excluded ? ` (${esc(x.excluded.label)} · 제외)` : ""}</option>`).join("")}</select><button class="btn btn-tinted btn-sm" data-aspreview type="button" ${d.students.length ? "" : "disabled"}>미리보기</button></div>
+      <div class="row"><b>NEIS에 옮기기</b><button class="btn btn-tinted btn-sm" data-asexport type="button" title="확정한 점수와 저장한 세특을 엑셀용 파일(CSV)로 내려받아요. 학생은 모둠·별명으로 나와요">점수·세특 내려받기(CSV)</button></div></div></div>`;
 }
 
 // ---------- 도구: 척도표 ----------
@@ -882,5 +880,6 @@ document.addEventListener("change", (e) => {
 // 수준을 고르면 선택한 칸이 강조되도록 한다(저장 전 미리보기)
 document.addEventListener("change", (e) => {
   const r = e.target.closest?.('#as-root input[type="radio"]'); if (!r) return;
-  r.closest(".as-lv").querySelectorAll(".lvopt").forEach((l) => l.classList.toggle("cur", l.contains(r)));
+  const box = r.closest(".as-lv"); box.querySelectorAll(".lvopt").forEach((l) => l.classList.toggle("cur", l.contains(r)));
+  const now = box.nextElementSibling; if (now?.classList.contains("lv-now")) now.textContent = r.closest(".lvopt").querySelector(".lvd")?.textContent || "";
 });
