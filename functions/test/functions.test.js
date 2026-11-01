@@ -140,6 +140,11 @@ const chatDocs = (uid) => [...store.entries()].filter(([k]) => k.startsWith(`ses
 const groupLogs = () => [...store.entries()].filter(([k]) => k.startsWith(`sessions/${code}/groups/g1/logs/`)).map(([, v]) => v);
 const setWork = (work) => store.set(`sessions/${code}/groups/g1`, { ...store.get(`sessions/${code}/groups/g1`), work });
 
+test("aiRequest 미리 깨우기({ warm: true })는 로그인·수업 확인 없이 바로 끝나고 아무것도 쓰지 않는다", async () => {
+  assert.deepEqual(await api.aiRequest({ data: { warm: true } }), { warm: true });
+  await assert.rejects(api.aiRequest({ data: { warm: "yes" } }));
+});
+
 test("교사: 수업 만들기 → 코드와 모둠 문서 생성", async () => {
   const { code: c } = await api.createSession({ ...teacher, data: { groupCount: 2, eventId: "bogus" } });
   code = c;

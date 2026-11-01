@@ -82,8 +82,8 @@ function checkGate({ stage, type, work = {}, payload = {}, level = "high" }) {
       const c = toList(work.s2?.checks).find((x) => x.id === payload.checkId);
       if (!c) return blocked("2단계에서 만든 확인 질문만 AI에게 물을 수 있습니다.");
       if (str(c.question).length < MIN_QUESTION_LEN) return blocked("확인 질문을 더 구체적으로 써 주세요.");
-      // 선행 사고: 실제 자료에서 먼저 찾아본 결과(없으면 '자료에 없음')를 적어야 AI에게 묻는다
-      if (str(c.real).length < 2) return blocked("2단계 확인 질문 카드의 '위 자료와 비교하면?'에서 실제 사건 자료와 비교한 결과를 먼저 골라 주세요. 자료에서 못 찾았다면 '자료에 없다'를 고르세요.");
+      // 선행 사고: 묻기 전에 우리 예상을 먼저 적어야 AI에게 묻는다(예전 수업은 2단계에서 자료와 비교한 결과로도 된다)
+      if (str(c.real).length < 2 && str(work.s3?.guess?.[c.id]).length < 2) return blocked("AI에게 묻기 전에, 우리 예상을 먼저 적어 주세요.");
       return allowed();
     }
     case 4: {

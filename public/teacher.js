@@ -3,10 +3,11 @@ import { waitHtml, startWaitTicker, STEPS } from "./wait.js";
 import { showModal, confirmModal } from "./modal.js";
 import { initTopics, loadTopics, topicClassTitle, topicReady } from "./topics.js";
 import { runTour } from "./tour.js";
-import { openAssess } from "./assess.js";
+// 평가 탭(assess.js, 큰 파일)은 평가 탭을 처음 열 때 불러온다(교사 화면이 빨리 열리게)
+const openAssess = (code) => import("./assess.js").then((m) => m.openAssess(code)).catch((e) => toast(errMsg(e), true));
 startWaitTicker();
 import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { collection, query, where, orderBy, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { collection, query, where, orderBy, onSnapshot, getDocs, getDocsFromServer } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const $ = (s) => document.querySelector(s);
 const STAGE_NAMES = ["", "이야기 듣기", "원인 찾기", "사실 확인", "해결책 만들기", "미래 그려 보기", "실천 계획", "돌아보기"]; // 학생 화면과 같은 이름
@@ -314,10 +315,33 @@ function openSession(code, title, topicId) {
     renderWorkViews();
   }));
   tickTimer = setInterval(renderDash, 15000); // 접속 상태를 주기적으로 갱신
+  startLobbyPoll(code);
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
+// 대기실: 학교 와이파이처럼 실시간 연결이 막히거나 늦으면 들어온 학생이 바로 안 보인다.
+// 그래서 대기 중인 동안은 몇 초마다 서버에서 입장한 학생 목록을 직접 다시 읽는다(학생 화면의 수업 시작 확인과 같은 방식).
+let lobbyPoll = null, lobbyBusy = false;
+const lobbyWaiting = () => { const r = curRow(); return !!r && r.started === false && !r.closed; };
+async function pollLobby(code) {
+  if (current !== code || document.hidden || lobbyBusy || !lobbyWaiting()) return;
+  lobbyBusy = true;
+  try {
+    const s = await getDocsFromServer(collection(db, `sessions/${code}/members`));
+    if (current !== code) return;
+    members = s.docs.map((d) => ({ uid: d.id, ...d.data() }));
+    renderDash();
+  } catch {} finally { lobbyBusy = false; }
+}
+function startLobbyPoll(code) {
+  clearInterval(lobbyPoll);
+  lobbyPoll = setInterval(() => pollLobby(code), 4000);
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden && current) pollLobby(current); });
+window.addEventListener("online", () => { if (current) pollLobby(current); });
+
 function closeSession() {
+  clearInterval(lobbyPoll);
   closePresent();
   unsubs.forEach((u) => u()); unsubs = [];
   clearInterval(tickTimer);
@@ -341,7 +365,10 @@ const KPI_ICON = {
   flag: kpiSvg('<path d="M5 21V4"/><path d="M5 4.5h11l-2 4 2 4H5"/>'),
   pause: kpiSvg('<circle cx="12" cy="12" r="8.5"/><path d="M10 9v6M14 9v6"/>'),
 };
-function renderDash() {
+// 학생 접속 신호(학생마다 30초에 한 번)·모둠 글이 들어올 때마다 바로 다시 그리지 않고, 짧은 순간에 온 것을 한 번에 그린다
+let dashTimer = null;
+function renderDash() { if (!dashTimer) dashTimer = setTimeout(() => { dashTimer = null; renderDashNow(); }, 120); }
+function renderDashNow() {
   if (!current) return;
   trackChanges();
   renderLobby();
@@ -597,7 +624,7 @@ async function loadCheck(eventId) {
 }
 
 // ---------- 모둠 산출물 (학생이 적은 문제·원인·대안·시나리오·계획) ----------
-const PROBLEM_CHECK_N = 5, REFLECT_N = 10;
+const PROBLEM_CHECK_N = 3, REFLECT_N = 4; // 학생 화면의 문제 점검·AI 돌아보기 체크 수(app.js 의 PROBLEM_CHECKS·CHECKLIST)
 const tx = (v) => (typeof v === "string" ? v.trim() : "");
 const listOf = (x) => Object.entries(x || {}).map(([id, v]) => ({ id, ...(v && typeof v === "object" ? v : { text: v }) })).sort((a, b) => (a.t || 0) - (b.t || 0));
 const countTrue = (o) => Object.values(o || {}).filter(Boolean).length;
@@ -876,7 +903,7 @@ const DEEP = [
   ["premise", "1단계 · 인물이 당연하게 여기는 것(전제)과 부딪히는 가치 찾기"],
   ["causeMap", "2·3단계 · 원인끼리 잇기(인과 지도)와 뿌리가 되는 원인 따지기"],
   ["sources", "3단계 · 다른 자료로 한 번 더 확인하고, 자료를 만든 쪽 따지기"],
-  ["tradeoff", "4단계 · 해결책 두 개를 얻는 것·포기하는 것으로 견주기, 사례를 옮길 때의 조건"],
+  ["tradeoff", "4단계 · 해결책 두 개를 좋아지는 점·손해 보는 점으로 견주기"],
   ["chain", "5단계 · 한 사람의 반응이 다른 사람에게 미치는 연쇄 예측"],
   ["power", "6단계 · 결정 권한이 있는 곳과 제안 경로 찾기"],
   ["why", "7단계 · 실제와 달랐던 까닭 분석"],

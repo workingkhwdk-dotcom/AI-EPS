@@ -18,7 +18,22 @@
 <script src="device.js" data-tablet="t.html"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Gowun+Batang&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Gowun+Batang&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<!-- 빨리 열기: 화면 코드가 부를 파일을 미리 받아 둔다(차례로 찾아 받느라 늦어지는 것을 줄인다). 체험 화면은 tools/build-demo-data.js 가 이 줄들(data-pre)을 뺀다 -->
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin data-pre />
+<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin data-pre />
+<link rel="preconnect" href="https://asia-northeast3-knue-socialstudies-ai-eps.cloudfunctions.net" crossorigin data-pre />
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js" data-pre />
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js" data-pre />
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js" data-pre />
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js" data-pre />
+<link rel="modulepreload" href="fb.js" data-pre />
+<link rel="modulepreload" href="firebase-config.js" data-pre />
+<link rel="modulepreload" href="wait.js" data-pre />
+<link rel="modulepreload" href="modal.js" data-pre />
+<link rel="modulepreload" href="help.js" data-pre />
+<link rel="modulepreload" href="result.js" data-pre />
+<link rel="modulepreload" href="app.js" data-pre />
 <link rel="stylesheet" href="style.css" />
 <link rel="stylesheet" href="mobile.css" />
 </head>

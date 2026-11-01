@@ -898,7 +898,10 @@ const REVIEW_LABELS_MID = { feasibility: "정말 할 수 있을까", stakeholder
 
 // AI 호출의 단일 관문: 인증 → 모둠 확인 → GYR 게이트 → 횟수 한도 → OpenAI → (1단계) 상위 AI 감독 → 로그
 //  - 1단계 인물 대화는 학생별 횟수(chatLimit)로, 3~5단계는 모둠 횟수(aiLimit)로 센다.
-exports.aiRequest = onCall(aiOpts, async (req) => {
+// 학생이 가장 자주 기다리는 호출이라 입장 함수처럼 MIN_INSTANCES 를 따른다(수업 시간에만 1로 올리면 첫 답이 빨라진다).
+// { warm: true } 는 미리 깨우기만 하고 바로 끝난다(학생 화면이 수업이 시작될 때 한 번 부른다).
+exports.aiRequest = onCall({ ...aiOpts, minInstances: MIN_INSTANCES }, async (req) => {
+  if (req.data?.warm === true) return { warm: true };
   const auth = requireAuth(req);
   const { stage, type, payload = {} } = req.data || {};
   const code = sessCode(req.data?.code);
@@ -1763,18 +1766,33 @@ exports.assess = onCall(opts, async (req) => {
 });
 
 const SK = require("./seteuk");
-// 세특의 근거: 이 학생의 개인 활동 + 모둠이 함께 한 활동(다른 학생의 개인 글과 별명은 넣지 않는다). 기승전결 어느 부분에 어울리는지 힌트(role)를 단다.
+// 세특의 근거: 평가척도표 기준마다 한 블록. 블록에는 드러나는 역량, 평가척도표상의 수준과 그 수준의 기술(교사가 확정한 점수, 없으면 AI 채점),
+// 교사 메모, 관찰 자료(이 학생의 개인 활동·모둠이 함께 한 활동의 글)를 담는다. 다른 학생의 개인 글과 별명은 넣지 않는다.
+// AI 는 이 블록을 '교사가 관찰한 것'으로 보고 교사의 언어로 재구성한다(학생 글을 인용·요약하지 않는다).
 async function seteukEvidence(code, sess, id, stu, members) {
   const mine = await loadEvidence(code, sess, "student", id, members);
   const grp = await loadEvidence(code, sess, "group", stu.groupId, members);
-  const picks = [["c11", mine], ["c21", mine], ["c22", mine], ["c31", mine], ["c41", mine], ["c52", mine], ["c12", grp], ["c23", grp], ["c32", grp], ["c42", grp], ["c51", grp]];
+  const [sDoc, gDoc] = (await Promise.all([assessRef(code, `s_${id}`).get(), assessRef(code, stu.groupId).get()])).map((d) => d.data() || {});
   const items = [];
-  for (const [cid, src] of picks) for (const e of src.evidence[cid] || []) {
-    if (A.isRefLabel(e.label)) continue; // 참고용 기록(건수·점검표 등)은 세특 근거가 아니다
-    items.push({ id: `e${items.length + 1}`, label: `${src === mine ? "내 활동" : "모둠 활동"} · ${e.label}`, text: A.clip(e.text, 320), role: SK.ROLE_OF[cid] });
+  for (const c of mine.rubric.criteria) {
+    const own = c.scope === "student", src = own ? mine : grp;
+    const obs = (src.evidence[c.id] || []).filter((e) => !A.isRefLabel(e.label));
+    const sc = (own ? sDoc : gDoc).scores?.[c.id];
+    if (sc?.level === -1) continue; // 미제출 기준은 세특에 쓰지 않는다
+    if (!obs.length && !A.clip(sc?.note, 10)) continue;
+    const lv = Number.isInteger(sc?.level) ? c.levels[sc.level] : null;
+    items.push({ id: `e${items.length + 1}`, criterion: c.name, label: c.name, scope: own ? "student" : "group", competency: SK.COMPETENCY[c.id] || "", role: SK.ROLE_OF[c.id],
+      levelLabel: lv?.label || "", levelDesc: lv?.desc || "", levelSource: lv ? (sc.src === "ai" && !sc.reviewed ? "AI 채점, 교사 검토 전" : "교사 확정") : "",
+      pts: lv ? lv.pts : null, max: c.max, note: A.clip(sc?.note, 200),
+      text: A.clip(obs.map((e) => `${e.label}: ${e.text}`).join(" / "), 700) });
   }
   let size = 0;
-  return items.filter((e) => (size += e.text.length + e.label.length) <= 6000);
+  return items.filter((e) => (size += e.text.length + e.levelDesc.length + e.label.length) <= 9000);
+}
+// 수업에서 다룬 사건 이름(세특의 맥락 문장에 쓴다)
+async function seteukTopicTitle(code, sess) {
+  if (sess.topicId) { try { const t = (await db.doc(`sessions/${code}/private/topic`).get()).data() || {}; return A.clip(t.event?.title || t.title || "", 80); } catch { return ""; } }
+  return A.clip(EVENTS[sess.eventId]?.title || "", 80);
 }
 async function seteukScoreLines(code, sess, id, stu) {
   const rubric = rubricOfSession(sess);
@@ -1862,7 +1880,10 @@ async function seteukPrepFor({ code, sess, members, id }) {
   const rich = SK.richnessFromQuality(lv.quality, lv.factInsufficient);
   const safe = SK.computeSafeTarget(inputBytes, target, lv.grade);
   const suggestedMax = Math.min(safe.safeMaxBytes, rich.cap ?? Infinity);
-  const prep = { grade: lv.grade, gradeScore: lv.gradeScore, criteria: lv.criteria, suspicion: lv.suspicion, quality: lv.quality, factInsufficient: lv.factInsufficient,
+  // 평가척도표 점수가 매겨져 있으면 그것으로 수준을 정한다(세특이 채점과 따로 놀지 않게). 없으면 수준 판정 AI 결과.
+  const rg = SK.gradeFromRubric(items.filter((e) => e.pts !== null).map((e) => ({ pts: e.pts, max: e.max })));
+  const useRubric = rg && rg.n >= Math.ceil(items.length / 2);
+  const prep = { grade: useRubric ? rg.grade : lv.grade, gradeFrom: useRubric ? { by: "rubric", pct: rg.pct, n: rg.n, ai: lv.grade } : { by: "ai" }, gradeScore: lv.gradeScore, criteria: lv.criteria, suspicion: lv.suspicion, quality: lv.quality, factInsufficient: lv.factInsufficient,
     richness: rich, inputBytes, ratio: safe.ratio, target, suggestedMax, needsAdjustment: suggestedMax < target || rich.isPoor, evidenceCount: items.length, t: Date.now() };
   await patchAssess(assessRef(code, `s_${id}`), { "seteuk.prep": prep, kind: "student", name: stu.nick });
   return prep;
@@ -1886,7 +1907,7 @@ async function seteukDraftFor({ code, sess, members, id, decision, grade: wantGr
   const allowCreation = prep.needsAdjustment && dec.allowCreation;
   const contentFirst = prep.needsAdjustment && decision === "lower";
   const scoreLines = await seteukScoreLines(code, sess, id, stu);
-  const params = { level, items, scores: scoreLines, grade, emphasis, effectiveTarget: effTarget, targetBytes: target, allowCreation, filledCount: items.length };
+  const params = { level, items, scores: scoreLines, grade, emphasis, effectiveTarget: effTarget, targetBytes: target, allowCreation, filledCount: items.length, topic: await seteukTopicTitle(code, sess) };
   const base = SK.draftMessages(params);
   const validIds = items.map((e) => e.id);
   const budget = ASSESS_AI_CAP - (await usedOf(code));
@@ -1909,6 +1930,13 @@ async function seteukDraftFor({ code, sess, members, id, decision, grade: wantGr
       // 첫 초안과 구조를 다시 잡는 재시도는 고성능, 분량만 맞추는 보정은 빠른 모델
       parsed = SK.parseDraft(await ask(messages, direction === "init" || k > 0 || strongFix), { validIds, nick: stu.nick });
       flow = SK.checkFlow(parsed.parts);
+      // 학생 글을 그대로 옮긴 곳이 있으면 교사의 언어로 다시 쓰게 한다(첫 초안에서 한 번)
+      const copied = direction === "init" && k === 0 ? SK.copyHits(SK.assemble(parsed.parts), items) : [];
+      if (copied.length && !flow.errors.length && calls + 1 < budget) {
+        lastParts = parsed.parts;
+        messages = SK.fixMessages({ base, parts: parsed.parts, direction: "fix", bytes, effectiveTarget: effTarget, items, feedback: `학생 글을 그대로 옮긴 표현이 있다(${copied.slice(0, 4).map((x) => `'${x}'`).join(", ")}). 이 부분을 학생 글의 어구 없이, 교사가 관찰한 사고와 역량을 해석하는 말로 다시 쓴다` });
+        continue;
+      }
       if (!flow.errors.length) break;
       if (direction !== "init") strongFix = true; // 빠른 모델의 보정이 기승전결을 깨면 이후는 고성능
       if (k === 0 && calls + 1 < budget) { lastParts = parsed.parts.filter((p) => p.sentences.length); messages = SK.fixMessages({ base, parts: parsed.parts, direction: "fix", bytes, effectiveTarget: effTarget, items, feedback: `${flow.errors.join(", ")}. 기승전결 네 부분이 모두 있도록 근거가 있는 문장으로 채운다.` }); }
@@ -1929,10 +1957,11 @@ async function seteukDraftFor({ code, sess, members, id, decision, grade: wantGr
   const got = made.get(conv.text);
   if (!conv.text || !got) throw new HttpsError("unavailable", "쓸 만한 초안을 만들지 못했어요. 다시 시도하세요.");
   const lint = SK.lintStyle(conv.text, { nick: stu.nick });
-  const warnings = [...got.flow.errors, ...got.flow.warnings, ...lint];
+  const copied = SK.copyHits(conv.text, items);
+  const warnings = [...got.flow.errors, ...got.flow.warnings, ...lint, ...(copied.length ? [`학생 글을 그대로 옮긴 표현이 남아 있어요: ${copied.slice(0, 3).map((x) => `'${x}'`).join(", ")}. 교사의 말로 고쳐 쓰세요.`] : [])];
   if (conv.bytes > target) warnings.unshift(`글자 수가 ${conv.bytes}바이트로 한도(${target}바이트)를 넘어요. 줄여서 저장하세요.`);
   const out = { text: conv.text, parts: got.parts, dropped: got.dropped, warnings, bytes: conv.bytes, max: target, target: effTarget, reason: conv.reason, tries: conv.tries, log, calls, models: used_models, grade, emphasis, decision,
-    evidence: Object.fromEntries(items.map((e) => [e.id, { label: e.label, text: e.text }])) };
+    evidence: Object.fromEntries(items.map((e) => [e.id, { label: e.levelLabel ? `${e.label} · ${e.levelLabel}` : e.label, text: e.text }])) };
   // 초안은 확정본(seteuk.text)과 따로 둔다. 화면을 닫았다 열어도, 서버가 한꺼번에 만든 초안도 여기서 다시 읽는다.
   await patchAssess(ref, { "seteuk.gen": { t: Date.now(), grade, emphasis, decision, target: effTarget, bytes: conv.bytes, reason: conv.reason, tries: conv.tries, models: used_models },
     "seteuk.draft": JSON.parse(JSON.stringify({ ...out, t: Date.now() })), kind: "student", name: stu.nick });

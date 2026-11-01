@@ -246,6 +246,19 @@ body.m{ --navh:calc(54px + env(safe-area-inset-bottom)); --hdrh:calc(41px + env(
 .m .qr-mini{ width:56px; height:56px; }
 /* 대화 중 알림은 화면 위쪽에 띄워 아래 입력창을 가리지 않는다 */
 .m.chat-mode .toast{ top:calc(60px + env(safe-area-inset-top)); bottom:auto; }
+/* ---------- 장면(씬) ---------- */
+.m .scene{ padding:16px 16px 18px; border-radius:18px; }
+.m .sc-top{ margin-bottom:10px; font-size:12px; }
+.m .sc-n{ display:none; }
+.m .sc-q{ font-size:19px; }
+.m .sc-hint{ font-size:14px; margin-bottom:12px; }
+.m .row2{ grid-template-columns:1fr; gap:0; }
+.m.chat-mode .sc-top{ display:none; }
+/* 이전·다음: 한 줄에 나란히(이전은 작게, 다음은 넓게) */
+.m .nav-foot{ flex-direction:row; align-items:stretch; gap:8px; }
+.m .nav-foot > .btn-plain{ flex:0 0 auto; padding-left:16px; padding-right:16px; }
+.m .nav-foot > .sc-next, .m .nav-foot > .btn-primary, .m .nav-foot > .btn-tinted{ flex:1 1 auto; margin-left:0; }
+.m .who-what-how label{ grid-template-columns:56px 1fr; }
 
 /* 평가 척도표: 항목마다 카드 한 장, 수준 이름을 칸 앞에 붙인다(PC 표의 열 너비는 쓰지 않는다) */
 .m-teacher .as-rubric thead{ display:none; }

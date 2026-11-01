@@ -50,7 +50,7 @@ function evidenceFor(critId, ctx) {
       add("같은 점", pb.common); add("서로 다르게 말한 것", pb.disputes); add("부딪히는 점", pb.conflict);
       if (deep.premise) { add("부딪히는 가치", [pb.valueA, pb.valueB].filter(Boolean).join(" ↔ ")); add("가치를 함께 지키기 어려운 까닭", pb.valueWhy); }
       add("문제 상황", pb.situation); add("우리가 풀 질문", pb.hmw);
-      const n = countTrue(pb.checks); if (pb.checks && Object.keys(pb.checks).length) add("점검표 확인", `${n} / 5개 확인`);
+      const n = countTrue(pb.checks); if (pb.checks && Object.keys(pb.checks).length) add("점검표 확인", `${n} / 3개 확인`);
       Object.values(w.s1?.findings || {}).forEach((f) => { if (f && f.submitted !== false) add("모둠원이 만난 인물", `${f.persona || "인물"}: ${[f.who, f.hard, f.want].filter(Boolean).join(" / ")}`, 220); });
       break;
     }
@@ -65,7 +65,7 @@ function evidenceFor(critId, ctx) {
       // 개인 칸: 내가 쓴(입력한) 원인 추측·원인 잇기·확인 질문만 본다. 모둠이 모은 것은 참고로만 보여 준다(없는 것으로 세지 않는다).
       const causes = listOf(w.s2?.causes);
       causes.filter(isMine).forEach((c) => add(`내가 쓴 원인 추측(${c.level || "갈래 없음"})`, c.text, 260));
-      listOf(w.s2?.causeLinks).filter(isMine).forEach((l) => add("내가 이은 원인", `${causes.find((x) => x.id === l.from)?.text || "?"} → ${l.rel || ""} → ${causes.find((x) => x.id === l.to)?.text || "?"}`, 260));
+      listOf(w.s2?.causeLinks).filter(isMine).forEach((l) => add("내가 이은 원인", `${causes.find((x) => x.id === l.from)?.text || "?"} 때문에 → ${causes.find((x) => x.id === l.to)?.text || "?"} ${({ "을(를) 불러와요": "생겼어요", "을(를) 더 키워요": "더 커졌어요" })[l.rel] || l.rel || ""}`, 260));
       listOf(w.s2?.checks).filter(isMine).forEach((c) => add("내가 쓴 확인 질문", [`들은 말: ${c.heard || ""}`, c.fo && `사실·의견: ${c.fo}`, `질문: ${c.question || ""}`, c.refute && `틀렸다면: ${c.refute}`, c.look && `확인할 곳: ${c.look}`].filter(Boolean).join(" / "), 420));
       add("(모둠 참고) 모둠이 모은 원인 추측·확인 질문", `원인 추측 ${causes.length}개 중 내가 쓴 것 ${causes.filter(isMine).length}개, 확인 질문 ${listOf(w.s2?.checks).length}개 중 내가 쓴 것 ${listOf(w.s2?.checks).filter(isMine).length}개`);
       break;
@@ -126,7 +126,7 @@ function evidenceFor(critId, ctx) {
     }
     case "c61": {
       const n = countTrue(w.s7?.checks);
-      if (w.s7?.checks && Object.keys(w.s7.checks).length) add("AI 활용 점검표", `${n} / 10개 확인`);
+      if (w.s7?.checks && Object.keys(w.s7.checks).length) add("AI 활용 점검표", `${n} / 4개 확인`);
       add("AI 답 중 받아들인 것·버린 것", w.s7?.reflection, 700);
       add("AI 사용 기록(참고)", `3~5단계 AI 호출 ${ctx.groupAi ?? 0}번`);
       break;

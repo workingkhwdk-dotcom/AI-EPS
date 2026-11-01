@@ -805,6 +805,10 @@ test("통합 세특: 기승전결 4부분으로 쓰고, 근거 없는 문장은 
   const first = draftMsgs[0];
   assert.match(first, /구조: 기승전결/); assert.match(first, /체계적 수행/); assert.match(first, /회복탄력/); assert.match(first, /570~600바이트/);
   assert.match(first, /권장 배치: 기·승/);
+  // 근거는 평가척도표 기준 블록: 역량, 수준(매긴 점수가 있으면 그 수준의 기술), 관찰 자료(그대로 옮기지 않음), 수업에서 다룬 사건
+  assert.match(first, /평가 기준: 인물 이해/); assert.match(first, /드러나는 역량: 의사소통 능력/);
+  assert.match(first, /관찰 자료\(학생이 쓴 글: 판단의 근거로만 쓰고 그대로 옮기지 않는다\)/);
+  assert.match(first, /교사의 관찰 기록/); assert.match(first, /수업에서 다룬 사건: 제주/);
   // 근거주의: 다른 학생의 별명과 이 학생의 별명은 AI 에 보내지 않는다
   assert.ok(!first.includes("다라") && !first.includes("가나"));
   // 저장하면 그 글이 확정본이 된다(저장 시점에 바이트를 다시 센다)

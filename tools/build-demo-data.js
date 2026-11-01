@@ -42,6 +42,8 @@ function page(src) {
   let h = fs.readFileSync(path.join(pub, src), "utf8");
   h = h.replace(/<title>[\s\S]*?<\/title>/, "<title>AI-EPS 체험</title>");
   h = h.replace(/<link rel="manifest"[^>]*>\n?/, "");
+  // 미리 받기(data-pre)는 진짜 Firebase 를 부르므로 체험 화면에서는 뺀다(체험은 가짜 모듈을 import map 으로 쓴다)
+  h = h.replace(/<!-- 빨리 열기:[^\n]*-->\n/, "").replace(/<link [^>]*data-pre \/>\n/g, "");
   h = must(h, '<meta charset="UTF-8" />', `<meta charset="UTF-8" />\n<!-- 체험 화면: ${src} 에서 tools/build-demo-data.js 가 만든다. 직접 고치지 말고 그 스크립트를 고치세요. -->\n<script src="demo/boot.js"></script>\n<script type="importmap">{"imports": {${IMPORTS}}}</script>`);
   h = h.replace(/data-(mobile|tablet)="(m\.html|t\.html)"/g, (_, k, f) => `data-${k}="${DEMO[f]}"`);
   h = must(h, "</head>", '<link rel="stylesheet" href="demo/demo.css" />\n</head>');
