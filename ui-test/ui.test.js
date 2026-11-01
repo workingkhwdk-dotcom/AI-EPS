@@ -123,7 +123,7 @@ async function openTeacher(st, { page = "teacher.html", ctxOpts, session = {}, o
       sessions: [{ id: "ABC234", title: "테스트 수업", groupCount: 3, teacherUid: "T1", ...session }],
       "sessions/ABC234/members": [{ id: "u1", groupId: "g1", nickname: "가람", stage: 2, chatLocked: true, conduct: { total: 3, strikes: 3 }, ...seen }, { id: "u2", groupId: "g1", nickname: "나래", stage: 2, ...seen }],
       "sessions/ABC234/alerts": [{ id: "a1", uid: "u1", nickname: "가람", groupId: "g1", category: "mockery", by: "rule", input: "놀리는 말", strikes: 3, locked: true }],
-      "sessions/ABC234/groups": [{ id: "g1", name: "1모둠", work: {}, lastAiError: { stage: 3, message: "시간 초과" }, aiCount: 130, guardCount: 4 }, { id: "g2", name: "2모둠", work: {} }, { id: "g3", name: "3모둠", work: {} }],
+      "sessions/ABC234/groups": [{ id: "g1", name: "1모둠", work: {}, lastAiError: { stage: 3, message: "시간 초과" }, aiCount: 50, guardCount: 4 }, { id: "g2", name: "2모둠", work: {} }, { id: "g3", name: "3모둠", work: {} }],
     };
   }, st.handler, { session, online, tours }, ctxOpts);
   if (clock) await t.pg.clock.install();
@@ -202,7 +202,7 @@ test("교사: 수업 목록 → 수업 열기 → 알림·학생 표", async () 
   assert.ok(!(await pg.locator("#class-list-view").isVisible()));
   await pg.waitForSelector("#alerts:not(.hidden)");
   const alerts = await pg.locator("#alerts-body").innerText();
-  assert.match(alerts, /AI 오류/); assert.match(alerts, /130\/150/); assert.match(alerts, /감독자가 4번/);
+  assert.match(alerts, /AI 오류/); assert.match(alerts, /50\/60/); assert.match(alerts, /감독자가 4번/);
   assert.match(await pg.locator("#students").innerText(), /비번 초기화/);
   assert.match(await pg.locator("#students").innerText(), /모둠 이동/);
   assert.deepEqual(errors, []);
@@ -350,7 +350,8 @@ test("학생: 입장 폼 — 빈 칸이면 요청하지 않고, 틀린 비밀번
   await pg.click("#j-btn");
   assert.equal(st.joined.length, 0);
   await pg.fill("#j-pw", "bad"); await pg.click("#j-btn");
-  await pg.waitForFunction(() => window.__log.filter((n) => n === "joinSession").length >= 2); // 입장 미리 깨우기 + 이번 요청
+  await pg.waitForFunction(() => window.__log.filter((n) => n === "joinSession").length >= 1); // 이번 요청(미리 깨우기는 { warm: true } 라 따로 셈)
+  assert.ok(await pg.evaluate(() => window.__warm >= 1), "입장 화면을 열면 입장 기능을 미리 깨운다");
   assert.ok(!(await pg.locator("#app").isVisible()));
   await pg.fill("#j-pw", "pw1234"); await pg.click("#j-btn");
   await pg.waitForSelector("#app:not(.hidden)");

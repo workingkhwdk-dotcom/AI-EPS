@@ -90,3 +90,46 @@ test("인물의 사실 찾아보기(Responses API 함수 도구): 새 모델도 
   assert.deepEqual(buildToolBody({ model: "gpt-5.6-terra", input, tools, effort: "minimal" }).reasoning, { effort: "none" });
   assert.deepEqual(buildToolBody({ model: "gpt-5-mini", input, tools, effort: "low" }).reasoning, { effort: "low" });
 });
+
+// ---------- 비용 줄이기: 프롬프트 캐시 키와 할인 요금(flex) ----------
+test("긴 시스템 프롬프트는 해시를 캐시 키로 보내고, 짧으면 보내지 않는다", () => {
+  const { buildBody, buildToolBody } = require("../openai");
+  const long = "가".repeat(2000);
+  const a = buildBody({ model: "gpt-5.6-terra", messages: [{ role: "system", content: long }, { role: "user", content: "안녕" }] });
+  const b = buildBody({ model: "gpt-5.6-terra", messages: [{ role: "system", content: long }, { role: "user", content: "다른 질문" }] });
+  assert.match(a.prompt_cache_key, /^s:[0-9a-f]{24}$/);
+  assert.equal(a.prompt_cache_key, b.prompt_cache_key, "같은 시스템 프롬프트는 같은 키");
+  assert.equal(buildBody({ model: "gpt-5.6-terra", messages: [{ role: "system", content: "짧다" }] }).prompt_cache_key, undefined);
+  assert.equal(buildBody({ model: "gpt-5.6-terra", messages: [{ role: "user", content: long }] }).prompt_cache_key, undefined, "시스템 프롬프트가 없으면 키 없음");
+  assert.equal(buildToolBody({ model: "gpt-5.6-terra", input: [{ role: "system", content: long }], tools: [] }).prompt_cache_key, a.prompt_cache_key);
+  assert.equal(buildBody({ model: "gpt-5.6-terra", messages: [{ role: "system", content: long }], cacheKey: "k1" }).prompt_cache_key, "k1");
+  assert.equal(a.service_tier, undefined, "기본은 일반 요금");
+  assert.equal(buildBody({ model: "gpt-5.6-luna", messages: [], tier: "flex" }).service_tier, "flex");
+});
+
+test("flex 요금이 자원 부족·시간 초과로 실패하면 기본 요금으로 한 번 더 보낸다", async () => {
+  const { chat } = require("../openai");
+  const real = global.fetch, sent = [];
+  const ok = { ok: true, json: async () => ({ choices: [{ message: { content: "답" } }] }) };
+  try {
+    global.fetch = async (url, o) => { const b = JSON.parse(o.body); sent.push(b.service_tier || "default"); return b.service_tier === "flex" ? { ok: false, status: 429, text: async () => "resource unavailable" } : ok; };
+    assert.equal(await chat({ apiKey: "k", model: "gpt-5.6-luna", messages: [{ role: "user", content: "x" }], tier: "flex" }), "답");
+    assert.deepEqual(sent, ["flex", "default"]);
+    sent.length = 0;
+    global.fetch = async (url, o) => { const b = JSON.parse(o.body); sent.push(b.service_tier || "default"); if (b.service_tier === "flex") { const e = new Error("aborted"); e.name = "AbortError"; throw e; } return ok; };
+    assert.equal(await chat({ apiKey: "k", model: "gpt-5.6-luna", messages: [{ role: "user", content: "x" }], tier: "flex" }), "답");
+    assert.deepEqual(sent, ["flex", "default"], "시간 초과도 기본 요금으로 다시");
+    sent.length = 0;
+    global.fetch = async (url, o) => { sent.push(JSON.parse(o.body).service_tier || "default"); return { ok: false, status: 400, text: async () => "bad" }; };
+    await assert.rejects(chat({ apiKey: "k", model: "gpt-5.6-luna", messages: [{ role: "user", content: "x" }], tier: "flex" }), /400/);
+    assert.deepEqual(sent, ["flex", "default"], "flex 를 받지 않는 모델(400)도 기본 요금으로 다시");
+    sent.length = 0;
+    global.fetch = async (url, o) => { sent.push(JSON.parse(o.body).service_tier || "default"); return { ok: false, status: 401, text: async () => "key" }; };
+    await assert.rejects(chat({ apiKey: "k", model: "gpt-5.6-luna", messages: [{ role: "user", content: "x" }], tier: "flex" }), /401/);
+    assert.deepEqual(sent, ["flex"], "인증 오류는 다시 보내지 않는다");
+    sent.length = 0;
+    global.fetch = async (url, o) => { sent.push(JSON.parse(o.body).service_tier || "default"); return ok; };
+    await chat({ apiKey: "k", model: "gpt-5.6-luna", messages: [{ role: "user", content: "x" }] });
+    assert.deepEqual(sent, ["default"], "flex 가 아니면 한 번만");
+  } finally { global.fetch = real; }
+});

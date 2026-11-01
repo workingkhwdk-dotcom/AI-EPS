@@ -140,6 +140,15 @@ const chatDocs = (uid) => [...store.entries()].filter(([k]) => k.startsWith(`ses
 const groupLogs = () => [...store.entries()].filter(([k]) => k.startsWith(`sessions/${code}/groups/g1/logs/`)).map(([, v]) => v);
 const setWork = (work) => store.set(`sessions/${code}/groups/g1`, { ...store.get(`sessions/${code}/groups/g1`), work });
 
+test("입장·인물 고르기·사건 자료도 미리 깨우기({ warm: true })는 로그인 없이 바로 끝나고 아무것도 쓰지 않는다", async () => {
+  const before = store.size;
+  for (const f of ["joinSession", "choosePersona", "getCase"]) {
+    assert.deepEqual(await api[f]({ data: { warm: true } }), { warm: true }, f);
+    await assert.rejects(api[f]({ data: { warm: "yes" } }), undefined, `${f}: warm 이 true 가 아니면 평소처럼 로그인을 확인한다`);
+  }
+  assert.equal(store.size, before);
+});
+
 test("aiRequest 미리 깨우기({ warm: true })는 로그인·수업 확인 없이 바로 끝나고 아무것도 쓰지 않는다", async () => {
   assert.deepEqual(await api.aiRequest({ data: { warm: true } }), { warm: true });
   await assert.rejects(api.aiRequest({ data: { warm: "yes" } }));
@@ -893,11 +902,11 @@ test("모둠 AI 한도(3~5단계): 한도에 도달하면 막히고, 실패한 �
   await join("A1", c, "가람", "sesame1");
   const g = () => store.get(`sessions/${c}/groups/g1`);
   const verify = () => api.aiRequest({ ...student("A1"), data: { code: c, stage: 3, type: "verify_query", payload: { checkId: "c1" } } });
-  store.set(`sessions/${c}/groups/g1`, { ...g(), aiCount: 149, work: { s1: s1Work, s2: { checks: { c1: { heard: "x", question: "예멘 신청자는 몇 명이었나?", real: "자료에 없다", t: 1 } } } } });
+  store.set(`sessions/${c}/groups/g1`, { ...g(), aiCount: 59, work: { s1: s1Work, s2: { checks: { c1: { heard: "x", question: "예멘 신청자는 몇 명이었나?", real: "자료에 없다", t: 1 } } } } });
   await verify();
-  assert.equal(g().aiCount, 150);
+  assert.equal(g().aiCount, 60);
   await assert.rejects(verify(), /한도/);
-  assert.equal(g().aiCount, 150, "한도 초과 요청이 횟수를 늘리면 안 된다");
+  assert.equal(g().aiCount, 60, "한도 초과 요청이 횟수를 늘리면 안 된다");
   store.set(`sessions/${c}/groups/g1`, { ...g(), aiCount: 10 });
   const realFetch = global.fetch;
   global.fetch = async () => ({ ok: false, status: 500, text: async () => "boom" });
@@ -909,7 +918,7 @@ test("모둠 AI 한도(3~5단계): 한도에 도달하면 막히고, 실패한 �
 // ---------- 수업 설정·복제·자동 닫힘 ----------
 test("수업 설정: AI 한도·웹 검색·자동 닫힘을 교사만, 올바른 값으로만 바꿀 수 있다", async () => {
   const c = await mk();
-  assert.equal(store.get(`sessions/${c}`).aiLimit, 150);
+  assert.equal(store.get(`sessions/${c}`).aiLimit, 60);
   const upd = (data) => api.updateSession({ ...teacher, data: { code: c, ...data } });
   await upd({ aiLimit: 20, webSearch: false, autoCloseHours: 4 });
   assert.deepEqual([store.get(`sessions/${c}`).aiLimit, store.get(`sessions/${c}`).webSearch, store.get(`sessions/${c}`).autoCloseHours], [20, false, 4]);

@@ -218,7 +218,7 @@ $("#res-join").onclick = async () => {
   try { await openResult({ code, groupNo: Number(groupNo), nickname, password }); $("#j-pw").value = ""; } finally { b.disabled = false; }
 };
 // 입장 화면을 보는 동안 입장 기능을 미리 깨워 둔다(첫 입장이 느린 것을 줄인다). 결과는 쓰지 않는다.
-function prewarm() { if (!S.code && !savedCode()) call("joinSession")({}).catch(() => {}); }
+function prewarm() { if (!S.code && !savedCode()) call("joinSession")({ warm: true }).catch(() => {}); }
 // 한글을 조합하는 중의 Enter(글자 확정)는 입장으로 보지 않는다
 for (const id of ["#j-code", "#j-group", "#j-nick", "#j-pw"]) $(id).addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) $("#j-btn").click(); });
 // 수업 코드: 소문자·띄어쓰기를 알아서 고치고, 6자를 다 쓰면 모둠 번호 칸으로 넘어간다
@@ -356,6 +356,7 @@ async function enter(code, joined) {
   renderTabs();
   render(true);
   startPresence();
+  if (S.stage === 1 && !S.me) call("choosePersona")({ warm: true }).catch(() => {}); // 인물 고르기를 미리 깨워 둔다(비용 거의 없음)
   warmAi();
   maybeHelp();
 }
