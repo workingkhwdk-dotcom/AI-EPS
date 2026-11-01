@@ -28,6 +28,13 @@ test("3단계: 2단계에서 만든 검증 질문(지도 또는 배열)만 AI에
   assert.equal(g({ s1, s2: { checks: { c1: { heard: "x", question: "짧다" } } } }, "c1"), false);
 });
 
+test("3단계: AI에게 묻기 전에 우리 예상(s3.guess)을 먼저 적어야 한다(예전 수업은 2단계 자료 비교로도 된다)", () => {
+  const c1 = { heard: "x", question: "난민 신청자의 취업은 어떻게 제한되나?", t: 1 };
+  const g = (s3x) => checkGate({ stage: 3, type: "verify_query", work: { s1, s2: { checks: { c1 } }, s3: s3x }, payload: { checkId: "c1" } });
+  assert.match(g(undefined).reason, /예상/);
+  assert.equal(g({ guess: { c1: "아마 막혀 있었을 것" } }).ok, true);
+});
+
 test("단계 순서: 3단계는 모둠 문제, 4단계는 핵심 원인, 5단계는 최종 대안이 먼저 있어야 한다", () => {
   const checks = { c1: { heard: "x", question: "난민 신청자의 취업은 어떻게 제한되나?", real: "자료에 없음", t: 1 } };
   const g3 = (work) => checkGate({ stage: 3, type: "verify_query", work, payload: { checkId: "c1" } });
@@ -85,11 +92,6 @@ test("5단계: 최종 대안(final)은 30자 이상이어야 시뮬레이션할 
   assert.equal(ok.ok, true);
   const no = checkGate({ stage: 5, type: "scenario", work: { s4: { final: "짧다" }, s5: { predictions: preds } }, payload: { proposalId: "final", round: 3 } });
   assert.match(no.reason, /최종 해결책/);
-});
-
-test("3단계: 실제 자료에서 먼저 찾아본 결과를 적지 않으면 AI에게 묻지 못한다", () => {
-  const work = { s1, s2: { checks: { c1: { heard: "x", question: "난민 신청자의 취업은 어떻게 제한되나?" } } } };
-  assert.match(checkGate({ stage: 3, type: "verify_query", work, payload: { checkId: "c1" } }).reason, /실제 사건 자료/);
 });
 
 test("5단계: 중학교 수업은 1년 후만 그려 볼 수 있다", () => {

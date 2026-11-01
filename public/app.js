@@ -16,37 +16,23 @@ const STAGES = [
   { n: 7, name: "돌아보기", short: "돌아보기", ai: "X", cap: "성찰하기" },
 ];
 const ROUNDS = [1, 3, 5];
-// 성찰 체크리스트(초안): 투명성, 주체성, 개인정보 보호, 타인의 권리 침해 금지 영역. 연구 문항에 맞춰 수정하세요.
+// 7단계 AI 사용 돌아보기(체크는 선택). 연구 문항에 맞춰 수정하세요.
 const CHECKLIST = [
-  "AI를 어느 단계에서 어떤 목적으로 썼는지 말할 수 있다.",
-  "AI에게 묻기 전에 내가 먼저 생각하고 정리했다.",
-  "AI의 답을 그대로 쓰지 않고 내 말로 바꾸어 썼다.",
-  "AI의 답 중 틀렸거나 믿기 어려운 부분을 확인했다.",
-  "AI의 답을 받아들이거나 버린 이유를 설명할 수 있다.",
-  "최종 판단과 결정은 우리 모둠이 직접 내렸다.",
-  "AI 사용 내용을 숨기지 않고 기록으로 남겼다.",
-  "AI에게 내 이름, 학교 등 개인정보를 알려 주지 않았다.",
-  "AI로 특정 집단을 비하하거나 다른 사람의 권리를 해치는 내용을 만들지 않았다.",
-  "AI가 만든 가상 인물의 이야기를 실제 사실로 착각하지 않았다.",
+  "AI에게 묻기 전에 내가 먼저 생각했다.",
+  "AI의 답을 자료와 견주어 확인했다.",
+  "최종 판단은 우리 모둠이 직접 내렸다.",
+  "AI에게 개인정보를 알려 주지 않았다.",
 ];
-// 1단계 ③ 문제 문장 점검표
+// 1단계 문제 문장 점검(세 가지)
 const PROBLEM_CHECKS = [
-  "두 사람 이상의 처지가 함께 들어 있다.",
-  "특정 집단을 탓하거나 깎아내리는 말이 없다.",
+  "두 사람 이상의 바람이 함께 들어 있다.",
+  "누구를 탓하거나 깎아내리는 말이 없다.",
   "답(해결책)을 미리 정해 두지 않았다.",
-  "대화에서 들은 말로 뒷받침할 수 있다.",
-  "우리가 조사하고 해결책을 낼 수 있는 크기다.",
 ];
-const SRC_TYPES = ["통계·숫자", "정부·기관 발표", "법·제도", "언론 보도", "직접 겪은 사람의 말"];
-const COMPARE = ["자료와 같다", "자료와 다르다", "자료에 없다"];
 const VERDICTS = ["사실이다", "일부만 사실이다", "사실이 아니다", "확인할 수 없다"];
 const CAUSE_LEVELS = ["사람들의 생각·선택", "동네·사회 분위기", "법·제도·규칙"];
-// 2단계 '내 생활에서 비슷한 장면'의 세 갈래
-const ANGLES = ["그 사람과 비슷한 처지였던 때", "걱정하는 쪽의 마음이었던 때", "나도 모르게 이 일과 이어져 있는 것"];
-// 4단계: AI 검토를 어떻게 받아들일지(예전 수업 기록은 OLD_DECISIONS로 남아 있다)
+// 4단계: AI 조언을 어떻게 받아들일지
 const DECISIONS = ["받아들인다", "고쳐서 반영한다", "받아들이지 않는다"];
-const OLD_DECISIONS = ["수용", "수정해서 반영", "기각"];
-const REFRAME = ["그대로 둔다", "고치고 싶다"]; // 3단계: 확인한 사실로 우리 문제 질문을 고칠지
 const CAUSE_STATUS = ["확인돼서 남겨요", "아직 확실하지 않아요", "버려요"];
 // ---------- 학교급(중·고)과 심화 활동 (functions/level.js 와 같은 목록) ----------
 // 중학교: 원인 갈래 2개, 판정 3가지, 확인 질문에 '사실인가 의견인가'와 '무엇을 보면 될까', 4단계 해결책 점검, 미래는 1년 후만.
@@ -65,21 +51,13 @@ const VALUES = ["안전", "자유", "생계(먹고사는 일)", "평등·공정"
 const CAUSE_RELS = ["을(를) 불러와요", "을(를) 더 키워요"];
 // 4단계 중학교 해결책 점검
 const EFFECT = ["가장 큰 원인을 줄일 수 있어요", "조금 줄일 수 있어요", "잘 모르겠어요"];
-const NO_CASE = "참고한 사례 없음(우리 아이디어)";
 const OLD_CAUSE_STATUS = ["근거로 뒷받침됨", "근거가 약함", "버림"]; // 예전 수업 기록에 남아 있는 값
-// 1단계의 작은 단계: 혼자 대화 → 혼자 정리·제출 → 모둠이 모여 문제 정하기
-const SUBS = [
-  { id: "pick", name: "인물 고르기", who: "모둠" },
-  { id: "chat", name: "① 대화", who: "혼자" },
-  { id: "note", name: "② 정리·제출", who: "혼자" },
-  { id: "group", name: "③ 모둠 문제", who: "모둠" },
-];
 const STARTERS = ["안녕하세요, 어떤 일을 하세요?", "요즘 가장 힘든 일이 뭐예요?", "앞으로 무엇을 바라세요?"];
 
 const S = {
   code: null, groupId: null, nick: null, uid: null, info: null, me: null,
   work: {}, locked: false, strikes: 0, caseTab: null, logs: [], chat: [], picks: {}, pickSeen: false, pickedAt: 0, stage: 1, sub1: "chat", aiCount: 0, memberCount: 0, chatCount: 0, chatLimit: 5, started: true, level: "high", deep: {},
-  opened: {}, busy: null, waitSince: 0, chatErr: null, sending: false, pending: null, draft: "", letterClosed: false, matTab: null, proposalId: null, round: 1, scrollChat: false,
+  opened: {}, busy: null, waitSince: 0, chatErr: null, sending: false, pending: null, draft: "", letterClosed: false, matTab: null, round: 1, scrollChat: false, scene: {},
 };
 const $ = (s) => document.querySelector(s);
 const panel = $("#panel");
@@ -298,7 +276,6 @@ async function enter(code, joined) {
   }
   groupRef = doc(db, `sessions/${code}/groups/${S.groupId}`);
   S.me = S.info.me;
-  S.sub1 = S.me ? "chat" : "pick"; // 인물을 아직 안 골랐으면 인물 고르기부터
   S.matTab = S.info.materials?.[0]?.id || null;
   $("#join").classList.add("hidden");
   showArea();
@@ -344,7 +321,7 @@ async function enter(code, joined) {
     // 모둠원이 모두 ② 정리를 제출한 순간 한 번 알려 준다
     const sub = submitted().length, tot = Math.max(S.memberCount, sub);
     if (S.subSeen !== undefined && S.subSeen < tot && sub === tot && tot > 1 && !(S.stage === 1 && S.sub1 === "group"))
-      toastAction("모두 제출했어요! 모둠이 모여 문제를 정해요 👥", "③으로", () => goTo(1, "group"), 7000);
+      toastAction("모두 제출했어요! 모둠이 모여 문제를 정해요 👥", "모둠 문제로", () => goTo(1, "group"), 7000);
     S.subSeen = sub;
     syncMyPick();
     scheduleRender();
@@ -353,7 +330,7 @@ async function enter(code, joined) {
   onSnapshot(query(collection(db, `sessions/${code}/members/${S.uid}/chat`), orderBy("createdAt")), (s) => {
     S.chat = s.docs.map((d) => ({ id: d.id, ...d.data() }));
     if (S.pending && S.chat.length > S.pending.base) S.pending = null; // 서버에 기록된 말풍선으로 바꾼다
-    if (S.stage === 1 && S.sub1 === "chat") { if (!$("#msgs")) render(true); else renderMsgs(); }
+    if (S.stage === 1) { if (!$("#msgs")) render(true); else renderMsgs(); }
   });
   renderTabs();
   render(true);
@@ -382,7 +359,7 @@ function syncMyPick() {
     }
   } else if (S.pickSeen && S.me && Date.now() - S.pickedAt > 5000) {
     S.me = null; S.pickSeen = false;
-    if (S.stage === 1 && S.sub1 !== "pick") S.sub1 = "pick";
+    S.scene[1] = "pick";
     toast("선생님이 인물 선택을 풀어 주셨어요. 다시 골라 주세요.");
   }
 }
@@ -427,7 +404,7 @@ function renderTeacherNotice(n) {
 
 // 대기실과 활동 화면 중 맞는 쪽만 보인다
 // 휴대폰에서 인물과 대화하는 동안(chat-mode): 대화에 방해되는 안내를 숨긴다. 대화창은 고정하지 않고 화면 전체를 스크롤한다.
-const chatModeNow = () => IS_M && S.started && S.stage === 1 && S.sub1 === "chat" && !!S.me;
+const chatModeNow = () => IS_M && S.started && S.stage === 1 && S.shown === "chat" && !!S.me && !!(priorOf() || S.chat.length);
 function updateChatMode() { document.body.classList.toggle("chat-mode", chatModeNow()); }
 function showArea() {
   updateChatMode();
@@ -462,8 +439,10 @@ function renderWait() {
 const helpKeyNow = () => (S.stage === 1 ? `1-${S.sub1}` : String(S.stage));
 const helpOpts = () => ({ level: S.level, deep: S.deep });
 const seenStore = () => `eps_help_${S.code}_${S.groupId}_${S.nick}`;
-const seenList = () => { try { return JSON.parse(localStorage.getItem(seenStore()) || "[]"); } catch { return []; } };
-const markSeen = (k) => { try { const l = seenList(); if (!l.includes(k)) localStorage.setItem(seenStore(), JSON.stringify([...l, k])); } catch {} };
+// 이 기기에 기억하되, 저장이 막힌 브라우저에서도 이 화면에서는 기억한다
+const seenMem = {};
+const seenList = () => { const k = seenStore(); if (!seenMem[k]) { try { seenMem[k] = JSON.parse(localStorage.getItem(k) || "[]"); } catch { seenMem[k] = []; } } return seenMem[k]; };
+const markSeen = (k) => { const l = seenList(); if (l.includes(k)) return; l.push(k); try { localStorage.setItem(seenStore(), JSON.stringify(l)); } catch {} };
 let helpBusy = false;
 async function maybeHelp(force = false) {
   if (!S.started || !S.info || helpBusy) return;
@@ -484,7 +463,7 @@ async function maybeHelp(force = false) {
       if (d === "ok") break;
     }
     markSeen(key);
-  } finally { helpBusy = false; applyGuide(); }
+  } finally { helpBusy = false; }
 }
 function addHelpButton() {
   if ($("#help-btn")) return;
@@ -527,10 +506,35 @@ function renderTabs() {
 let lastTabs = "", doneTabs = null;
 // 잠깐 붙였다 떼는 표시(움직임). 같은 표시를 다시 붙이면 처음부터 다시 움직인다.
 function pop(el, cls, ms) { if (!el) return; el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); setTimeout(() => el.classList.remove(cls), ms); }
-function goTo(stage, sub) {
+
+// ---------- 장면(씬): 한 화면에는 지금 할 활동 하나만 ----------
+// 단계마다 장면 목록(SCENES)이 있고, 화면에는 장면 하나만 보인다. 장면 = { id, name(짧은 이름), q(발문 한 줄), hint(짧은 도움말),
+//   body(): 활동 칸, done(): 마쳤는지(없으면 읽기만 하는 장면), lock(): 앞에서 할 일이 남았으면 { t, go, sub, label }, sub: 1단계의 작은 단계, opt: 선택 활동 }
+// 장면을 마치면 '다음'이 열리고, 단계에 들어오면 아직 안 마친 첫 장면이 바로 열린다.
+// 읽기만 하는 장면은 한 번 열어 봐야 마친 것으로 친다(이 기기에 기억)
+const sceneKey = (n, id) => `sc:${n}:${id}`;
+const passed = (sc) => !sc.lock?.() && (sc.done ? !!sc.done() : seenList().includes(sceneKey(sc.n, sc.id)));
+const scenesOf = (n) => SCENES[n]().filter(Boolean).map((x) => ({ ...x, n }));
+const firstOpen = (list) => { const i = list.findIndex((x) => !passed(x)); return i < 0 ? list.length - 1 : i; };
+function sceneNow(n = S.stage) {
+  const list = scenesOf(n);
+  let i = list.findIndex((x) => x.id === S.scene[n]);
+  // 아직 열리지 않은 장면으로는 갈 수 없다(free 는 언제나 열림). 그때는 고른 것을 잊고 안 마친 첫 장면을 따라간다.
+  if (i > firstOpen(list) && !list[i].free) { S.scene[n] = null; i = -1; }
+  if (i < 0) i = firstOpen(list);
+  return { list, i, sc: list[i] };
+}
+function stageDone(n) { return scenesOf(n).every(passed); }
+// target: 장면 id, 1단계 작은 단계 이름(pick·chat·note·group), 'last'(마지막 장면). 없으면 아직 안 마친 첫 장면.
+function goTo(stage, target) {
   flushAll();
   S.stage = stage;
-  if (sub) S.sub1 = sub;
+  const list = scenesOf(stage), open = firstOpen(list);
+  let sc = target === "last" ? list[open] : list.find((x) => x.id === target);
+  if (!sc && target) { const sub = list.filter((x, j) => x.sub === target && j <= open); sc = sub.find((x) => !passed(x)) || sub[0]; }
+  // 고른 장면은 고정하고, 고르지 않았으면 비워 둬서 자료가 도착하는 대로 아직 안 마친 첫 장면을 따라간다
+  S.scene[stage] = sc ? sc.id : null;
+  if (stage === 1) S.sub1 = (sc || list[open]).sub;
   window.scrollTo(0, 0);
   S.scrollChat = stage === 1 && S.sub1 === "chat" && S.chat.length > 0; // 대화로 돌아오면 마지막 말풍선을 보여 준다
   renderTabs(); render(true); ping();
@@ -538,43 +542,45 @@ function goTo(stage, sub) {
 }
 $("#tabs").onclick = (e) => { const b = e.target.closest("[data-stage]"); if (b) goTo(Number(b.dataset.stage)); };
 
-// ---------- 공통 조각 ----------
-// 단계 머리말(PC 넓은 화면에서만 보임, style.css .hero): 지금 몇 단계인지, 무엇을·어떻게 하는지 한눈에 보여 준다
-// 단계 아이콘: 선으로 그린 SVG(24칸 기준). 1 대화, 2 돋보기, 3 방패+체크, 4 전구, 5 오르는 선, 6 계획표, 7 함께하는 사람
-const STAGE_ICON = [
-  '<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H10l-4.5 3.5V16h0A1.5 1.5 0 0 1 4 14.5z"/><path d="M8.5 9h7M8.5 12h4.5"/>',
-  '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/><path d="M8 10.5a2.5 2.5 0 0 1 2.5-2.5"/>',
-  '<path d="M12 3l7 3v5.5c0 4.3-2.9 7.8-7 9.5-4.1-1.7-7-5.2-7-9.5V6z"/><path d="M9 12l2.2 2.2L15.5 10"/>',
-  '<path d="M9.5 18h5M10.5 21h3"/><path d="M12 3a6 6 0 0 0-3.8 10.6c.8.7 1.3 1.6 1.3 2.6V16h5v-.2c0-1 .5-1.9 1.3-2.6A6 6 0 0 0 12 3z"/>',
-  '<path d="M3.5 17.5l5.5-5.5 4 4 7.5-7.5"/><path d="M15 8.5h5.5V14"/><path d="M3.5 21h17"/>',
-  '<rect x="5" y="4.5" width="14" height="16.5" rx="2"/><path d="M9 4.5V3h6v1.5"/><path d="M8.5 10.5l1.2 1.2 2.3-2.3M8.5 16l1.2 1.2 2.3-2.3M14 11h2M14 16.5h2"/>',
-  '<circle cx="9" cy="8.5" r="3"/><path d="M3.5 20c0-3 2.5-5.5 5.5-5.5s5.5 2.5 5.5 5.5"/><circle cx="16.5" cy="9.5" r="2.3"/><path d="M16 14.6c2.6.3 4.5 2.5 4.5 5.1"/>',
-];
-const stageIcon = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${STAGE_ICON[n - 1]}</svg>`;
-function stageHero() {
-  const h = HELP[helpKeyNow()];
-  if (IS_M || !h) return "";
-  const n = S.chatLimit, st = STAGES[S.stage - 1];
-  // 한눈에 볼 것만: 몇 단계인지와 지금 할 일 한 줄. 그래서 PC 넓은 화면에서는 아래의 '지금 할 일' 띠를 따로 두지 않는다(style.css).
-  // 1단계 ① 대화는 '지금 할 일' 대신 무엇을 하는지 한 문장을 보여 준다(남은 질문 줄이 할 일을 안내한다)
-  const x = S.stage === 1 && S.sub1 === "chat" ? null : stepNow();
-  const btn = x?.go ? ` <button class="link" data-go="${x.go}" data-sub="${x.sub || ""}">${esc(x.label)}</button>` : "";
-  const line = x ? `<p class="hero-w hero-next ${x.done ? "done" : ""}"><span class="next-k">${x.done ? "✓ 완료" : "지금 할 일"}</span> ${esc(x.t)}${btn}${guideBtn()}</p>`
-    : `<p class="hero-w">${esc(fill(h.what, n, ui()))}</p>`;
-  return `<div class="hero"><div class="hero-ic">${stageIcon(S.stage)}</div>
-    <div class="hero-l"><div class="hero-top"><span class="hero-k">${S.stage}단계 · ${esc(st.name)}</span>
-      <span class="hero-t">${esc(h.title.replace(/^\d단계\s*/, ""))}</span></div>${line}</div>
-    <div class="hero-r"><button class="btn btn-tinted btn-sm" type="button" data-act="help">안내 다시 보기</button></div></div>`;
+// 장면 화면: 위에 단계와 진행 점, 큰 발문 한 줄, 짧은 도움말, 활동 칸, 아래에 이전·다음
+function sceneHtml() {
+  if (S.goScene?.[0] === S.stage && scenesOf(S.stage).some((x) => x.id === S.goScene[1])) { S.scene[S.stage] = S.goScene[1]; S.goScene = null; }
+  let { list, i, sc } = sceneNow();
+  if (!sc.done && !sc.lock?.() && !passed(sc)) { markSeen(sceneKey(S.stage, sc.id)); if (!S.scene[S.stage]) S.scene[S.stage] = sc.id; }
+  S.shown = sc.id;
+  if (S.stage === 1) S.sub1 = sc.sub;
+  const open = firstOpen(list);
+  const dots = list.map((x, j) => `<button type="button" class="sc-dot ${j === i ? "on" : ""} ${j < open || passed(x) ? "done" : ""}" data-scene="${x.id}" ${j > open && !x.free ? "disabled" : ""} aria-label="${j + 1}. ${esc(x.name)}" title="${esc(x.name)}"></button>`).join("");
+  const lk = sc.lock?.();
+  const body = lk ? `<div class="sc-lock" role="status"><p>${esc(lk.t)}</p>${lk.go ? `<button class="btn btn-primary" data-go="${lk.go}" data-sub="${lk.sub || ""}">${esc(lk.label)} →</button>` : ""}</div>` : sc.body();
+  return `<section class="scene sid-${sc.id.replace(/[^a-z0-9-]/gi, "")}" data-scene-id="${esc(sc.id)}">
+    <div class="sc-top"><span class="sc-k">${S.stage}단계 · ${esc(STAGES[S.stage - 1].name)}</span><span class="sc-dots" role="group" aria-label="활동 ${i + 1} / ${list.length}">${dots}</span><span class="sc-n">${i + 1} / ${list.length}</span></div>
+    ${sc.q && !lk ? `<h2 class="sc-q">${esc(sc.q)}${sc.opt ? ` <span class="tag x">선택</span>` : ""}</h2>` : ""}
+    ${sc.hint && !lk ? `<p class="sc-hint">${sc.hint}</p>` : ""}
+    <div class="sc-body">${body}</div></section>${sceneFoot(list, i)}`;
 }
-function problemBar() {
-  const p = w("s1.problem") || {};
-  if (!txt(p.hmw) && stepNow().go) return ""; // '지금 할 일'이 앞 단계로 가는 버튼을 이미 보여 준다
-  if (!txt(p.hmw)) return `<div class="problem-bar empty">아직 모둠 문제를 정하지 않았어요. <button class="link" data-go="1" data-sub="group">1단계 ③에서 정하기</button></div>`;
-  return `<div class="problem-bar"><div class="pb-k">우리 모둠의 문제 <button class="link" data-go="1" data-sub="group">고치기</button></div>
-    <div class="pb-q">${esc(p.hmw)}</div>${txt(p.situation) ? `<div class="pb-s">${esc(p.situation)}</div>` : ""}</div>`;
+function sceneFoot(list, i) {
+  const sc = list[i], ok = passed(sc);
+  const prev = i > 0 ? `<button class="btn btn-plain" data-scene="${list[i - 1].id}">← 이전</button>`
+    : S.stage > 1 ? `<button class="btn btn-plain" data-go="${S.stage - 1}" data-sub="last">← ${S.stage - 1}단계</button>` : "<span></span>";
+  const cls = `btn ${ok ? "btn-primary" : "btn-tinted"} sc-next`, dis = ok ? "" : `disabled title="이 활동을 마치면 넘어갈 수 있어요"`;
+  const next = i < list.length - 1 ? `<button class="${cls}" data-scene="${list[i + 1].id}" ${dis}>다음 →</button>`
+    : S.stage < 7 ? `<button class="${cls}" data-go="${S.stage + 1}" ${dis}>다음: ${S.stage + 1}단계 ${esc(STAGES[S.stage].name)} →</button>`
+    : ok ? `<span class="sc-end">모두 마쳤어요. 수고했어요! 👏</span>` : "";
+  return `<div class="nav-foot">${prev}${next}</div>`;
 }
-// ---------- 지금 할 일: 모둠이 쓴 내용을 보고, 다음에 할 일 하나만 한 줄로 알려 준다 ----------
-// { t: 할 일, go/sub/label: 바로 가기 버튼, done: 이 단계를 마쳤는지 }
+// 글을 쓰는 동안에도 '다음' 단추가 바로 열리게 한다(화면 전체는 글을 다 쓴 뒤에 다시 그린다)
+let footOk = null;
+function refreshFoot() {
+  const b = panel.querySelector(".nav-foot .sc-next"); if (!b || !S.info) return;
+  const sc = scenesOf(S.stage).find((x) => x.id === S.shown); if (!sc) return; // 지금 화면에 보이는 장면으로 따진다
+  const ok = passed(sc);
+  b.disabled = !ok; b.classList.toggle("btn-primary", ok); b.classList.toggle("btn-tinted", !ok);
+  if (ok && footOk === false) pop(b, "just-ready", 1200); // 방금 마쳤으면 '다음'이 한 번 톡 튄다
+  footOk = ok;
+}
+
+// ---------- 장면에서 쓰는 도우미 ----------
 const filled = (path) => txt(w(path)).length > 0;
 // 생각을 드러내는 칸(근거·이유)은 한 글자만 써서 넘어가지 못하게 4자부터 친다
 const said = (path, n = 4) => txt(w(path)).length >= n;
@@ -584,12 +590,8 @@ const logsOf3 = (c) => stageLogs(3).filter((l) => l.payload?.checkId === c.id);
 const JUDGE_KEYS = () => ["verdict", "source", ...(deep("sources") ? ["source2", "maker"] : [])];
 const judgeMissing = (base) => JUDGE_KEYS().find((k) => (k === "verdict" ? !w(`${base}.verdict`) : !said(`${base}.${k}`)));
 const judged3 = (c) => { const ls = logsOf3(c); return ls.length ? ls.every((l) => !judgeMissing(`s3.checks.${l.id}`)) : !judgeMissing(`s3.direct.${c.id}`); };
-const JUDGE_GUIDE = { source2: "다른 자료에서도 같은지 찾아보고 써요", maker: "그 자료를 누가 만들었고, 왜 그렇게 말했을지 써요" };
 const verdicts3 = (c) => { const ls = logsOf3(c); return (ls.length ? ls.map((l) => w(`s3.checks.${l.id}.verdict`)) : [w(`s3.direct.${c.id}.verdict`)]).filter(Boolean); };
 const SUPPORT = [VERDICTS[0], VERDICTS[1]]; // 사실이다·일부만 사실이다
-// 집중 안내가 가리킬 칸·버튼: 저장 칸(data-save)과 data-act 단추
-const sv = (path) => `[data-save="${path}"]`;
-const act = (a, extra = "") => `[data-act="${a}"]${extra}`;
 const checkedAll = (path, n) => Array.from({ length: n }, (_, i) => !!w(`${path}.${i}`)).every(Boolean);
 // ---- 학교급·심화 활동에 따라 달라지는 완료 조건 ----
 // 1단계 ② 정리에서 꼭 써야 하는 칸(심화 premise 면 '당연하게 여기는 것'까지)
@@ -598,221 +600,10 @@ const noteRequired = () => ["who", "hard", "want", ...(deep("premise") ? ["premi
 const valuesMissing = () => (deep("premise") ? ["valueA", "valueB"].find((k) => !w(`s1.problem.${k}`)) || (said("s1.problem.valueWhy") ? null : "valueWhy") : null);
 // 4단계 심화(tradeoff): 얻는 것·포기하는 것을 모두 쓴 해결책 수
 const tradeDone = () => list("s4.proposals").filter((p) => said(`s4.trade.${p.id}.gain`) && said(`s4.trade.${p.id}.cost`)).length;
-const finalNo = () => (deep("tradeoff") ? "③" : "②");
 // 4단계 중학교 해결책 점검(견주기를 하지 않을 때)
 const midCheck = () => MID() && !deep("tradeoff");
-// 5단계 미래 이야기를 고른 뒤 꼭 쓸 칸(중학교는 '왜 그렇게 되나 따져 보기'가 선택)
-const scnKeys = () => (MID() ? ["vs", "reason"] : ["vs", "mech", "reason"]);
-const STEP = {
-  1() { // 인물 고르기·② 정리·③ 모둠 문제(① 대화는 남은 질문 줄이 안내한다)
-    if (S.sub1 === "pick") return S.me ? { t: `${S.me.name}님과 이야기하러 가요`, go: 1, sub: "chat", label: "① 대화로", p: ".pick-ok .btn", g: "인물을 골랐어요! 대화하러 가요" }
-      : { t: "편지를 읽고, 모둠이 상의해 한 사람이 한 명씩 골라요", p: ".pcard:not(.taken) .pc-open", at: ".pcards", g: "카드를 눌러 편지를 읽고, 이야기할 사람을 골라요" };
-    const mine = w(`s1.findings.${S.uid}`) || {};
-    const done = submitted().length, total = Math.max(S.memberCount, done);
-    if (S.sub1 === "note") {
-      if (!mine.submitted) {
-        const need = Math.min(2, S.chatLimit);
-        if (Math.max(S.chatCount, S.chat.length) < need) return { t: `먼저 ① 대화에서 질문을 ${need}번 이상 해요`, go: 1, sub: "chat", label: "① 대화로" };
-        const req = noteRequired();
-        const n = req.filter((k) => txt(mine[k]).length >= 4).length;
-        const k = req.find((x) => txt(mine[x]).length < 4);
-        const g = { who: "이 사람이 누구인지 한 줄로 써요", hard: "이 사람이 가장 힘든 것 한 가지만 써요", want: "이 사람이 바라는 것을 써요", premise: "이 사람의 말 속에 깔린 생각(당연하게 여기는 것)을 써요" };
-        return { t: `1~${req.length}번을 채우고 제출해요 (${n}/${req.length})`, ...(k ? { p: sv(`s1.findings.${S.uid}.${k}`), g: g[k] } : { p: act("submit-note"), g: "다 썼어요! 제출하기를 눌러요" }) };
-      }
-      if (done < total) return { t: `모둠원 제출을 기다려요 (${done}/${total}명)`, f: ".wait-card + .card", g: "기다리는 동안 친구가 만난 사람 이야기를 읽어요" };
-      return { t: "모두 제출했어요. 모둠이 모여 문제를 정해요", go: 1, sub: "group", label: "③ 모둠 문제로", p: ".wait-card .btn-primary", g: "모두 제출했어요! 모둠 문제를 정하러 가요" };
-    }
-    if (!mine.submitted) return { t: "먼저 ② 알아낸 점을 제출해요", go: 1, sub: "note", label: "②로" };
-    if (!filled("s1.problem.common")) return { t: "2) 여러 사람이 함께 걱정하는 것부터 찾아요", p: sv("s1.problem.common"), g: "친구들이 만난 사람들이 함께 걱정하는 것을 찾아 써요" };
-    if (!filled("s1.problem.conflict")) return { t: "4) 누구의 바람과 걱정이 부딪히는지 적어요", p: sv("s1.problem.conflict"), g: "누구의 바람과 누구의 걱정이 부딪히는지 써요" };
-    const vk = valuesMissing();
-    if (vk) return { t: "4-1) 부딪히는 두 가치에 이름을 붙여요", p: sv(`s1.problem.${vk}`), g: { valueA: "한쪽이 지키려는 가치를 골라요", valueB: "다른 쪽이 지키려는 가치를 골라요", valueWhy: "두 가치를 함께 지키기 어려운 까닭을 써요" }[vk] };
-    if (!ready.problem()) return { t: "5) 두 바람을 담아 우리 문제를 한 문장으로",
-      ...(filled("s1.problem.situation") ? { p: sv("s1.problem.hmw"), g: "'어떻게 하면 ~하면서도 ~할 수 있을까?'로 써요" } : { p: sv("s1.problem.situation"), g: "누가 어떤 어려움을 겪는지 한두 문장으로 써요" }) };
-    if (!checkedAll("s1.problem.checks", PROBLEM_CHECKS.length)) return { t: "6) 점검표를 모두 확인해요", p: sv(`s1.problem.checks.${[...PROBLEM_CHECKS.keys()].find((i) => !w(`s1.problem.checks.${i}`))}`), g: "우리 문제가 맞는지 하나씩 확인하고 체크해요" };
-    return { t: "모둠 문제를 정했어요!", done: true };
-  },
-  2() {
-    if (!list("s2.links").some((l) => l.by === S.uid)) return { t: "① 처음 내 생각을 돌아보고 모둠에 보여요", late: () => {
-      const id = ["lk-src", "lk-scene", "lk-q"].find((i) => !val(i));
-      return id ? { p: `#${id}`, g: { "lk-src": "처음에 그렇게 생각한 이유를 떠올려 써요", "lk-scene": "내 생활에서 비슷한 순간을 짧게 써요", "lk-q": "더 알고 싶어진 것을 한 가지 써요" }[id] }
-        : { p: act("add-link"), g: "다 썼어요! 모둠에 보이기를 눌러요" }; } };
-    const causes = list("s2.causes");
-    if (!causes.length) return { t: "② 왜 생겼을지 원인을 추측해 적어요", late: () => (val("cz")
-      ? { p: act("add-cause"), g: "추가를 눌러 모둠 원인 목록에 넣어요" } : { p: "#cz", g: "왜 이런 일이 생겼을지 원인을 한 가지 써요. 정답은 없어요" }) };
-    if (deep("causeMap") && causes.length < 2) return { t: "② 원인을 하나 더 추측해요 (둘 이상이어야 서로 이어 볼 수 있어요)", late: () => (val("cz")
-      ? { p: act("add-cause"), g: "추가를 눌러 모둠 원인 목록에 넣어요" } : { p: "#cz", g: "다른 쪽에서 생긴 원인도 한 가지 써요" }) };
-    if (deep("causeMap") && !list("s2.causeLinks").length) return { t: "② 원인끼리 이어 봐요: 한 원인이 다른 원인을 부르거나 키우나요?", late: () => ({ p: act("add-clink"), at: "#cl-row", g: "두 원인을 고르고, 어떻게 이어지는지 골라 잇기를 눌러요" }) };
-    if (!list("s2.checks").length) {
-      // 중학교: 사실인가 의견인가를 먼저 가리고, '틀렸다면' 대신 '무엇을 보면 확인할 수 있을까'를 쓴다
-      const order = MID() ? [["ch-heard", "'정말 그럴까?' 싶은 말을 옮겨 써요"], ["ch-fo", "이 말이 사실을 말한 건지, 생각(의견)을 말한 건지 골라요"], ["ch-q", "그 말을 자료로 확인할 수 있는 질문으로 바꿔요"], ["ch-look", "무엇(숫자·발표·기사)을 보면 맞는지 알 수 있을지 써요"]]
-        : [["ch-heard", "'정말 그럴까?' 싶은 말을 옮겨 써요"], ["ch-q", "그 말을 자료로 확인할 수 있는 질문으로 바꿔요"], ["ch-refute", "이 말이 틀렸다면 어떤 사실이 나와야 할지 써요"]];
-      return { t: "③ 확인할 말을 확인 질문으로 바꿔요", late: () => { const x = order.find(([id]) => !val(id)); return x ? { p: `#${x[0]}`, g: x[1] } : { p: act("add-check"), g: "추가를 눌러 확인 질문으로 남겨요" }; } };
-    }
-    return { t: "확인할 질문이 준비됐어요!", done: true };
-  },
-  3() {
-    const checks = list("s2.checks"), causes = list("s2.causes");
-    if (!ready.problem()) return { t: "1단계 ③에서 모둠이 풀 문제를 먼저 정해야 검색 도우미에게 물을 수 있어요", go: 1, sub: "group", label: "1단계 ③으로" };
-    if (!checks.length) return { t: "2단계 ③에서 확인 질문을 먼저 만들어요", go: 2, label: "2단계로" };
-    const open = checks.find((c) => !judged3(c));
-    if (open) {
-      const n = checks.filter(judged3).length, ls = logsOf3(open), t = `① 확인 질문마다 자료로 따져서 판단해요 (${n}/${checks.length}) · AI에게 묻는 것은 선택`;
-      if (!ls.length) { const base = `s3.direct.${open.id}`, k = judgeMissing(base);
-        return { t, p: sv(`${base}.${k}`), g: { verdict: "자료를 보고 이 말이 사실인지 먼저 골라요. AI에게 묻는 건 선택이에요", source: "어떤 자료에서 무엇을 보고 알았는지 써요", ...JUDGE_GUIDE }[k] }; }
-      const l = ls.find((x) => judgeMissing(`s3.checks.${x.id}`)), base = `s3.checks.${l.id}`, k = judgeMissing(base);
-      return { t, p: sv(`${base}.${k}`), g: { verdict: "AI 답을 자료와 비교해 사실인지 골라요", source: "AI 말을 믿은 게 아니라, 어떤 자료에서 무엇을 보고 알았는지 써요", ...JUDGE_GUIDE }[k] };
-    }
-    const undecided = causes.find((q) => !w(`s3.causes.${q.id}.status`));
-    if (undecided) return { t: "② 추측마다 남길지 버릴지 정해요", p: sv(`s3.causes.${undecided.id}.status`), g: "확인한 결과를 보고 이 추측을 남길지 버릴지 골라요" };
-    if (!causes.length) return { t: "2단계 ②에서 원인 추측을 먼저 써요", go: 2, label: "2단계로" };
-    const kept = causes.filter((q) => [CAUSE_STATUS[0], OLD_CAUSE_STATUS[0]].includes(w(`s3.causes.${q.id}.status`)));
-    if (!kept.length) return { t: "② 남긴 원인이 하나는 있어야 해요. 다시 살펴봐요", p: sv(`s3.causes.${causes[0].id}.status`), g: "남긴 원인이 없어요. 확인된 사실이 있는 추측을 남겨요" };
-    if (!w("s3.reframe.choice")) return { t: "③ 확인한 사실로 우리 문제 질문을 고칠 곳이 있는지 봐요", p: sv("s3.reframe.choice"), g: "확인해 보니 우리 문제 질문의 전제가 틀리진 않았나요?" };
-    if (w("s3.reframe.choice") === REFRAME[1] && !said("s3.reframe.text")) return { t: "③ 문제 질문에서 무엇을 어떻게 고칠지 써요", p: sv("s3.reframe.text"), g: "무엇이 사실과 달랐고, 질문을 어떻게 고칠지 써요" };
-    if (!ready.cause()) return { t: "③ 확인한 사실로 가장 큰 원인을 정리해요",
-      ...(!filled("s3.chain.evidence") ? { p: sv("s3.chain.evidence"), g: "'사실이다'로 확인된 내용을 옮겨 써요" } : !filled("s3.chain.meaning") ? { p: sv("s3.chain.meaning"), g: "그 사실이 무엇을 보여 주는지 써요" } : { p: sv("s3.chain.cause"), g: "남긴 원인 가운데 가장 큰 원인을 써요" }) };
-    if (deep("causeMap") && !said("s3.chain.root")) return { t: "③ 고른 원인이 뿌리가 되는 원인인지 따져 봐요", p: sv("s3.chain.root"), g: "이 원인이 사라지면 문제와 다른 원인도 함께 줄어들지 따져 써요" };
-    return { t: "가장 큰 원인을 정했어요!", done: true };
-  },
-  4() {
-    const props = list("s4.proposals"), logs = stageLogs(4);
-    if (!ready.cause()) return { t: "3단계 ③에서 가장 큰 원인을 먼저 정해야 해결책을 만들 수 있어요", go: 3, label: "3단계로" };
-    if (!said("s4.before")) return { t: "① 다른 나라 사례를 보기 전에, 우리 모둠의 첫 생각을 써요", p: sv("s4.before"), g: "사례를 보기 전에, 우리 모둠이 먼저 생각한 해결 방향을 써요" };
-    if (!props.length) return { t: "① 해결책을 써서 추가해요 (누가·무엇을·어떻게, 30자 이상)", late: () => (val("pt").length >= 30
-      ? { p: act("add-proposal"), g: "해결책 추가를 눌러요" } : { p: "#pt", g: "누가·무엇을·어떻게 할지 해결책을 써요 (30자 이상)" }) };
-    const open = logs.find((l) => !w(`s4.decisions.${l.id}.choice`) || !said(`s4.decisions.${l.id}.reason`));
-    if (open) return { t: "AI 의견을 받아들일지 정하고, 이유를 써요", ...(!w(`s4.decisions.${open.id}.choice`)
-      ? { p: sv(`s4.decisions.${open.id}.choice`), g: `${lensCount() === 2 ? "두" : "세"} 의견을 읽고 어떻게 할지 골라요` } : { p: sv(`s4.decisions.${open.id}.reason`), g: "그렇게 정한 이유를 써요. AI 말이라서가 아니라 우리 생각으로요" }) };
-    // 심화(tradeoff): 해결책 두 개를 얻는 것·포기하는 것으로 견주고, 무엇을 앞세웠는지 쓴 뒤에 최종 해결책을 쓴다
-    if (deep("tradeoff")) {
-      if (props.length < 2) return { t: "① 해결책을 하나 더 써요 (두 해결책을 견줘 봐요)", late: () => (val("pt").length >= 30
-        ? { p: act("add-proposal"), g: "해결책 추가를 눌러요" } : { p: "#pt", g: "방향이 다른 해결책을 하나 더 써요 (30자 이상)" }) };
-      if (tradeDone() < 2) { const p = props.find((x) => !said(`s4.trade.${x.id}.gain`) || !said(`s4.trade.${x.id}.cost`)), k = said(`s4.trade.${p.id}.gain`) ? "cost" : "gain";
-        return { t: `② 해결책을 견줘요: 얻는 것과 포기하는 것 (${tradeDone()}/2)`, p: sv(`s4.trade.${p.id}.${k}`), g: k === "gain" ? "이 해결책으로 누구에게 무엇이 좋아지는지 써요" : "그 대신 무엇을 포기하고, 누가 부담을 지는지 써요" }; }
-      if (!said("s4.tradeValue")) return { t: "② 견줘 보니 우리는 무엇을 더 중요하게 보나요?", p: sv("s4.tradeValue"), g: "어떤 가치를 앞세워 고를지, 그 까닭을 써요" };
-    }
-    const fn = finalNo();
-    if (!ready.final()) return { t: logs.length ? `${fn} 약점을 고쳐 최종 해결책을 써요 (30자 이상)` : `${fn} 최종 해결책을 써요 (30자 이상) · AI 의견은 필요할 때만`, p: sv("s4.final"), g: logs.length ? "AI가 짚은 약점을 고쳐 최종 해결책을 써요" : "우리 모둠의 최종 해결책을 써요. AI 의견은 듣지 않아도 돼요" };
-    if (!said("s4.finalReason")) return { t: `${fn} 이 해결책을 고른 이유를 써요`, p: sv("s4.finalReason"), g: "이 해결책을 고른 이유를 써요" };
-    if (!w("s4.finalFit")) return { t: `${fn} 두 바람을 모두 다루는지 골라요`, p: sv("s4.finalFit"), g: "문제 질문의 두 바람을 모두 다루는지 골라요" };
-    // 중학교(견주기를 하지 않을 때): 효과와 공정함 두 기준으로 점검한다
-    if (midCheck()) {
-      if (!w("s4.check.effect")) return { t: "③ 해결책을 점검해요: 원인을 줄일 수 있나요?", p: sv("s4.check.effect"), g: "이 해결책이 가장 큰 원인을 줄일 수 있을지 골라요" };
-      if (!said("s4.check.fair")) return { t: "③ 해결책을 점검해요: 힘들어지는 사람은 없나요?", p: sv("s4.check.fair"), g: "이 해결책 때문에 손해를 보는 사람이 없는지, 있다면 어떻게 도울지 써요" };
-    }
-    return { t: "최종 해결책을 정했어요!", done: true };
-  },
-  5() {
-    const preds = list("s5.predictions"), logs = stageLogs(5);
-    const picked = (l) => Number.isInteger(w(`s5.selection.${l.id}.idx`));
-    if (!ready.final()) return { t: "4단계 ②에서 최종 해결책을 30자 이상 먼저 써야 미래를 그려 볼 수 있어요", go: 4, label: "4단계로" };
-    if (preds.length < 2) return { t: `① AI보다 먼저, 사람들의 반응을 예측해요 (${preds.length}/2)`, late: () => (val("pp")
-      ? { p: act("add-pred"), g: "추가를 눌러 예측을 남겨요" } : { p: "#pp", g: "AI보다 먼저, 이 사람은 어떻게 반응할지 예측해 써요" }) };
-    if (deep("chain") && !said("s5.chain")) return { t: "① 한 사람의 반응이 다른 사람에게 어떤 영향을 줄지 이어 봐요", p: sv("s5.chain"), g: "'○○가 ~하면, △△는 ~할 것이다'처럼 반응이 이어지는 모습을 써요" };
-    if (logs.length && !logs.some(picked)) return { t: "더 그럴듯한 미래 이야기를 골라요", p: act("pick-scn", `[data-id="${logs[0].id}"]`), g: "두 이야기를 읽고 더 그럴듯한 쪽을 골라요" };
-    const keys = scnKeys();
-    const open = logs.find((l) => picked(l) && keys.some((k) => !said(`s5.selection.${l.id}.${k}`)));
-    if (open) { const k = keys.find((x) => !said(`s5.selection.${open.id}.${x}`));
-      return { t: "고른 미래 이야기를 내 예측과 견주어 따져 봐요", p: sv(`s5.selection.${open.id}.${k}`), g: { vs: "내 예측과 같은 점·다른 점을 써요", mech: "'왜 그렇게 되나'가 현실에서도 맞을지 따져 써요", reason: "그럴듯하다고 고른 이유를 써요" }[k] }; }
-    if (!filled("s5.newProblem")) return { t: logs.length ? "③ 가장 걱정되는 문제를 적어요" : "③ 가장 걱정되는 문제를 적어요 · AI 미래 이야기는 선택", p: sv("s5.newProblem"), g: "우리 해결책을 실행하면 가장 걱정되는 문제를 써요" };
-    return { t: "미래를 그려 봤어요!", done: true };
-  },
-  6() {
-    if (!filled("s6.plan.content")) return { t: "우리가 할 일을 계획해요", p: sv("s6.plan.content"), g: MID() ? "나와 우리 반이 실제로 할 수 있는 일을 써요" : "우리가 실제로 할 일을 써요" };
-    if (deep("power") && !said("s6.plan.authority")) return { t: "이 일을 정할 권한이 누구에게 있는지, 우리 생각을 어떤 길로 전할지 써요", p: sv("s6.plan.authority"), g: "결정할 권한이 있는 곳(기관·사람)과 제안할 길을 써요" };
-    return { t: "계획을 세웠어요!", done: true };
-  },
-  7() {
-    const miss = flowRows().find((x) => !x[3]);
-    if (miss) return { t: `② 비어 있는 곳이 있어요: ${miss[2]}`, go: miss[0], sub: miss[1], label: `${miss[0]}단계로`, p: ".fl.miss .link", g: "비어 있는 곳이 있어요. 눌러서 채우러 가요" };
-    if (!said("s7.compare")) return { t: "③ 실제 전개와 우리가 그려 본 미래를 비교해요", p: sv("s7.compare"), g: "우리가 그려 본 미래와 실제는 어디가 같고 달랐는지 써요" };
-    if (deep("why") && !said("s7.why")) return { t: "③ 실제와 달랐던 까닭을 따져 봐요", p: sv("s7.why"), g: "우리가 놓친 원인이나 사람들의 반응이 무엇이었는지 써요" };
-    if (!said(`s7.after.${S.uid}`)) return { t: "④ 처음 내 생각이 어떻게 바뀌었는지 써요", p: sv(`s7.after.${S.uid}`), g: "대화 전 내 생각과 지금을 견주어 써요. 그대로여도 괜찮아요" };
-    if (!filled("s7.share")) return { t: "⑤ 발표할 내용을 정리해요", p: sv("s7.share"), g: "지금까지 돌아본 것을 바탕으로 발표할 내용을 써요" };
-    if (!filled("s7.reflection")) return { t: "⑥ AI를 어떻게 썼는지 돌아봐요", p: sv("s7.reflection"), g: "AI의 답 중 받아들인 것과 버린 것을 써요" };
-    return { t: "모두 마쳤어요. 수고했어요! 👏", done: true };
-  },
-};
-const stepNow = () => STEP[S.stage]();
-// 단계 탭의 완료 표시(1단계는 모둠 문제까지 정해야 완료)
-function stageDone(n) {
-  if (n === 1) return ready.problem() && checkedAll("s1.problem.checks", PROBLEM_CHECKS.length) && !valuesMissing();
-  return !!STEP[n]().done;
-}
-function nextBox() {
-  const x = stepNow();
-  const btn = x.go ? ` <button class="link" data-go="${x.go}" data-sub="${x.sub || ""}">${esc(x.label)}</button>` : "";
-  return `<div class="next ${x.done ? "done" : ""}" role="status"><span class="next-k">${x.done ? "✓ 완료" : "지금 할 일"}</span><span class="next-t">${esc(x.t)}${btn}${guideBtn()}</span></div>`;
-}
-// ---------- 집중 안내: 지금 주목할 곳 하나만 테두리·펄스로 짚고, 나머지는 흐리게 한다 ----------
-// STEP 이 알려 준 { p: 주목할 칸·단추, g: 한 줄 설명, f: 안내 줄을 붙일 곳(기본은 p 가 든 카드), late: 그리고 난 뒤에야 알 수 있는 p·g }를 화면에 입힌다.
-// 단계를 마치면 '다음' 단추로, 글을 쓰는 동안에는 가리키는 곳을 바꾸지 않는다.
-const GUIDE_OFF = "eps_guide_off";
-const guideOn = () => { try { return localStorage.getItem(GUIDE_OFF) !== "1"; } catch { return true; } };
-const setGuide = (on) => { try { on ? localStorage.removeItem(GUIDE_OFF) : localStorage.setItem(GUIDE_OFF, "1"); } catch {} };
-const guideBtn = () => (guideOn() ? "" : ` <button class="link guide-toggle" type="button" data-act="guide-toggle">집중 안내 켜기</button>`);
-function guideNow() {
-  if (S.busy) return null; // AI 답을 기다리는 동안은 짚지 않는다
-  if (S.stage === 1 && S.sub1 === "chat") {
-    if (!S.me || S.locked || S.sending) return null;
-    if (!S.chat.length && !priorOf()) return { p: "#prior-in", g: "이야기를 듣기 전에, 먼저 내 생각을 한 줄 적어요" };
-    if (!S.chat.length) return { p: ".starters .chip", at: ".starters", nobox: true, g: "궁금한 것을 물어봐요. 아래 예시를 눌러 시작해도 돼요" };
-    if (S.chat.length >= 2 || !chatLeft()) return { p: "#chat-left .link", solo: true };
-    return null;
-  }
-  const x = stepNow();
-  if (x.done) return { p: ".nav-foot .btn-primary", at: ".nav-foot", g: "잘했어요! 다음 단계로 넘어가요", done: true };
-  if (x.late) return { ...x, ...x.late() };
-  if (x.p || x.f) return x;
-  if (x.go) return { p: ".hero-next .link, .next .link", solo: true }; // 앞 단계로 가는 단추만 펄스
-  return null;
-}
-const visibleEl = (sel) => sel ? [...panel.querySelectorAll(sel)].find((el) => el.offsetParent !== null) : null;
-function clearGuide() {
-  panel.querySelectorAll(".guide-tip").forEach((n) => n.remove());
-  for (const c of ["guide-box", "guide-pulse", "guide-dim"]) panel.querySelectorAll("." + c).forEach((n) => n.classList.remove(c));
-}
-let guideSig = "", guideKey = "", guideTimer = null;
-function applyGuide() {
-  const g = S.started && S.info && guideOn() ? guideNow() : null;
-  let pe = g && visibleEl(g.p);
-  const ae = g?.at ? visibleEl(g.at) : null;
-  let fe = g && !g.solo && (g.f ? visibleEl(g.f) : pe?.closest(".card:not(.flat), details.fold"));
-  if (pe?.matches('input[type="checkbox"]')) pe = pe.closest(".cell") || pe;
-  const sig = g && (pe || fe) ? [g.p, g.f, g.at, g.g, g.done, g.nobox, g.solo].join("|") : "";
-  if (sig === guideSig && (!sig || panel.querySelector(".guide-pulse, .guide-box, .guide-tip"))) return;
-  guideSig = sig;
-  clearGuide();
-  if (!sig) { guideKey = ""; return; }
-  if (pe) pe.classList.add("guide-pulse");
-  if (fe && !g.done && !g.nobox) fe.classList.add("guide-box");
-  if (fe && !g.done) panel.querySelectorAll(".card:not(.flat), details.fold").forEach((c) => { if (c !== fe && !c.contains(fe) && !fe.contains(c)) c.classList.add("guide-dim"); });
-  let tip = null;
-  if (g.g) {
-    tip = document.createElement("div");
-    tip.className = `guide-tip${g.done ? " end" : ""}`; // 마친 뒤에는 오른쪽 '다음' 단추를 가리킨다
-    tip.innerHTML = `<span class="gt-t">${esc(g.g)}</span><button class="gt-off" type="button" data-act="guide-toggle">안내 끄기</button>`;
-    // 설명은 주목할 칸(과 그 이름표) 바로 앞에 붙여, 설명과 칸이 늘 함께 보이게 한다
-    let a = ae || (pe && (pe.matches(".cell") ? pe.closest(".group") : pe.closest(".row, .add-row, .pick-ok, .pc-act")) || pe);
-    if (a && !ae) while (a.previousElementSibling?.matches("label.lbl, p.meta-line")) a = a.previousElementSibling;
-    if (a) a.before(tip); else if (fe) fe.matches(".card") ? fe.prepend(tip) : fe.before(tip);
-  }
-  const key = `${S.stage}|${S.sub1}|${sig}`;
-  if (key !== guideKey && !helpBusy) { guideKey = key; revealGuide(tip || pe || fe, pe); }
-}
-// 짚은 곳이 화면 밖이면 부드럽게 끌어 온다(이미 보이면 가만히 둔다). 글을 쓰는 중이거나 대화창일 때는 움직이지 않는다.
-function revealGuide(el, end) {
-  if (!el || isEditing() || (S.stage === 1 && S.sub1 === "chat")) return;
-  const top = ($(".hdr")?.offsetHeight || 0) + 12;
-  const bottom = window.innerHeight - (($(".m-nav")?.offsetHeight || 0) + 16);
-  const a = el.getBoundingClientRect(), b = (end || el).getBoundingClientRect();
-  if (a.top >= top && (b.bottom <= bottom || a.top <= bottom - 160)) return;
-  window.scrollTo({ top: Math.max(0, window.scrollY + a.top - top - 24), behavior: "smooth" });
-}
-// 칸에서 나올 때(다음 칸으로 옮겨 갈 때) 가리키는 곳을 새로 맞춘다. 누르는 중에는 화면이 밀리지 않게 기다린다.
-function queueGuide() { clearTimeout(guideTimer); guideTimer = setTimeout(() => (ptrDown ? queueGuide() : applyGuide()), 250); }
-panel.addEventListener("focusout", queueGuide);
+// 앞에서 정한 것을 한 줄로 다시 보여 준다(장면에 꼭 필요할 때만)
+const recall = (k, v) => (txt(v) ? `<div class="recall"><span>${esc(k)}</span>${esc(v)}</div>` : "");
 
 const liveWho = (path) => `<div class="live-who" data-live="${esc(path)}"></div>`;
 // 저장 칸(data-save): 입력하면 자동 저장되고, 모둠원 화면에도 바로 반영된다
@@ -852,24 +643,6 @@ function listHtml(path, rowFn, empty = "아직 없어요.") {
   return `<div class="group">${items.map((it) =>
     `<div class="cell"><div class="grow">${rowFn(it)}${who(it) ? `<br>${who(it)}` : ""}</div><button class="btn btn-plain btn-sm" data-act="del" data-path="${path}" data-id="${it.id}">삭제</button></div>`).join("")}</div>`;
 }
-function footer() {
-  let prev = null, next = null;
-  if (S.stage === 1) {
-    const i = SUBS.findIndex((x) => x.id === S.sub1);
-    if (i > 0) prev = { s: 1, sub: SUBS[i - 1].id, label: SUBS[i - 1].name };
-    next = i < SUBS.length - 1 ? { s: 1, sub: SUBS[i + 1].id, label: SUBS[i + 1].name } : { s: 2, label: "2단계 원인 찾기" };
-  } else {
-    prev = S.stage === 2 ? { s: 1, sub: "group", label: "1단계 ③ 모둠 문제" } : { s: S.stage - 1, label: `${S.stage - 1}단계 ${STAGES[S.stage - 2].name}` };
-    if (S.stage < 7) next = { s: S.stage + 1, label: `${S.stage + 1}단계 ${STAGES[S.stage].name}` };
-  }
-  const lockedNext = S.stage === 1 && S.sub1 === "pick" && !S.me; // 인물을 고르기 전에는 다음으로 갈 수 없다
-  const btn = (x, cls, text) => `<button class="btn ${cls}" data-go="${x.s}" data-sub="${x.sub || ""}" ${cls !== "btn-plain" && lockedNext ? "disabled" : ""}>${text}</button>`;
-  // 이 단계(1단계는 작은 단계)를 마쳤으면 '다음' 버튼을 눈에 띄게 한다
-  const sub = S.sub1;
-  const ready1 = S.stage !== 1 ? stepNow().done : sub === "pick" ? !!S.me : sub === "chat" ? S.chat.length > 0 : sub === "note" ? !!w(`s1.findings.${S.uid}`)?.submitted : stepNow().done;
-  return `<div class="nav-foot">${prev ? btn(prev, "btn-plain", `← ${esc(prev.label)}`) : "<span></span>"}
-    ${next ? btn(next, ready1 ? "btn-primary" : "btn-tinted", `다음: ${esc(next.label)} →`) : ""}</div>`;
-}
 
 // ---------- 그리기 ----------
 // 다른 모둠원이 바꾼 내용은 바로 그린다. 단, 내가 글을 쓰는 중이거나 누르는 중이면 그 칸만 맞추고 나머지는 나중에 그린다.
@@ -885,10 +658,11 @@ function render(force = false) {
   if (!force && (isEditing() || ptrDown)) { deferred = true; syncLive(); return; }
   deferred = false;
   renderTabs(); // 단계 완료 표시를 최신으로
-  const html = stageHero() + renderStage[S.stage]() + footer();
-  const key = `${S.stage}|${S.sub1}|${S.busy}|${html}`;
+  const html = sceneHtml();
+  updateChatMode(); // 장면이 정해진 뒤에 대화 화면인지 다시 본다
+  const view = `${S.stage}|${S.shown}`;
+  const key = `${view}|${S.busy}|${html}`;
   if (!force && key === lastKey) { syncLive(); return; }
-  const view = `${S.stage}|${S.sub1}`;
   const before = view === lastView ? snapValues() : null;
   lastView = view;
   lastKey = key;
@@ -904,7 +678,8 @@ function render(force = false) {
   panel.querySelectorAll("textarea").forEach(grow);
   flashChanged(before);
   syncLive();
-  applyGuide();
+  if (!before) footOk = null; // 새 장면에서는 '다음'이 톡 튀지 않는다
+  refreshFoot();
 }
 // 같은 화면을 다시 그릴 때, 바뀐 칸과 새로 생긴 항목을 잠깐 반짝여 모둠원이 무엇을 바꿨는지 보이게 한다
 let lastView = "";
@@ -1007,13 +782,14 @@ function renderChatLeft() {
   $(".starters")?.classList.toggle("m-hide", S.chat.length > 0); // 모바일: 대화가 시작되면 예시 질문 줄을 접어 대화 공간을 넓힌다
   const left = chatLeft(), out = left === 0, lastQ = left === 1;
   el.innerHTML = out
-    ? `질문을 모두 썼어요. 들은 이야기로 정리해 보세요. <button class="link" type="button" data-go="1" data-sub="note">② 정리·제출로 가기</button>`
-    : `남은 질문 <b>${left}</b> / ${S.chatLimit}번${lastQ ? ` · <b class="last-q">마지막 질문이에요</b>` : S.chat.length >= 2 ? ` · <button class="link" type="button" data-go="1" data-sub="note">다 알아냈으면 ② 정리로</button>` : ""}`;
+    ? `질문을 모두 썼어요. <button class="link" type="button" data-go="1" data-sub="note">알아낸 것 정리하러 가기</button>`
+    : `남은 질문 <b>${left}</b> / ${S.chatLimit}번${lastQ ? ` · <b class="last-q">마지막 질문이에요</b>` : S.chat.length >= 2 ? ` · <button class="link" type="button" data-go="1" data-sub="note">다 알아냈으면 정리하러 가기</button>` : ""}`;
   el.classList.toggle("out", out);
   el.classList.toggle("last", lastQ);
   const m = $("#msg"); if (m) { m.disabled = out; m.placeholder = out ? "질문을 모두 썼어요" : lastQ ? "마지막 질문 — 가장 궁금한 것을 물어보세요" : `${S.me?.name || ""}에게 메시지 보내기`; }
   const btn = $("#send-btn"); if (btn) btn.disabled = S.sending || out;
   document.querySelectorAll('[data-act="starter"]').forEach((b) => { b.disabled = out; });
+  refreshFoot(); // 질문을 충분히 했으면 '다음'이 열린다
 }
 // 마지막 말풍선이 머리글과 입력창 사이에 보이게 한다. 이미 보이면 움직이지 않고, 길면 말풍선의 첫 줄에 맞춘다.
 function scrollToLatest() {
@@ -1093,121 +869,42 @@ const SEND_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 
 // 7단계: 문제 → 원인 → 해결책 → 예상 문제 → 계획이 이어지는지 한눈에 본다
 function flowRows() {
-  const plan = w("s6.plan") || {};
   return [
-    [1, "group", "우리 문제", txt(w("s1.problem.hmw"))],
-    [3, "", "가장 큰 원인", txt(w("s3.chain.cause"))],
-    [4, "", "최종 해결책(4단계)", txt(w("s4.final"))],
-    [5, "", "예상되는 문제", txt(w("s5.newProblem"))],
-    [6, "", plan.type === "patch" ? "예상 문제를 막으려 고친 해결책(6단계)" : "행동 계획", txt(plan.content)],
+    [1, "hmw", "우리 문제", txt(w("s1.problem.hmw"))],
+    [3, "cause", "가장 큰 원인", txt(w("s3.chain.cause"))],
+    [4, "final", "최종 해결책", txt(w("s4.final"))],
+    [5, "worry", "걱정되는 문제", txt(w("s5.newProblem"))],
+    [6, "plan", "실천 계획", txt(w("s6.plan.content"))],
   ];
 }
 
-// 4단계 ② 심화(tradeoff): 해결책마다 얻는 것과 포기하는 것을 쓰고, 무엇을 앞세웠는지 정한다
-function tradeCard(props) {
-  return `<div class="card"><h3>② 해결책 견주기 <span class="tag">모둠</span></h3>
-    <p class="meta-line">좋기만 한 해결책은 드물어요. 해결책마다 얻는 것과 그 대신 포기하는 것(누가 부담을 지는지)을 나란히 써 봐요. 두 개 이상 써야 해요.</p>
-    ${props.length < 2 ? `<div class="notice muted">위 ①에서 해결책을 ${2 - props.length}개 더 쓰면 견줄 수 있어요.</div>` : ""}
-    ${props.map((p, i) => `<div class="card flat" style="margin-bottom:10px"><div><span class="tag b">해결책 ${i + 1}</span> ${esc((p.text || "").slice(0, 80))}</div>
-      ${fld(`s4.trade.${p.id}.gain`, "얻는 것: 누구에게 무엇이 좋아지나요?", "", true)}
-      ${fld(`s4.trade.${p.id}.cost`, "포기하는 것: 그 대신 무엇을 잃고, 누가 부담을 지나요?", "", true)}</div>`).join("")}
-    ${fld("s4.tradeValue", "견줘 보니, 우리는 무엇을 더 중요하게 보나요? 그 까닭은?", "예) ~보다 ~을 앞세웠다. 왜냐하면 ~", true)}</div>`;
-}
 // 3단계 판단 심화(sources): 다른 자료로 한 번 더 확인하고, 자료를 만든 쪽을 따진다
-const sourceMore = (base) => (deep("sources") ? `${fld(`${base}.source2`, "다른 자료로도 확인해 봤나요? (어떤 자료에서, 같았나요 달랐나요?)", "예) 언론 보도에서도 같은 숫자가 나왔다 / 단체 발표는 다르게 말했다")}
-  ${fld(`${base}.maker`, "그 자료는 누가 만들었고, 왜 그렇게 말했을까요?", "예) 정부 발표라서 ~ 쪽에서 본 숫자다")}` : "");
-// 3단계 ③ 심화(causeMap): 2단계에서 이은 원인 관계를 다시 보여 준다
+const sourceMore = (base) => (deep("sources") ? `${fld(`${base}.source2`, "다른 자료에서도 같았나요?", "예) 언론 보도에서도 같은 숫자가 나왔다")}
+  ${fld(`${base}.maker`, "그 자료는 누가 만들었나요? 왜 그렇게 말했을까요?", "예) 정부 발표라서 ~ 쪽에서 본 숫자다")}` : "");
+// 3단계 심화(causeMap): 2단계에서 이은 원인 관계를 다시 보여 준다
 function linksNote() {
   const causes = list("s2.causes"), name = (id) => causes.find((q) => q.id === id)?.text;
   const ls = list("s2.causeLinks").filter((l) => name(l.from) && name(l.to));
-  return ls.length ? `<div class="notice muted"><b>2단계에서 이은 원인</b>${ls.map((l) => `<br>${esc(name(l.from))} → ${esc(l.rel || "")} → ${esc(name(l.to))}`).join("")}</div>` : "";
+  return ls.length ? `<div class="recall"><span>2단계에서 이은 원인</span>${ls.map((l) => `${esc(name(l.from))} → ${esc(l.rel || "")} → ${esc(name(l.to))}`).join("<br>")}</div>` : "";
 }
-// 확인 질문 카드의 '틀렸다면'(고등학교) 또는 '확인할 곳'(중학교)
-const checkExtra = (c) => [txt(c.refute) && `<div style="margin-top:6px"><span class="tag x">틀렸다면</span> ${esc(c.refute)}</div>`,
-  txt(c.look) && `<div style="margin-top:6px"><span class="tag x">확인할 곳</span> ${esc(c.look)}</div>`].filter(Boolean).join("");
-
-// 2단계 ② 심화(causeMap): 원인끼리 잇기. 한 원인이 다른 원인을 불러오거나 키우는지 모둠이 직접 잇는다.
+// 2단계 심화(causeMap): 원인끼리 잇기. 한 원인이 다른 원인을 불러오거나 키우는지 모둠이 직접 잇는다.
 function causeMapHtml(causes) {
-  if (causes.length < 2) return `<div class="meta-line" style="margin-top:10px">원인을 두 개 이상 쓰면 원인끼리 이어 볼 수 있어요.</div>`;
   const name = (id) => causes.find((q) => q.id === id)?.text || "(삭제된 원인)";
-  const opt = causes.map((q) => `<option value="${q.id}">${esc((q.text || "").slice(0, 40))}</option>`).join("");
-  return `<label class="lbl" style="margin-top:14px">원인끼리 이어 보기 <span class="meta-line">· 한 원인이 다른 원인을 불러오거나 키우나요?</span></label>
-    ${listHtml("s2.causeLinks", (l) => `<b>${esc(name(l.from))}</b> → <span class="tag">${esc(l.rel || "")}</span> → <b>${esc(name(l.to))}</b>`, "아직 이은 것이 없어요.")}
-    <div class="row add-row" id="cl-row" style="margin-top:8px"><select id="cl-from" aria-label="앞 원인" style="flex:1;min-width:0">${opt}</select>
+  const opt = (sel) => causes.map((q, i) => `<option value="${q.id}" ${i === sel ? "selected" : ""}>${esc((q.text || "").slice(0, 40))}</option>`).join("");
+  return `${listHtml("s2.causeLinks", (l) => `<b>${esc(name(l.from))}</b> → <span class="tag">${esc(l.rel || "")}</span> → <b>${esc(name(l.to))}</b>`, "아직 이은 것이 없어요.")}
+    <div class="row add-row" id="cl-row" style="margin-top:10px"><select id="cl-from" aria-label="앞 원인" style="flex:1;min-width:0">${opt(0)}</select>
       <select id="cl-rel" aria-label="어떻게 이어지나" style="width:auto">${CAUSE_RELS.map((x) => `<option>${x}</option>`).join("")}</select>
-      <select id="cl-to" aria-label="뒤 원인" style="flex:1;min-width:0">${causes.map((q, i) => `<option value="${q.id}" ${i === 1 ? "selected" : ""}>${esc((q.text || "").slice(0, 40))}</option>`).join("")}</select>
+      <select id="cl-to" aria-label="뒤 원인" style="flex:1;min-width:0">${opt(1)}</select>
       <button class="btn btn-tinted" data-act="add-clink">잇기</button></div>`;
 }
 
-// 확인 질문이 어느 원인 가설을 확인하는지 표시
-function causeTag(c) {
-  if (!c.causeId) return "";
-  const q = list("s2.causes").find((x) => x.id === c.causeId);
-  return `<div style="margin-bottom:6px"><span class="tag">우리 추측</span> ${esc(q?.text || "(삭제된 원인)")}</div>`;
-}
-
-// ---------- 1단계 ②·③ 도우미 ----------
+// ---------- 1단계 도우미 ----------
 const findings = () => toList(w("s1.findings"));
 const submitted = () => findings().filter((f) => f.submitted || (!("submitted" in f) && txt(f.text)));
-// 번호는 그릴 때 붙인다(심화 premise 면 4번에 '당연하게 여기는 것'이 들어간다)
-const NOTE_FIELDS = [
-  ["who", "이 사람은 누구인가요?", "예) 어디에서 와서, 지금 무슨 일을 하는 사람"],
-  ["hard", "이 사람이 가장 힘들거나 걱정하는 것은?", "한 가지만 골라 쓰세요"],
-  ["want", "이 사람이 바라는 것은?", "이 사람이 원하는 것"],
-  ["surprise", "이야기를 듣다가 '어, 내 생각과 다르네' 싶었던 순간은?", "처음엔 ~라고 생각했는데, ~라는 말을 듣고 ~. 없었다면 왜 그랬을지 써도 좋아요"],
-  ["quote", "기억에 남는 말 (대화에서 그대로 옮기기)", "따옴표 없이 그대로 옮겨 쓰세요"],
-  ["doubt", "'정말 그럴까?' 싶었던 말", "이 사람은 그렇게 말했지만, 다른 사람은 다르게 말할 수도 있는 것"],
-];
-const PREMISE_FIELD = ["premise", "이 사람이 당연하게 여기는 것은? (말 속에 깔린 생각)", "예) 열심히 일하면 누구나 그만큼 대가를 받아야 한다고 여긴다"];
-const noteFields = () => (deep("premise") ? [...NOTE_FIELDS.slice(0, 3), PREMISE_FIELD, ...NOTE_FIELDS.slice(3)] : NOTE_FIELDS).map(([k, l, ph], i) => [k, `${i + 1}. ${l}`, ph]);
 // 대화 전에 적은 '처음 내 생각'
 const priorOf = (uid = S.uid) => txt(w(`s1.findings.${uid}.prior`));
-function findingCard(f, mine = false) {
-  const rows = [...NOTE_FIELDS.slice(0, 3), PREMISE_FIELD, ...NOTE_FIELDS.slice(3)].filter(([k]) => txt(f[k])).map(([k, l]) => `<div class="f-row"><span>${esc(l.replace(/^\d\.\s*/, "").replace(/ \(.*\)$/, ""))}</span>${esc(f[k])}</div>`).join("");
-  return `<div class="finding"><div class="f-head"><b>${esc(f.nick || "모둠원")}</b>${f.persona ? ` 님이 만난 <b>${esc(f.persona)}</b>` : ""}${mine ? ' <span class="tag">내 제출</span>' : ""}</div>
-    ${rows || `<div class="f-row">${esc(f.text || "")}</div>`}</div>`;
-}
-
-// ---------- 2단계 ①: 처음 내 생각 돌아보기 ----------
-// 남의 문제를 '나와 비슷한 점' 찾기로 억지로 잇지 않는다. 대화 전에 적은 내 생각이 대화하며 흔들린 순간에서 출발해,
-// 그 생각이 어디서 왔는지, 내 생활의 어느 장면과 닿아 있는지, 그래서 무엇이 궁금해졌는지를 차례로 쓴다.
-function linkCard() {
-  const mine = list("s2.links").filter((l) => l.by === S.uid);
-  const others = list("s2.links").filter((l) => l.by !== S.uid);
-  const f = w(`s1.findings.${S.uid}`) || {};
-  const prior = txt(f.prior), surprise = txt(f.surprise);
-  const hints = ui().sceneHints || UI_FALLBACK.sceneHints;
-  const angle = S.linkAngle ?? 0;
-  // 한 번 쓰고 나면 입력칸은 접고, 모둠원의 생각을 먼저 보여 준다('하나 더 쓰기'로 다시 연다)
-  const showForm = !mine.length || S.linkFormOpen;
-  const view = (l, own) => `<div class="card flat link-card" style="margin-bottom:10px">
-      ${l.prior ? `<div class="meta-line">처음 생각: ${esc(l.prior)}</div>` : ""}
-      ${l.surprise ? `<div class="meta-line">흔들린 순간: ${esc(l.surprise)}</div>` : ""}
-      <div style="margin-top:6px"><span class="tag">처음 생각의 이유</span> ${esc(l.source)}</div>
-      <div style="margin-top:4px"><span class="tag b">${esc(l.angle || "내 생활의 장면")}</span> ${esc(l.scene)}</div>
-      ${l.question ? `<div style="margin-top:4px"><span class="tag y">더 알고 싶은 것</span> <b>${esc(l.question)}</b></div>` : ""}
-      ${own ? coachBox("link", l.id, true, "", stageLogs(2).some((g) => g.payload?.linkId === l.id) ? fld(`s2.linkMore.${l.id}`, "질문을 받고 더 생각한 것", "질문에 대한 내 생각, 고치고 싶은 부분", true) : "")
-        : txt(w(`s2.linkMore.${l.id}`)) ? `<div class="meta-line" style="margin-top:6px">더 생각한 것: ${esc(w(`s2.linkMore.${l.id}`))}</div>` : ""}
-      <div class="row" style="margin-top:8px;justify-content:space-between">${who(l)}${own ? `<button class="btn btn-plain btn-sm" data-act="del" data-path="s2.links" data-id="${l.id}">삭제</button>` : ""}</div></div>`;
-  return `<div class="card"><h3>① 처음 내 생각 돌아보기 <span class="tag x">나를 돌아봐요 · 혼자 쓰고 함께 봐요</span></h3>
-    <div class="notice muted"><b>대화 전 내 생각</b><br>${prior ? esc(prior) : `아직 적지 않았어요. <button class="link" data-go="1" data-sub="chat">1단계 ①에서 적기</button>`}
-      ${surprise ? `<br><br><b>대화하며 '어?' 했던 순간</b><br>${esc(surprise)}` : ""}</div>
-    ${showForm ? `
-    <label class="lbl" for="lk-src">1. 처음에 그렇게 생각한 이유는 뭐였나요?</label>
-    <p class="meta-line">그 생각을 어디서 보고 들었는지 떠올려 보세요. 정답은 없어요.</p>
-    <textarea id="lk-src" class="short" maxlength="${MAX_INPUT}" placeholder="예) 뉴스 제목만 봤어요 / 부모님이나 주변 어른들이 하는 말을 들었어요 / 그냥 그런 느낌이 들었어요"></textarea>
-    <label class="lbl">2. 내 생활에서 이 이야기와 비슷한 순간이 있었나요?</label>
-    <p class="meta-line">셋 중 떠오르는 것 하나를 골라, 그때 무슨 일이 있었는지 짧게 써요.</p>
-    <div class="chipbar">${ANGLES.map((a, i) => `<button class="chip ${angle === i ? "on" : ""}" data-act="lk-angle" data-i="${i}">${esc(a)}</button>`).join("")}</div>
-    <textarea id="lk-scene" maxlength="${MAX_AREA}" placeholder="예) ${esc(hints[angle] || "")}"></textarea>
-    <label class="lbl" for="lk-q">3. 이야기를 듣고 나서 더 알고 싶어진 것은?</label>
-    <p class="meta-line">다음 단계(원인 찾기)에서 모둠이 함께 알아볼 질문이 돼요.</p>
-    <textarea id="lk-q" class="short" maxlength="${MAX_INPUT}" placeholder="예) 사람들은 왜 그렇게 쉽게 ~라고 믿게 될까?"></textarea>
-    <div class="row" style="margin-top:10px"><button class="btn btn-tinted" data-act="add-link">모둠에 보이기</button>${mine.length ? `<button class="btn btn-plain" data-act="link-form" data-open="0">취소</button>` : ""}</div>` : ""}
-    ${others.length ? `<label class="lbl" style="margin-top:14px">모둠원들의 생각</label>${others.map((l) => view(l, false)).join("")}` : mine.length ? `<div class="meta-line" style="margin-top:12px">모둠원들이 쓰면 여기에 보여요.</div>` : ""}
-    ${mine.length ? `<details class="fold mine-fold" data-keep="mylinks" style="margin-top:14px" ${mine.some((l) => stageLogs(2).some((g) => g.payload?.linkId === l.id)) || S.busy?.startsWith("coach:link") ? "open" : ""}><summary>내가 쓴 것 (${mine.length}개) 보기·지우기</summary><div class="inner">${mine.map((l) => view(l, true)).join("")}</div></details>
-      ${showForm ? "" : `<button class="btn btn-plain btn-sm" style="margin-top:10px" data-act="link-form" data-open="1">하나 더 쓰기</button>`}` : ""}</div>`;
-}
+const mineNote = () => w(`s1.findings.${S.uid}`) || {};
+const askedEnough = () => Math.max(S.chatCount, S.chat.length) >= Math.min(2, S.chatLimit);
 
 // 생각 도우미: 답을 주지 않고 질문 하나만 돌려준다. 받은 질문은 모둠 로그에 남아 모두가 본다.
 function coachBox(focus, linkId, ready, waitMsg = "", more = "") {
@@ -1219,385 +916,309 @@ function coachBox(focus, linkId, ready, waitMsg = "", more = "") {
     ${logs.map((g) => `<div class="coach-q"><span class="tag y">생각 도우미</span> ${esc(q(g))}</div>`).join("")}
     ${S.busy === busyKey ? loading("생각 도우미가 읽는 중이에요…") : ""}
     ${more ? `<div style="align-self:stretch">${more}</div>` : ""}
-    ${ready ? `<button class="btn btn-plain btn-sm" data-act="ask-coach" data-focus="${focus}" data-id="${linkId}" ${S.busy ? "disabled" : ""}>${logs.length ? "고친 뒤 다시 보여 주기" : "생각 도우미에게 보여 주기"}</button>`
-      : `<div class="meta-line">${esc(waitMsg)}</div>`}</div>`;
+    ${ready ? `<button class="btn btn-plain btn-sm" data-act="ask-coach" data-focus="${focus}" data-id="${linkId}" ${S.busy ? "disabled" : ""}>${logs.length ? "고친 뒤 다시 물어보기" : "생각 도우미에게 물어보기 (선택)"}</button>`
+      : waitMsg ? `<div class="meta-line">${esc(waitMsg)}</div>` : ""}</div>`;
 }
 
-const renderStage = {
-  1() {
-    const nav = `<div class="subnav">${SUBS.map((x) => `<button class="${S.sub1 === x.id ? "on" : ""}" data-go="1" data-sub="${x.id}" ${!S.me && x.id !== "pick" ? "disabled" : ""}>${x.name}<small>${x.who}</small></button>`).join("")}</div>`;
-    if (!S.me && S.sub1 !== "pick") S.sub1 = "pick"; // 인물을 고르기 전에는 대화·정리를 열 수 없다
-    // ① 대화는 화면을 대화창에 양보하고, '알아낼 것' 칩과 남은 질문 줄이 안내를 맡는다
-    return nav + (S.sub1 === "chat" ? "" : nextBox()) + sub1[S.sub1]();
+// 실제 사건 자료(2단계 장면, 3단계에서 '자료 보기' 창)
+const matItem = (it) => `<div class="mat-item"><span class="kind k-${esc(it.kind)}">${esc(it.kind)}</span><p>${esc(it.text)}</p><div class="cap">${esc(it.caption)}</div></div>`;
+function matBody(cur) {
+  if (!cur) return `<div class="notice muted">선생님이 자료를 준비하는 중이에요.</div>`;
+  return cur.type === "timeline"
+    ? `<div class="timeline">${cur.items.map((it) => `<div class="tl"><div class="d">${esc(it.date)}</div><p>${esc(it.text)}</p><div class="cap">${esc(it.caption)}</div></div>`).join("")}</div>`
+    : `${cur.stats ? `<div class="stats">${cur.stats.map((s, i) => `<div class="stat ${i === 2 ? "g" : i === 0 ? "" : "b"}"><b>${esc(s.value)}</b><span>${esc(s.label)}</span></div>`).join("")}</div>` : ""}
+       <div class="mat">${cur.items.map(matItem).join("")}</div>`;
+}
+const LEGEND = `<div class="legend"><span class="kind">사실</span><span class="kind k-증언">증언</span> 일어난 일 · <span class="kind k-주장">주장</span><span class="kind k-의견">의견</span> 누군가의 생각</div>`;
+async function showMaterials() {
+  const cats = S.info.materials || [];
+  await showModal({ title: "실제 사건 자료", wide: true, dismissible: true,
+    body: `${LEGEND}${cats.map((c) => `<h3 class="mat-h">${esc(c.title)}</h3>${matBody(c)}`).join("") || matBody(null)}`,
+    actions: [{ label: "닫기", value: true, kind: "btn-primary" }] });
+}
+
+// ---------- 단계별 장면 ----------
+// 앞 단계에서 할 일이 남았으면 그 단계 전체를 잠근 장면 하나로 보여 준다
+const gate = (name, lock, scenes) => (lock ? [{ id: "lock", name, lock: () => lock }] : scenes);
+const SCENES = {
+  1: () => {
+    const me = S.me, name = me?.name || "";
+    const noMe = me ? null : { t: "먼저 이야기를 들을 사람을 골라요.", go: 1, sub: "pick", label: "사람 고르기" };
+    const notYet = () => noMe || (mineNote().submitted ? null : { t: "먼저 알아낸 것을 제출해요.", go: 1, sub: "doubt", label: "제출하러 가기" });
+    return [
+      { id: "pick", sub: "pick", name: "사람 고르기", q: "누구의 이야기를 들어 볼까요?", hint: "카드를 눌러 편지를 읽고, 한 명을 골라요. 모둠 친구와 겹치지 않게!", done: () => !!S.me, body: pickBody },
+      { id: "prior", sub: "chat", name: "처음 내 생각", q: ui().priorQuestion, hint: "떠오르는 대로 한 줄이면 돼요. 맞고 틀린 답은 없고, 나만 봐요.", lock: () => noMe, done: () => !!priorOf() || S.chat.length > 0,
+        body: () => `<textarea id="prior-in" data-save="s1.findings.${S.uid}.prior" maxlength="${MAX_AREA}" placeholder="${esc(ui().priorHint)}">${esc(priorOf())}</textarea>` },
+      { id: "chat", sub: "chat", name: "대화", q: "", lock: () => noMe || (priorOf() || S.chat.length ? null : { t: "대화 전에 처음 내 생각을 한 줄 적어요.", go: 1, sub: "prior", label: "적으러 가기" }),
+        done: () => askedEnough() || !!mineNote().submitted, body: chatBody },
+      { id: "note", sub: "note", name: "알아낸 것", q: `${name}님은 어떤 사람이었나요?`, hint: "대화에서 알아낸 대로, 짧게 내 말로 써요.",
+        lock: () => noMe || (mineNote().submitted || askedEnough() ? null : { t: `${name}님에게 질문을 ${Math.min(2, S.chatLimit)}번 이상 한 뒤에 정리해요.`, go: 1, sub: "chat", label: "대화하러 가기" }),
+        done: () => mineNote().submitted || noteRequired().every((k) => txt(mineNote()[k]).length >= 4),
+        body: () => [["who", "누구인가요?", "예) 어디에서 와서, 지금 무슨 일을 하는 사람"], ["hard", "가장 힘든 것은?", "한 가지만"], ["want", "바라는 것은?", ""],
+          ...(deep("premise") ? [["premise", "당연하게 여기는 생각은?", "예) 열심히 일하면 그만큼 대가를 받아야 한다"]] : [])]
+          .map(([k, l, ph]) => fld(`s1.findings.${S.uid}.${k}`, l, ph)).join("") },
+      { id: "doubt", sub: "note", name: "제출", q: `'정말 그럴까?' 싶었던 말이 있었나요?`, hint: "2·3단계에서 사실인지 확인해요. 없으면 비워 두고 제출해도 돼요.",
+        lock: () => noMe || (mineNote().submitted || noteRequired().every((k) => txt(mineNote()[k]).length >= 4) ? null : { t: "알아낸 것부터 써요.", go: 1, sub: "note", label: "쓰러 가기" }),
+        done: () => !!mineNote().submitted,
+        body: () => mineNote().submitted
+          ? `${recall("'정말 그럴까?' 싶었던 말", mineNote().doubt || "없음")}<div class="notice ok" role="status">제출했어요 ✓ <button class="btn btn-plain btn-sm" data-act="edit-note">고치기</button></div>`
+          : `${fld(`s1.findings.${S.uid}.doubt`, "", `예) ${name}님은 ~라고 했는데, 정말일까?`)}<div class="sc-act"><button class="btn btn-primary" data-act="submit-note">제출하기</button></div>` },
+      { id: "board", sub: "group", name: "친구들이 만난 사람", q: "친구들이 만난 사람들을 함께 읽어요", lock: notYet, body: boardBody,
+        hint: `한 사람씩 돌아가며 소개해요. 👥 여기부터는 모둠이 함께 해요.` },
+      { id: "conflict", sub: "group", name: "부딪히는 점", q: "누구의 바람과 누구의 걱정이 부딪히나요?", hint: "모둠이 이야기 나누고 한 사람이 써요.", lock: notYet, done: () => filled("s1.problem.conflict"),
+        body: () => fld("s1.problem.conflict", "", "예) ○○는 ~을 원하지만, △△는 ~을 걱정한다", true) },
+      deep("premise") && { id: "values", sub: "group", name: "부딪히는 가치", q: "두 쪽은 각각 무엇을 지키려 하나요?", lock: notYet, done: () => !valuesMissing(),
+        body: () => `${recall("부딪히는 점", w("s1.problem.conflict"))}<div class="row2">${pick("s1.problem.valueA", "한쪽", VALUES)}${pick("s1.problem.valueB", "다른 쪽", VALUES)}</div>
+          ${fld("s1.problem.valueWhy", "둘을 함께 지키기 어려운 까닭은?", "예) ○○을 지키려면 ~해야 하는데, 그러면 △△의 ~이 어려워진다", true)}` },
+      { id: "hmw", sub: "group", name: "우리 문제", q: "우리 모둠이 풀 문제를 한 문장으로 써요", hint: "<b>어떻게 하면 ~하면서도 ~할 수 있을까?</b> 꼴로 써 보세요.", lock: notYet, done: ready.problem,
+        body: () => `${recall("부딪히는 점", w("s1.problem.conflict"))}${fld("s1.problem.hmw", "", "어떻게 하면 ________하면서도 ________할 수 있을까?", true, 10)}
+          <details class="example" data-keep="ex-hmw" ${MID() ? "open" : ""}><summary>예시 보기</summary><div class="ex-row bad">✗ ${esc(ui().broadProblem)} <span>너무 넓어요</span></div>
+          <div class="ex-row bad">✗ ${esc(ui().decidedProblem)} <span>답을 정해 버렸어요</span></div>
+          <div class="ex-row good">✓ 어떻게 하면 급식 줄 서는 시간을 줄이면서도 모두가 충분히 먹을 수 있을까? <span>다른 주제의 예</span></div></details>` },
+      { id: "check", sub: "group", name: "점검", q: "우리 문제, 세 가지만 점검해요", hint: "모두 맞으면 체크해요. 아니면 문장을 고쳐요.", lock: () => notYet() || (ready.problem() ? null : { t: "문제 문장을 먼저 써요.", go: 1, sub: "hmw", label: "쓰러 가기" }),
+        done: () => checkedAll("s1.problem.checks", PROBLEM_CHECKS.length),
+        body: () => `${recall("우리 문제", w("s1.problem.hmw"))}<div class="group">${PROBLEM_CHECKS.map((t, i) => `<label class="cell" style="cursor:pointer"><input type="checkbox" data-save="s1.problem.checks.${i}" ${w(`s1.problem.checks.${i}`) ? "checked" : ""} style="width:22px;height:22px;margin-top:1px"><span class="grow">${esc(t)}</span></label>`).join("")}</div>` },
+    ];
   },
 
-  2() {
-    const cats = S.info.materials || [];
-    const cur = cats.find((c) => c.id === S.matTab) || cats[0];
-    const doubts = submitted().filter((f) => txt(f.doubt));
-    const causes = list("s2.causes");
-    const qs = list("s2.links").map((l) => txt(l.question)).filter(Boolean);
-    const disputes = String(w("s1.problem.disputes") || "").split("\n").map((x) => x.trim()).filter((x) => x.length >= 4);
-    const itemHtml = (it) => `<div class="mat-item"><span class="kind k-${esc(it.kind)}">${esc(it.kind)}</span><p>${esc(it.text)}</p><div class="cap">${esc(it.caption)}</div></div>`;
-    const matBody = !cur ? `<div class="notice muted">선생님이 실제 자료를 준비하는 중이에요.</div>`
-      : cur.type === "timeline"
-        ? `<div class="timeline">${cur.items.map((it) => `<div class="tl"><div class="d">${esc(it.date)}</div><p>${esc(it.text)}</p><div class="cap">${esc(it.caption)}</div></div>`).join("")}</div>`
-        : `${cur.stats ? `<div class="stats">${cur.stats.map((s, i) => `<div class="stat ${i === 2 ? "g" : i === 0 ? "" : "b"}"><b>${esc(s.value)}</b><span>${esc(s.label)}</span></div>`).join("")}</div>` : ""}
-           <div class="mat">${cur.items.map(itemHtml).join("")}</div>`;
-    // PC 넓은 화면에서는 자료를 왼쪽에 붙여 두고(.split-side) 오른쪽에서 활동한다
-    return `${problemBar()}${nextBox()}<div class="split"><div class="split-side">
-    <details class="fold" data-keep="mat" open><summary>실제 사건 자료</summary><div class="inner">
-      <div class="overview"><b>${esc(S.info.title)}</b><p>${esc(S.info.summary)}</p></div>
-      <div class="legend"><span class="kind">사실</span><span class="kind k-증언">증언</span> 일어난 일 · <span class="kind k-주장">주장</span><span class="kind k-의견">의견</span> 누군가의 생각</div>
-      <div class="chipbar scroll">${cats.map((c) => `<button class="chip ${cur && c.id === cur.id ? "on" : ""}" data-act="mat-tab" data-id="${c.id}">${esc(c.title)}</button>`).join("")}</div>
-      ${matBody}</div></details></div><div class="split-main">
-
-    ${linkCard()}
-
-    <div class="card"><h3>② 이 사건은 왜 생겼을까요? <span class="tag">원인 추측</span></h3>
-      ${qs.length ? `<label class="lbl">모둠원들이 ①에서 궁금해한 것 (누르면 아래 칸에 들어가요)</label>
-        <div class="chipbar">${qs.map((q) => `<button class="chip" data-act="use-q" data-t="${esc(q)}">${esc(q.slice(0, 30))}</button>`).join("")}</div>` : ""}
-      ${listHtml("s2.causes", (q) => `${q.level ? `<span class="tag">${esc(q.level)}</span> ` : ""}${esc(q.text)}`)}
-      <label class="lbl" for="cz-lv">어디에서 생긴 원인인가요?</label>
-      <div class="row add-row"><select id="cz-lv" style="width:auto">${causeLevels().map((x) => `<option>${x}</option>`).join("")}</select>
-        <input type="text" id="cz" data-enter="add-cause" enterkeyhint="done" maxlength="${MAX_INPUT}" placeholder="예) ${esc(ui().causeExample)}" style="flex:1;min-width:0" /><button class="btn btn-tinted" data-act="add-cause">추가</button></div>
-      ${deep("causeMap") ? causeMapHtml(causes) : ""}
-      ${coachBox("cause", "", causes.length >= 2, "원인을 두 개 이상 쓰면 생각 도우미에게 보여 줄 수 있어요.")}</div>
-
-    <div class="card"><h3>③ 정말 그럴까? 확인할 질문 만들기</h3>
-      <details class="example" data-keep="ex-check" ${MID() ? "open" : ""}><summary>좋은 확인 질문은?</summary>
-        <div class="ex-row bad">✗ ${esc(ui().badQuestion)} <span>의견이라 자료로 확인할 수 없어요</span></div>
-        <div class="ex-row good">✓ ${esc(ui().goodQuestion)} <span>숫자로 답할 수 있어요</span></div></details>
-      ${list("s2.checks").map((c) => `<div class="card flat" style="margin-bottom:10px">
-        ${causeTag(c)}<div><span class="tag b">확인할 말</span> ${esc(c.heard)}${c.fo ? ` <span class="tag x">${esc(c.fo)}</span>` : ""}</div>
-        <div style="margin-top:6px"><span class="tag y">확인 질문</span> <b>${esc(c.question)}</b>${c.srcType ? ` <span class="tag x">${esc(c.srcType)}</span>` : ""}</div>
-        ${checkExtra(c)}
-        ${pick(`s2.checks.${c.id}.real`, "위 자료와 비교하면?", COMPARE)}
-        <div class="row" style="margin-top:8px;justify-content:space-between">${who(c)}<button class="btn btn-plain btn-sm" data-act="del" data-path="s2.checks" data-id="${c.id}">삭제</button></div></div>`).join("") || ""}
-      ${doubts.length || disputes.length ? `<label class="lbl">'정말 그럴까?' 싶었던 말, 인물들이 서로 다르게 말한 것 (누르면 아래 칸에 들어가요)</label>
-        <div class="chipbar">${doubts.map((f) => `<button class="chip" data-act="use-doubt" data-t="${esc(`${f.persona || f.nick}: ${f.doubt}`)}">${esc(f.doubt.slice(0, 30))}</button>`).join("")}${disputes.map((x) => `<button class="chip" data-act="use-doubt" data-t="${esc(x)}">엇갈림: ${esc(x.slice(0, 26))}</button>`).join("")}</div>` : ""}
-      <label class="lbl">무엇을 확인하나요?</label><select id="ch-cause"><option value="">인물에게 들은 말</option>${list("s2.causes").map((q) => `<option value="${q.id}">우리 추측: ${esc((q.text || "").slice(0, 40))}</option>`).join("")}</select>
-      <label class="lbl">확인할 말 (누가 한 말인지 함께)</label><input type="text" id="ch-heard" data-next="ch-q" enterkeyhint="next" maxlength="${MAX_INPUT}" placeholder="예) ${esc(ui().heardExample)}" />
-      ${MID() ? `<label class="lbl" for="ch-fo">이 말은 사실을 말한 걸까요, 생각(의견)을 말한 걸까요?</label><select id="ch-fo"><option value="">선택하세요</option>${FACT_OPINION.map((x) => `<option>${x}</option>`).join("")}</select>
-        <p class="meta-line">의견이라면 맞다 틀리다를 자료로 정하기 어려워요. 그 말 속에서 숫자나 일어난 일처럼 확인할 수 있는 부분을 찾아 질문으로 바꿔요.</p>` : ""}
-      <label class="lbl">확인 질문</label><input type="text" id="ch-q" data-next="${MID() ? "ch-look" : "ch-refute"}" enterkeyhint="next" maxlength="${MAX_INPUT}" placeholder="예) ${esc(ui().checkQuestion)}" />
-      ${MID() ? `<label class="lbl">이 말이 맞는지 알려면 무엇을 보면 될까요?</label><input type="text" id="ch-look" data-enter="add-check" enterkeyhint="done" maxlength="${MAX_INPUT}" placeholder="예) 그해 통계 숫자, 기관 발표, 신문 기사" />`
-        : `<label class="lbl">이 말이 틀렸다면, 어떤 사실이 나와야 할까요?</label><input type="text" id="ch-refute" data-enter="add-check" enterkeyhint="done" maxlength="${MAX_INPUT}" placeholder="예) 실제 숫자가 ~보다 작게 나온다" />`}
-      <label class="lbl">무엇으로 확인할까요?</label><select id="ch-src">${SRC_TYPES.map((x) => `<option>${x}</option>`).join("")}</select>
-      <div style="margin-top:10px"><button class="btn btn-tinted" data-act="add-check">추가</button></div></div></div></div>`;
+  2: () => {
+    const causes = list("s2.causes"), mine = list("s2.links").filter((l) => l.by === S.uid);
+    return gate("원인 찾기", ready.problem() ? null : { t: "1단계에서 모둠 문제를 먼저 정해요.", go: 1, sub: "group", label: "1단계로" }, [
+      { id: "why-me", name: "내 생각 돌아보기", q: "처음 내 생각은 어디서 왔을까요?", hint: "뉴스, 주변 사람의 말, 내 경험… 떠오르는 대로 써요.",
+        done: () => mine.length > 0, body: linkBody },
+      { id: "mat", name: "실제 자료", q: "실제로는 어떤 일이 있었을까요?", hint: "자료를 읽고, 사실과 의견을 구별해 봐요.", body: () => {
+        const cats = S.info.materials || [], cur = cats.find((c) => c.id === S.matTab) || cats[0];
+        return `<div class="overview"><b>${esc(S.info.title)}</b><p>${esc(S.info.summary)}</p></div>${LEGEND}
+          <div class="chipbar scroll">${cats.map((c) => `<button class="chip ${cur && c.id === cur.id ? "on" : ""}" data-act="mat-tab" data-id="${c.id}">${esc(c.title)}</button>`).join("")}</div>${matBody(cur)}`; } },
+      { id: "cause", name: "원인 추측", q: "이 일은 왜 생겼을까요?", hint: `원인을 추측해서 하나씩 추가해요. 정답은 없어요.${deep("causeMap") ? " (두 개 이상)" : ""}`,
+        done: () => causes.length >= (deep("causeMap") ? 2 : 1),
+        body: () => `${listHtml("s2.causes", (q) => `${q.level ? `<span class="tag">${esc(q.level)}</span> ` : ""}${esc(q.text)}`, "")}
+          <div class="row add-row"><select id="cz-lv" aria-label="어디에서 생긴 원인인가요?" style="width:auto">${causeLevels().map((x) => `<option>${x}</option>`).join("")}</select>
+            <input type="text" id="cz" data-enter="add-cause" enterkeyhint="done" maxlength="${MAX_INPUT}" placeholder="예) ${esc(ui().causeExample)}" style="flex:1;min-width:0" /><button class="btn btn-tinted" data-act="add-cause">추가</button></div>
+          ${coachBox("cause", "", causes.length >= 2)}` },
+      deep("causeMap") && { id: "map", name: "원인 잇기", q: "한 원인이 다른 원인을 부르거나 키우나요?", hint: "두 원인을 고르고 어떻게 이어지는지 골라 이어요.", done: () => list("s2.causeLinks").length > 0,
+        lock: () => (causes.length < 2 ? { t: "원인을 두 개 이상 써야 이어 볼 수 있어요.", go: 2, sub: "cause", label: "원인 쓰러 가기" } : null), body: () => causeMapHtml(causes) },
+      { id: "q", name: "확인 질문", q: "'정말 그럴까?' 싶은 말을 확인 질문으로 바꿔요", hint: `자료로 답할 수 있게, 사실을 묻는 질문으로. 예) ${esc(ui().goodQuestion)}`,
+        done: () => list("s2.checks").length > 0, body: checkBody },
+    ]);
   },
 
-  3() {
+  3: () => {
     const checks = list("s2.checks"), causes = list("s2.causes");
-    const verdictsFor = (cid) => checks.filter((c) => c.causeId === cid).flatMap(verdicts3);
-    const kept = causes.filter((q) => [CAUSE_STATUS[0], OLD_CAUSE_STATUS[0]].includes(w(`s3.causes.${q.id}.status`)));
-    const open3 = ready.problem();
-    return `${problemBar()}${nextBox()}
-    ${checks.length ? `<h3 class="sec-h">① 확인 질문 확인하기 <span class="meta-line">· 자료로 직접 따져 보고, AI는 필요할 때만 물어요</span></h3>` : `<div class="card"><h3>① 확인 질문 확인하기</h3><div class="meta-line">아직 확인 질문이 없어요.</div></div>`}
-    ${checks.map((c) => {
-      const logs = logsOf3(c);
-      return `<div class="card">
-        ${causeTag(c)}<div><span class="tag b">확인할 말</span> ${esc(c.heard)}</div>
-        <div style="margin-top:6px"><span class="tag y">확인 질문</span> <b>${esc(c.question)}</b></div>
-        ${checkExtra(c)}
-        ${c.real ? `<div class="meta-line" style="margin-top:6px">2단계 자료 비교: ${esc(c.real)}</div>` : ""}
-        ${logs.length ? "" : `<div class="judge">
-          ${pick(`s3.direct.${c.id}.verdict`, "자료를 보니, 그 말은 사실인가요?", verdicts())}
-          ${fld(`s3.direct.${c.id}.source`, "어떤 자료에서 무엇을 보고 알았나요?", "예) 2단계 자료에 ~라고 나와 있다")}${sourceMore(`s3.direct.${c.id}`)}</div>
-        <details class="example" data-keep="ask3-${c.id}"><summary>AI 검색 도우미에게도 물어볼래요 (선택)</summary>
-          ${fld(`s3.guess.${c.id}`, "묻기 전에, 내 예상은?", "예) 아마 ~일 것 같다. 왜냐하면 ~")}
-          <div class="row" style="margin-top:10px"><button class="btn btn-primary btn-sm" data-act="ask-check" data-id="${c.id}" ${S.busy || !open3 || !said(`s3.guess.${c.id}`, 2) ? "disabled" : ""}>AI 검색 도우미에게 묻기</button>${said(`s3.guess.${c.id}`, 2) ? "" : `<span class="meta-line">내 예상을 먼저 쓰면 열려요</span>`}</div></details>`}
-        ${S.busy === "check:" + c.id ? loading("", "기다리는 동안 2단계 자료에서 먼저 찾아볼까요?") : ""}
-        ${logs.map((l) => `<div style="margin-top:12px"><div class="meta-line">AI 검색 도우미의 답</div><div class="ai-out">${esc(l.output)}</div>${srcLinks(l.payload?.sources)}
-          ${txt(w(`s3.guess.${c.id}`)) ? `<div class="meta-line" style="margin-top:6px">묻기 전 내 예상: ${esc(w(`s3.guess.${c.id}`))}</div>` : ""}
-          <div class="judge">${pick(`s3.checks.${l.id}.verdict`, "확인해 보니, 그 말은 사실인가요?", verdicts())}
-          ${fld(`s3.checks.${l.id}.source`, "AI 말이 아니라, 어떤 자료에서 무엇을 보고 알았나요?", "예) 2단계 자료에 ~라고 나와 있다")}${sourceMore(`s3.checks.${l.id}`)}
-          ${fld(`s3.checks.${l.id}.reason`, "AI 답에서 자료와 다르거나 확인 안 된 부분은? (선택)", "없으면 '없음'")}</div></div>`).join("")}
-        ${logs.length ? `<div style="margin-top:8px"><button class="btn btn-plain btn-sm" data-act="ask-check" data-id="${c.id}" ${S.busy || !open3 ? "disabled" : ""}>다시 묻기</button></div>` : ""}
-      </div>`; }).join("")}
-    <div class="card"><h3>② 우리 추측, 남길까 버릴까?</h3>
-      ${causes.length ? `<div class="group">${causes.map((q) => { const vs = verdictsFor(q.id), support = vs.some((v) => SUPPORT.includes(v));
-        return `<div class="cell"><div class="grow">${q.level ? `<span class="tag">${esc(q.level)}</span> ` : ""}<b>${esc(q.text)}</b>
-          <div class="meta-line">${vs.length ? `확인해 본 결과: ${esc(vs.join(", "))}` : "관련 확인 질문 없음"}${support ? "" : " · 사실로 확인된 결과가 없으면 '확인돼서 남겨요'는 고를 수 없어요"}</div>
-          ${pick(`s3.causes.${q.id}.status`, "", support ? CAUSE_STATUS : CAUSE_STATUS.slice(1))}</div></div>`; }).join("")}</div>`
-        : `<div class="meta-line">아직 추측한 원인이 없어요. <button class="link" data-go="2">2단계 ②에서 쓰기</button></div>`}</div>
-    <div class="card"><h3>③ 가장 큰 원인 정하기</h3>
-      <div class="notice muted"><b>먼저, 우리 문제 질문을 다시 봐요</b><br>${txt(w("s1.problem.hmw")) ? esc(w("s1.problem.hmw")) : ""}</div>
-      ${pick("s3.reframe.choice", "확인한 사실에 비추어, 이 문제 질문을 고칠 곳이 있나요?", REFRAME)}
-      ${w("s3.reframe.choice") === REFRAME[1] ? `${fld("s3.reframe.text", "무엇이 사실과 달랐고, 질문을 어떻게 고칠까요?", "예) ~라고 알았는데 ~였다. 그래서 질문을 ~로 고친다", true)}
-        <div class="meta-line"><button class="link" data-go="1" data-sub="group">1단계 ③에서 문제 질문 고치기</button></div>` : ""}
-      ${kept.length ? `<div class="notice muted"><b>남긴 원인</b> (누르면 아래 ③ 칸에 넣어요)<div class="chipbar" style="margin-top:6px">${kept.map((q) => `<button class="chip" data-act="use-kept" data-t="${esc(q.text)}">${esc(q.text.slice(0, 34))}</button>`).join("")}</div></div>` : ""}
-      ${fld("s3.chain.evidence", "① 확인된 사실", "위에서 '사실이다'로 고른 내용", true)}
-      ${fld("s3.chain.meaning", "② 그 사실이 뜻하는 것", "그 사실은 무엇을 보여 주나요?", true)}
-      <p class="meta-line">'가장 큰 원인'은 ① 우리 문제에 가장 크게 영향을 주고 ② 우리가 바꿔 볼 수 있는 것으로 골라요.</p>
-      ${fld("s3.chain.cause", "③ 그래서 우리 문제의 가장 큰 원인은", "남긴 원인 중 가장 중요한 것을 한두 문장으로", true, 10)}
-      ${deep("causeMap") ? `${linksNote()}${fld("s3.chain.root", "④ 뿌리 따져 보기: 이 원인이 사라지면 우리 문제도 줄어들까요? 다른 원인 가운데 이 원인 때문에 생긴 것은?", "예) 이 원인이 줄면 ~도 함께 줄어든다. 그래서 ~", true)}` : ""}</div>`;
+    const lock = !ready.problem() ? { t: "1단계에서 모둠 문제를 먼저 정해요.", go: 1, sub: "group", label: "1단계로" }
+      : !checks.length ? { t: "2단계에서 확인 질문을 먼저 만들어요.", go: 2, sub: "q", label: "2단계로" } : null;
+    return gate("사실 확인", lock, [
+      ...checks.map((c, i) => ({ id: `c-${c.id}`, name: `확인 ${i + 1}`, q: checks.length > 1 ? `그 말, 사실일까요? (${i + 1}/${checks.length})` : "그 말, 사실일까요?",
+        hint: "자료를 보고 우리가 판단해요.", done: () => judged3(c), body: () => judgeBody(c) })),
+      { id: "keep", name: "추측 정리", q: "우리 추측, 남길까요 버릴까요?", hint: "사실로 확인된 추측만 '남겨요'를 고를 수 있어요.",
+        lock: () => (causes.length ? null : { t: "2단계에서 원인 추측을 먼저 써요.", go: 2, sub: "cause", label: "2단계로" }),
+        done: () => causes.every((q) => w(`s3.causes.${q.id}.status`)) && keptCauses().length > 0, body: keepBody },
+      { id: "cause", name: "가장 큰 원인", q: "그래서 우리 문제의 가장 큰 원인은?", hint: "남긴 원인 가운데, 우리가 바꿔 볼 수 있는 것으로 골라요.", done: ready.cause,
+        body: () => `${recall("우리 문제", w("s1.problem.hmw"))}${keptCauses().length ? `<div class="chipbar">${keptCauses().map((q) => `<button class="chip" data-act="use-kept" data-t="${esc(q.text)}">${esc(q.text.slice(0, 34))}</button>`).join("")}</div>` : ""}
+          ${fld("s3.chain.cause", "", "한두 문장으로", true, 10)}` },
+      deep("causeMap") && { id: "root", name: "뿌리 따지기", q: "이 원인이 사라지면 다른 원인도 줄어들까요?", lock: () => (ready.cause() ? null : { t: "가장 큰 원인을 먼저 써요.", go: 3, sub: "cause", label: "쓰러 가기" }),
+        done: () => said("s3.chain.root"), body: () => `${recall("가장 큰 원인", w("s3.chain.cause"))}${linksNote()}${fld("s3.chain.root", "", "예) 이 원인이 줄면 ~도 함께 줄어든다. 그래서 ~", true)}` },
+    ]);
   },
 
-  4() {
-    const props = list("s4.proposals"), logs = stageLogs(4);
-    const cause = txt(w("s3.chain.cause"));
-    const cases = S.info.cases || [];
-    const cur = cases.find((c) => c.id === S.caseTab) || cases[0];
-    const refOpts = ["", ...cases.map((c) => `${c.country} · ${c.title}`), NO_CASE];
-    const nL = lensCount();
-    // PC 넓은 화면에서는 사례를 오른쪽에 붙여 두고(.split-side) 왼쪽에서 해결책을 쓴다
-    // 사례는 우리 모둠의 첫 생각을 쓴 뒤에 열린다(사례를 보고 베끼지 않도록)
-    const caseOpen = said("s4.before");
-    if (caseOpen && !S.caseUnlocked) { S.caseUnlocked = true; S.opened.cases = true; }
-    return `${problemBar()}${nextBox()}<div class="split"><div class="split-side">
-    <details class="fold" data-keep="cases" open><summary>다른 나라의 사례 살펴보기 (참고용)</summary><div class="inner">
-      ${caseOpen ? "" : `<div class="notice muted">먼저 오른쪽(아래) '사례를 보기 전에' 칸에 우리 모둠의 첫 생각을 쓰면 열려요.</div>`}<div ${caseOpen ? "" : "hidden"}>
-      <p class="desc">다른 나라(다른 곳)는 비슷한 문제를 어떻게 다루었을까요? <b>${esc(ui().casesKinds)}</b>이 모두 있어요. 사례는 그곳의 조건에서 나온 것이니 그대로 옮기지 말고, ${esc(ui().compareWith)}의 조건과 비교하며 빌려 올 점과 피할 점을 찾으세요.</p>
-      ${cur ? `<div class="chipbar scroll">${cases.map((c) => `<button class="chip ${c.id === cur.id ? "on" : ""}" data-act="case-tab" data-id="${c.id}">${esc(c.country)}</button>`).join("")}</div>
-      <div class="case">
-        <div class="case-head"><span class="tag b">${esc(cur.country)}</span><h3>${esc(cur.title)}</h3></div>
-        <div class="case-sec"><b>무엇을 했나</b><p>${esc(cur.what)}</p></div>
-        <div class="case-sec"><b>어떻게 되었나 (좋았던 점과 아쉬운 점)</b><p>${esc(cur.result)}</p></div>
-        <div class="case-sec think"><b>${esc(ui().compareWith)}${josa(ui().compareWith, "과", "와")} 비교해 생각해 볼 점</b><p>${esc(cur.think)}</p></div>
-        <div class="case-src"><b>출처</b>${cur.links.map(linkHtml).join("<br>")}</div>
-      </div>` : `<div class="notice muted">선생님이 사례 자료를 준비하는 중이에요.</div>`}</div></div></details></div><div class="split-main">
-    ${cause ? `<div class="notice muted"><b>가장 큰 원인</b> ${esc(cause)}</div>` : ""}
-    <div class="card"><h3>사례를 보기 전에 <span class="tag">모둠</span></h3>
-      ${fld("s4.before", "우리 모둠이 먼저 생각한 해결 방향은?", "다른 나라 사례를 보기 전, 떠오르는 대로 한두 문장", true)}</div>
-    <div class="card"><h3>① 우리 모둠 해결책 쓰기</h3>
-      ${props.map((p) => `<div class="card flat" style="margin-bottom:10px"><div class="grow">${esc(p.text)}</div>
-        ${p.cause ? `<div class="meta-line" style="margin-top:4px"><span class="tag y">줄이려는 원인</span> ${esc(p.cause)}</div>` : ""}
-        ${p.ref ? `<div class="meta-line" style="margin-top:4px"><span class="tag b">참고 사례</span> ${esc(p.ref)}</div>` : ""}
-        ${p.transfer ? `<div class="meta-line" style="margin-top:4px"><span class="tag x">사례와 다른 점</span> ${esc(p.transfer)}</div>` : ""}${who(p)}
-        <div class="row" style="margin-top:8px"><button class="btn btn-primary btn-sm" data-act="ask-feedback" data-id="${p.id}" ${S.busy || !ready.cause() ? "disabled" : ""}>AI 의견 듣기 (선택)</button>
-        <button class="btn btn-plain btn-sm" data-act="del" data-path="s4.proposals" data-id="${p.id}">삭제</button></div></div>`).join("")}
-      <label class="lbl" for="pt">해결책</label><textarea id="pt" maxlength="${MAX_AREA}" placeholder="예) 누가: ○○이 / 무엇을: ○○을 / 어떻게: ○○ 방식으로"></textarea>${cnt("#pt", 30)}
-      <label class="lbl" for="pt-cause">이 해결책으로 줄이려는 원인</label><input type="text" id="pt-cause" maxlength="${MAX_INPUT}" value="${esc(cause)}" placeholder="3단계에서 정한 가장 큰 원인 가운데 무엇을 줄이나요?" />
-      <label class="lbl" for="pt-ref">참고한 사례</label><select id="pt-ref">${refOpts.map((o) => `<option value="${esc(o)}">${o ? esc(o) : "선택하세요 (없으면 비워 둬도 돼요)"}</option>`).join("")}</select>
-      ${deep("tradeoff") ? `<label class="lbl" for="pt-transfer">사례를 참고했다면, 그곳과 우리 사건은 무엇이 다른가요?</label>
-        <input type="text" id="pt-transfer" maxlength="${MAX_INPUT}" placeholder="예) 그 나라는 ~가 있었지만 우리는 ~라서, ~는 바꿔야 한다" />` : ""}
-      <div style="margin-top:8px"><button class="btn btn-tinted" data-act="add-proposal">해결책 추가</button></div>
-      ${S.busy === "feedback" ? loading(`AI 조언자 ${nL}명이 각자 읽는 중이에요…`, "기다리는 동안 우리 해결책의 약점을 먼저 짐작해 보세요") : ""}</div>
-    ${logs.map((l) => { let rv = []; try { rv = JSON.parse(l.output).reviews || []; } catch {}
-      const p = props.find((x) => x.id === l.payload?.proposalId);
-      return `<div class="card"><div class="meta-line">AI 의견을 들은 해결책</div><b>${esc((p?.text || l.input).slice(0, 80))}</b>
-      ${rv.map((r) => `<div class="card flat" style="margin-bottom:8px"><span class="tag b">${esc(r.label)}</span><div class="ai-out" style="background:transparent;padding:6px 0 0">${esc(r.text)}</div></div>`).join("")}
-      <div class="judge">${fld(`s4.decisions.${l.id}.compare`, `${rv.length === 2 ? "두" : "세"} 의견에서 공통으로 지적한 점은? (선택)`, "", true)}
-      ${pick(`s4.decisions.${l.id}.choice`, "이 의견을 어떻게 할까요?", DECISIONS)}
-      ${fld(`s4.decisions.${l.id}.reason`, "그렇게 정한 이유 (꼭 써요)", "AI 말이라서가 아니라, 우리가 그렇게 정한 까닭", true)}</div></div>`; }).join("")}
-    ${deep("tradeoff") ? tradeCard(props) : ""}
-    <div class="card"><h3>${finalNo()} 최종 해결책</h3>
-      ${fld("s4.final", "", "고친 최종 해결책 (누가, 무엇을, 어떻게)", true, 30)}
-      ${fld("s4.finalReason", "이 해결책을 고른 이유 (꼭 써요)", "", true)}
-      ${pick("s4.finalFit", "우리 문제의 두 바람('~하면서도 ~')을 모두 다루나요?", ["둘 다 다룬다", "한쪽만 다룬다"])}
-      ${w("s4.finalFit") === "한쪽만 다룬다" ? `<div class="notice yellow">해결책을 고치거나, 문제 질문이 너무 넓지 않은지 다시 보세요.</div>` : ""}</div>
-    ${midCheck() ? `<div class="card"><h3>③ 해결책 점검하기</h3>
-      ${pick("s4.check.effect", "효과: 이 해결책으로 가장 큰 원인을 줄일 수 있나요?", EFFECT)}
-      ${fld("s4.check.fair", "공정함: 이 해결책 때문에 손해를 보거나 힘들어지는 사람은 없나요? 있다면 어떻게 도울까요?", "예) ○○는 ~이 힘들어질 수 있어서, ~도 함께 한다", true)}</div>` : ""}</div></div>`;
+  4: () => {
+    const props = list("s4.proposals"), logs = stageLogs(4), cases = S.info.cases || [];
+    const firstThought = () => (said("s4.before") ? null : { t: "사례를 보기 전에 우리 생각부터 써요.", go: 4, sub: "before", label: "쓰러 가기" });
+    return gate("해결책 만들기", ready.cause() ? null : { t: "3단계에서 가장 큰 원인을 먼저 정해요.", go: 3, sub: "cause", label: "3단계로" }, [
+      { id: "before", name: "우리 첫 생각", q: "어떻게 하면 해결할 수 있을까요? 우리 생각부터!", hint: "다른 나라 사례를 보기 전에, 떠오르는 대로 한두 문장.", done: () => said("s4.before"),
+        body: () => `${recall("가장 큰 원인", w("s3.chain.cause"))}${fld("s4.before", "", "예) ~가 ~하면 좋겠다", true)}` },
+      cases.length && { id: "cases", name: "다른 나라 사례", q: "다른 나라는 어떻게 했을까요?", hint: "그대로 옮기지 말고, 빌려 올 점과 피할 점을 찾아요.", lock: firstThought, body: () => {
+        const cur = cases.find((c) => c.id === S.caseTab) || cases[0];
+        return `<div class="chipbar scroll">${cases.map((c) => `<button class="chip ${c.id === cur.id ? "on" : ""}" data-act="case-tab" data-id="${c.id}">${esc(c.country)}</button>`).join("")}</div>
+          <div class="case"><div class="case-head"><span class="tag b">${esc(cur.country)}</span><h3>${esc(cur.title)}</h3></div>
+            <div class="case-sec"><b>무엇을 했나</b><p>${esc(cur.what)}</p></div>
+            <div class="case-sec"><b>어떻게 되었나</b><p>${esc(cur.result)}</p></div>
+            <div class="case-sec think"><b>${esc(ui().compareWith)}${josa(ui().compareWith, "과", "와")} 비교하면?</b><p>${esc(cur.think)}</p></div>
+            <div class="case-src"><b>출처</b>${cur.links.map(linkHtml).join("<br>")}</div></div>`; } },
+      { id: "props", name: "해결책 쓰기", q: "누가 · 무엇을 · 어떻게 할까요?", hint: `해결책을 30자 이상 써서 추가해요.${deep("tradeoff") ? " 두 개 이상 써서 견줘 봐요." : ""}`, lock: firstThought,
+        done: () => props.length >= (deep("tradeoff") ? 2 : 1), body: () => `${props.map((p) => `<div class="card flat item"><div class="grow">${esc(p.text)}</div>${who(p)}
+            <div class="row" style="margin-top:8px"><button class="btn btn-tinted btn-sm" data-act="ask-feedback" data-id="${p.id}" ${S.busy ? "disabled" : ""}>AI 조언 듣기 (선택)</button>
+            <button class="btn btn-plain btn-sm" data-act="del" data-path="s4.proposals" data-id="${p.id}">삭제</button></div></div>`).join("")}
+          ${S.busy === "feedback" ? loading(`AI 조언자 ${lensCount()}명이 읽는 중이에요…`, "기다리는 동안 우리 해결책의 약점을 먼저 짐작해 보세요") : ""}
+          <textarea id="pt" maxlength="${MAX_AREA}" aria-label="해결책" placeholder="예) 누가: ○○이 / 무엇을: ○○을 / 어떻게: ○○ 방식으로"></textarea>${cnt("#pt", 30)}
+          <div class="sc-act"><button class="btn btn-tinted" data-act="add-proposal">해결책 추가</button></div>` },
+      logs.length && { id: "advice", free: true, name: "AI 조언", q: "AI 조언, 받아들일까요?", hint: "정하는 건 우리예요. AI 말이라서가 아니라 우리 생각으로 이유를 써요.",
+        done: () => logs.every((l) => w(`s4.decisions.${l.id}.choice`) && said(`s4.decisions.${l.id}.reason`)), body: () => logs.map((l) => { let rv = []; try { rv = JSON.parse(l.output).reviews || []; } catch {}
+          const p = props.find((x) => x.id === l.payload?.proposalId);
+          return `<div class="card flat item">${recall("해결책", (p?.text || l.input).slice(0, 120))}
+            ${rv.map((r) => `<div class="review"><span class="tag b">${esc(r.label)}</span><div class="ai-out">${esc(r.text)}</div></div>`).join("")}
+            ${pick(`s4.decisions.${l.id}.choice`, "어떻게 할까요?", DECISIONS)}${fld(`s4.decisions.${l.id}.reason`, "그렇게 정한 이유는?", "", true)}</div>`; }).join("") },
+      deep("tradeoff") && { id: "trade", name: "견주기", q: "해결책마다 얻는 것과 포기하는 것은?", hint: "누가 이득을 보고, 누가 부담을 지는지 생각해요.",
+        lock: () => (props.length < 2 ? { t: "해결책을 두 개 이상 써야 견줄 수 있어요.", go: 4, sub: "props", label: "해결책 쓰러 가기" } : null),
+        done: () => tradeDone() >= 2 && said("s4.tradeValue"), body: () => `${props.map((p, i) => `<div class="card flat item"><div><span class="tag b">해결책 ${i + 1}</span> ${esc((p.text || "").slice(0, 80))}</div>
+            ${fld(`s4.trade.${p.id}.gain`, "얻는 것", "누구에게 무엇이 좋아지나요?", true)}${fld(`s4.trade.${p.id}.cost`, "포기하는 것", "무엇을 잃고, 누가 부담을 지나요?", true)}</div>`).join("")}
+          ${fld("s4.tradeValue", "견줘 보니, 우리는 무엇을 더 중요하게 보나요?", "예) ~보다 ~을 앞세웠다. 왜냐하면 ~", true)}` },
+      { id: "final", name: "최종 해결책", q: "우리 모둠의 최종 해결책은?", hint: "누가 · 무엇을 · 어떻게. 고칠 점이 있었다면 고쳐서 써요.", lock: () => (props.length ? null : { t: "해결책을 먼저 써요.", go: 4, sub: "props", label: "쓰러 가기" }),
+        done: () => ready.final() && said("s4.finalReason"), body: () => `${recall("우리 문제", w("s1.problem.hmw"))}${fld("s4.final", "", "누가, 무엇을, 어떻게", true, 30)}${fld("s4.finalReason", "왜 이 해결책을 골랐나요?", "", true)}` },
+      midCheck() && { id: "fair", name: "점검", q: "이 해결책, 괜찮을까요?", lock: () => (ready.final() ? null : { t: "최종 해결책을 먼저 써요.", go: 4, sub: "final", label: "쓰러 가기" }),
+        done: () => !!w("s4.check.effect") && said("s4.check.fair"),
+        body: () => `${recall("최종 해결책", w("s4.final"))}${pick("s4.check.effect", "가장 큰 원인을 줄일 수 있나요?", EFFECT)}${fld("s4.check.fair", "이 해결책 때문에 힘들어지는 사람은 없나요?", "예) ○○는 ~이 힘들어질 수 있어서, ~도 함께 한다", true)}` },
+    ]);
   },
 
-  5() {
-    const preds = list("s5.predictions"), logs = stageLogs(5);
-    const sh = S.info.stakeholders || [];
-    const final = txt(w("s4.final"));
-    // 최종 해결책을 쓴 뒤에 열린다. 비교해 보고 싶으면 후보 해결책으로도 해 볼 수 있다
-    const opts = ready.final() ? [{ id: "final", text: `[최종] ${final}` }, ...list("s4.proposals")] : [];
-    if (!opts.some((o) => o.id === S.proposalId)) S.proposalId = opts[0]?.id || null;
-    const altText = (l) => (l.payload?.proposalId === "final" ? "최종 해결책" : "후보 해결책");
-    return `${problemBar()}${nextBox()}
-    ${final ? `<div class="notice muted"><b>최종 해결책</b> ${esc(final)}</div>` : ""}
-    <div class="card"><h3>① 이 방법을 실행하면 사람들은 어떻게 반응할까요?</h3>
-      ${listHtml("s5.predictions", (r) => `<span class="tag">${esc(r.stakeholder)}</span> ${esc(r.text)}`)}
-      <div class="row add-row" style="margin-top:8px"><select id="ps" style="width:auto">${sh.map((x) => `<option>${esc(x)}</option>`).join("")}</select>
-      <input type="text" id="pp" data-enter="add-pred" enterkeyhint="done" maxlength="${MAX_INPUT}" placeholder="예) 반대할 것이다. 왜냐하면 ~" style="flex:1;min-width:0" /><button class="btn btn-tinted" data-act="add-pred">추가</button></div>
-      ${deep("chain") ? fld("s5.chain", "연쇄 반응: 한 사람의 반응이 다른 사람의 반응을 어떻게 바꿀까요?", "예) ○○가 ~하면, △△는 ~할 것이고, 그러면 ~", true) : ""}</div>
-    <div class="card"><h3>② AI로 미래 그려 보기 <span class="tag x">선택</span></h3>
-      ${opts.length ? `<label class="lbl">미래를 그려 볼 해결책</label><select id="sp">${opts.map((p) => `<option value="${p.id}" ${p.id === S.proposalId ? "selected" : ""}>${esc((p.text || "").slice(0, 50))}</option>`).join("")}</select>
-      <label class="lbl">몇 년 후?</label><div class="chipbar">${rounds().map((r) => `<button class="chip ${S.round === r ? "on" : ""}" data-act="round" data-r="${r}">${r}년 후</button>`).join("")}</div>
-      ${S.busy === "scenario" ? loading("미래 이야기를 만드는 중이에요. 1~2분 걸릴 수 있어요…", "기다리는 동안 누가 가장 크게 반응할지 이야기해 보세요") : ""}<div style="margin-top:10px"><button class="btn btn-primary" data-act="ask-scenario" ${preds.length >= 2 && !S.busy ? "" : "disabled"}>미래 이야기 만들기</button>${preds.length < 2 ? ` <span class="meta-line">① 예측을 ${2 - preds.length}개 더 쓰면 열려요</span>` : ""}</div>`
-        : `<div class="meta-line">최종 해결책을 쓰면 열려요.</div>`}</div>
-    ${logs.map((l) => { let sc = []; try { sc = JSON.parse(l.output).scenarios || []; } catch {}
-      const sel = w(`s5.selection.${l.id}`) || {};
-      return `<div class="card"><div class="meta-line">${altText(l)} · ${l.payload?.round}년 후 미래 이야기</div>
-      ${sc.map((x, i) => `<div class="scn ${sel.idx === i ? "sel" : ""}"><b>${esc(x.title)}</b><p style="margin-top:6px">${esc(x.story)}</p>
-        <div class="mech"><b>왜 그렇게 되나</b> ${esc(x.mechanism || "")}</div>
-        <div class="meta-line">뜻밖에 생길 수 있는 일: ${esc([].concat(x.unintended || []).join(" / "))}</div>
-        <div class="meta-line">예상되는 문제: ${esc([].concat(x.newProblems || []).join(" / "))}</div>
-        <button class="btn ${sel.idx === i ? "btn-tinted" : "btn-plain"} btn-sm" style="margin-top:8px" data-act="pick-scn" data-id="${l.id}" data-i="${i}">${sel.idx === i ? "✓ 더 그럴듯하다고 고름" : "이쪽이 더 그럴듯하다"}</button></div>`).join("")}
-      <div class="judge">${fld(`s5.selection.${l.id}.vs`, "내가 ①에서 예측한 것과 이 이야기는 어디가 같고 어디가 다른가요? (꼭 써요)", "", true)}
-      ${fld(`s5.selection.${l.id}.mech`, `'왜 그렇게 되나'를 따져 보기: 현실에서도 정말 그렇게 될까요? 억지스러운 부분은? ${MID() ? "(선택)" : "(꼭 써요)"}`, "", true)}
-      ${fld(`s5.selection.${l.id}.reason`, "그럴듯하다고 고른 이유 (꼭 써요)", "", true)}</div></div>`; }).join("")}
-    <div class="card"><h3>③ 해결책 실행 뒤 생길 수 있는 문제</h3>
-      ${fld("s5.newProblem", "", "고른 미래 이야기(또는 우리 예측)에서 가장 걱정되는 문제", true)}</div>`;
+  5: () => {
+    const preds = list("s5.predictions"), logs = stageLogs(5), sh = S.info.stakeholders || [];
+    const picked = (l) => Number.isInteger(w(`s5.selection.${l.id}.idx`));
+    return gate("미래 그려 보기", ready.final() ? null : { t: "4단계에서 최종 해결책을 먼저 써요.", go: 4, sub: "final", label: "4단계로" }, [
+      { id: "pred", name: "반응 예측", q: "이 해결책을 실행하면, 사람들은 어떻게 반응할까요?", hint: `사람을 고르고, 반응과 이유를 써요. (${Math.min(preds.length, 2)}/2)`, done: () => preds.length >= 2,
+        body: () => `${recall("최종 해결책", w("s4.final"))}${listHtml("s5.predictions", (r) => `<span class="tag">${esc(r.stakeholder)}</span> ${esc(r.text)}`, "")}
+          <div class="row add-row"><select id="ps" aria-label="누가" style="width:auto">${sh.map((x) => `<option>${esc(x)}</option>`).join("")}</select>
+          <input type="text" id="pp" data-enter="add-pred" enterkeyhint="done" maxlength="${MAX_INPUT}" placeholder="예) 반대할 것이다. 왜냐하면 ~" style="flex:1;min-width:0" /><button class="btn btn-tinted" data-act="add-pred">추가</button></div>` },
+      deep("chain") && { id: "chain", name: "연쇄 반응", q: "한 사람의 반응이 다른 사람에게 어떻게 이어질까요?", done: () => said("s5.chain"),
+        body: () => fld("s5.chain", "", "예) ○○가 ~하면, △△는 ~할 것이고, 그러면 ~", true) },
+      { id: "ai", free: true, name: "AI 미래 이야기", opt: true, q: "AI가 그린 미래와 견줘 볼까요?", hint: "만들지 않고 넘어가도 돼요.",
+        lock: () => (preds.length >= 2 ? null : { t: "반응 예측을 두 개 먼저 써요.", go: 5, sub: "pred", label: "쓰러 가기" }),
+        done: () => logs.every((l) => !picked(l) || said(`s5.selection.${l.id}.vs`)) && (!logs.length || logs.some(picked)), body: () => `
+          ${rounds().length > 1 ? `<div class="chipbar">${rounds().map((r) => `<button class="chip ${S.round === r ? "on" : ""}" data-act="round" data-r="${r}">${r}년 후</button>`).join("")}</div>` : ""}
+          ${S.busy === "scenario" ? loading("미래 이야기를 만드는 중이에요. 1~2분 걸릴 수 있어요…", "기다리는 동안 누가 가장 크게 반응할지 이야기해 보세요") : ""}
+          ${logs.length ? "" : `<div class="sc-act"><button class="btn btn-primary" data-act="ask-scenario" ${S.busy ? "disabled" : ""}>${rounds().length > 1 ? `${S.round}년 후 ` : `${rounds()[0]}년 후 `}미래 이야기 만들기</button></div>`}
+          ${logs.map((l) => { let sc = []; try { sc = JSON.parse(l.output).scenarios || []; } catch {}
+            const sel = w(`s5.selection.${l.id}`) || {};
+            return `<div class="meta-line">${l.payload?.round}년 후</div>${sc.map((x, i) => `<div class="scn ${sel.idx === i ? "sel" : ""}"><b>${esc(x.title)}</b><p style="margin-top:6px">${esc(x.story)}</p>
+              <div class="meta-line">걱정되는 일: ${esc([].concat(x.newProblems || []).join(" / "))}</div>
+              <button class="btn ${sel.idx === i ? "btn-tinted" : "btn-plain"} btn-sm" style="margin-top:8px" data-act="pick-scn" data-id="${l.id}" data-i="${i}">${sel.idx === i ? "✓ 더 그럴듯해요" : "이쪽이 더 그럴듯해요"}</button></div>`).join("")}
+              ${picked(l) ? fld(`s5.selection.${l.id}.vs`, "우리 예측과 무엇이 같고, 무엇이 달랐나요?", "", true) : ""}`; }).join("")}
+          ${logs.length ? `<div class="sc-act"><button class="btn btn-plain btn-sm" data-act="ask-scenario" ${S.busy ? "disabled" : ""}>다시 만들기</button></div>` : ""}` },
+      { id: "worry", name: "걱정되는 문제", q: "해결책을 실행하면, 가장 걱정되는 문제는?", hint: "우리 예측이나 미래 이야기에서 골라요.", done: () => filled("s5.newProblem"),
+        body: () => fld("s5.newProblem", "", "예) ~ 때문에 ~가 생길 수 있다", true) },
+    ]);
   },
 
-  6() {
-    const type = w("s6.plan.type") || "action";
-    const isAct = type === "action";
-    return `${problemBar()}${nextBox()}
-    <div class="card"><h3>지금까지 정한 것</h3>
-      <div class="meta-line">4단계 최종 해결책</div><div class="ai-out">${esc(w("s4.final") || "아직 적지 않았어요.")}</div>
-      <div class="meta-line">5단계에서 예상한 문제</div><div class="ai-out" style="background:var(--accent-tint)">${esc(w("s5.newProblem") || "아직 적지 않았어요.")}</div></div>
-    <div class="card"><h3>무엇을 계획할까요?</h3>
-      <div class="chipbar"><button class="chip ${isAct ? "on" : ""}" data-act="plan-type" data-v="action">행동 계획</button><button class="chip ${!isAct ? "on" : ""}" data-act="plan-type" data-v="patch">해결책 고치기</button></div>
-      ${fld("s6.plan.target", isAct ? "누구에게 / 무엇에 대해" : "막으려는 문제", "", true)}
-      ${fld("s6.plan.content", isAct ? (MID() ? "할 일 (나와 우리 반이 할 수 있는 일)" : "할 일") : "고칠 내용", isAct ? "예) 설득하는 편지 쓰기, 실천 약속" : "예상한 문제가 생기지 않게 해결책을 어떻게 고칠까요?", true)}
-      ${deep("power") ? fld("s6.plan.authority", "이 일을 정할 권한은 누구에게 있나요? 우리 생각을 어떤 길로 전할까요?", "예) 시청 ○○과에 주민 제안으로 / 학교운영위원회에 건의 / 지역 국회의원실에 편지", true) : ""}
-      ${fld("s6.plan.method", "방법", "어떻게 할 것인가", true)}
-      ${fld("s6.plan.effect", "무엇이 달라질까요?", "이 계획으로 바라는 변화", true)}
-      ${fld("s6.plan.difficulty", "어려울 것 같은 점과 그때 할 일", "잘 안 되면 어느 단계를 다시 볼까요?", true)}</div>
-    <div class="card"><h3>다시 생각해 보고 싶다면</h3>
-      <div class="row"><button class="btn btn-plain btn-sm" data-go="1" data-sub="group">문제 다시 보기</button><button class="btn btn-plain btn-sm" data-go="3">원인 다시 보기</button><button class="btn btn-plain btn-sm" data-go="4">해결책 다시 보기</button><button class="btn btn-plain btn-sm" data-go="5">예측 다시 보기</button></div></div>`;
-  },
+  6: () => gate("실천 계획", ready.final() ? null : { t: "4단계에서 최종 해결책을 먼저 써요.", go: 4, sub: "final", label: "4단계로" }, [
+    { id: "plan", name: "할 일", q: "우리가 실제로 할 수 있는 일은 무엇인가요?", hint: MID() ? "나와 우리 반이 할 수 있는 일로 써요." : "누구에게, 무엇을, 어떻게 할지 써요.", done: () => filled("s6.plan.content"),
+      body: () => `${recall("최종 해결책", w("s4.final"))}${recall("걱정되는 문제", w("s5.newProblem"))}${fld("s6.plan.target", "누구에게?", "예) 우리 학교 친구들, 시청", false)}${fld("s6.plan.content", "무엇을, 어떻게?", "예) 설득하는 편지 쓰기, 캠페인, 실천 약속", true)}` },
+    deep("power") && { id: "power", name: "권한", q: "이 일을 정할 권한은 누구에게 있나요?", hint: "우리 생각을 어떤 길로 전할지도 써요.", done: () => said("s6.plan.authority"),
+      body: () => fld("s6.plan.authority", "", "예) 시청 ○○과에 주민 제안으로 / 학교운영위원회에 건의", true) },
+  ]),
 
-  7() {
-    const rows = [[1, "인물 대화 (나)", S.chat.length], ...(S.coach === false ? [] : [[2, "2단계 생각 도우미", stageLogs(2).length]]), ...[3, 4, 5].map((n) => [n, `${n}단계 ${STAGES[n - 1].name}`, stageLogs(n).length])];
-    const dec = Object.values(w("s4.decisions") || {}), cnt = (i) => dec.filter((d) => d.choice === DECISIONS[i] || d.choice === OLD_DECISIONS[i]).length;
-    return `${nextBox()}
-    <div class="card"><h3>① AI 사용 기록</h3>
-      <div class="group">${rows.map((b) => `<div class="cell"><span class="grow">${b[1]}</span><b>${b[2]}회</b></div>`).join("")}
-      <div class="cell stack"><span class="grow">AI 의견을 어떻게 했나</span><span>받아들임 ${cnt(0)} · 고쳐서 반영 ${cnt(1)} · 받아들이지 않음 ${cnt(2)}</span></div></div></div>
-    <div class="card"><h3>② 우리 모둠의 흐름</h3>
-      <div class="flow">${flowRows().map(([n, sub, k, v]) => `<div class="fl ${v ? "" : "miss"}"><span>${k}</span><div>${v ? esc(v) : "비어 있음"}</div>
-        <button class="link" data-go="${n}" data-sub="${sub || ""}">${n}단계</button></div>`).join("")}</div></div>
-    <div class="card"><h3>③ 실제로는 어떻게 되었을까?</h3>
-      <p class="desc">인물들과 이야기를 나눈 ${esc(ui().afterSince)} 이후, 실제로 일어난 일이에요. 우리 모둠의 해결책과 5단계에서 그려 본 미래를 실제 전개와 비교해 보세요.</p>
-      ${(S.info.aftermath || []).length ? `<div class="mat">${S.info.aftermath.map((it) => `<div class="mat-item"><span class="kind k-${esc(it.kind)}">${esc(it.kind)}</span><p>${esc(it.text)}</p>
+  7: () => [
+    { id: "real", name: "실제 전개", q: "실제로는 어떻게 되었을까요?", hint: `${esc(ui().afterSince)} 이후에 실제로 일어난 일이에요.`, body: () => (S.info.aftermath || []).length
+      ? `<div class="mat">${S.info.aftermath.map((it) => `<div class="mat-item"><span class="kind k-${esc(it.kind)}">${esc(it.kind)}</span><p>${esc(it.text)}</p>
         <div class="cap">${it.links.map((l) => `<a href="${esc(safeHref(l.url))}" target="_blank" rel="noopener noreferrer">${esc(l.outlet)}${l.date && !/확인/.test(l.date) ? ` ${esc(l.date)}` : ""}</a>`).join(" · ")}</div></div>`).join("")}</div>`
-        : `<div class="notice muted">선생님이 이후 전개 자료를 준비하는 중이에요.</div>`}
-      ${fld("s7.compare", MID() ? "우리가 그려 본 미래와 실제는 어디가 같고 어디가 달랐나요? (꼭 써요)" : "우리가 그려 본 미래와 비교하면? (비슷한 점 / 다른 점 / 우리가 놓친 것) (꼭 써요)", `예) ${ui().afterExample}`, true)}
-      ${deep("why") ? fld("s7.why", "실제와 달랐던 까닭: 우리가 놓친 원인이나 사람들의 반응은 무엇이었나요? (꼭 써요)", "예) 우리는 ~만 봤는데, 실제로는 ~ 때문에 ~했다", true) : ""}</div>
-    <div class="card"><h3>④ 처음 내 생각은 어떻게 바뀌었나요? <span class="tag x">혼자</span></h3>
-      <div class="notice muted"><b>대화 전 내 생각</b><br>${priorOf() ? esc(priorOf()) : "1단계에서 적지 않았어요."}</div>
-      ${fld(`s7.after.${S.uid}`, "지금 다시 생각해 보면?", "예) 처음엔 ~라고 생각했는데, ~를 알게 되어 ~. 그대로인 부분도 있다면 왜 그런지 써도 좋아요", true)}</div>
-    <div class="card"><h3>⑤ 발표 준비</h3>
-      ${fld("s7.share", "", "위 흐름과 돌아본 것을 바탕으로, 왜 그렇게 정했는지 근거를 넣어 짧게", true)}</div>
-    <div class="card"><h3>⑥ AI를 어떻게 썼는지 돌아보기</h3>
-      <div class="group">${CHECKLIST.map((t, i) => `<label class="cell" style="cursor:pointer"><input type="checkbox" data-save="s7.checks.${i}" ${w(`s7.checks.${i}`) ? "checked" : ""} style="width:20px;height:20px;margin-top:2px"><span class="grow">${esc(t)}</span></label>`).join("")}</div>
-      ${fld("s7.reflection", "오늘 AI의 답 중 무엇을 받아들이고 무엇을 버렸나요? 왜 그랬나요?", "", true)}</div>`;
-  },
+      : `<div class="notice muted">선생님이 이후 전개 자료를 준비하는 중이에요.</div>` },
+    { id: "compare", name: "비교", q: "우리가 그려 본 미래와 실제는 무엇이 같고, 무엇이 달랐나요?", done: () => said("s7.compare"),
+      body: () => `${recall("우리 해결책", w("s4.final"))}${recall("우리가 걱정한 문제", w("s5.newProblem"))}${fld("s7.compare", "", `예) ${ui().afterExample}`, true)}` },
+    deep("why") && { id: "why", name: "달랐던 까닭", q: "실제와 달랐다면, 우리가 놓친 것은 무엇이었나요?", done: () => said("s7.why"),
+      body: () => fld("s7.why", "", "예) 우리는 ~만 봤는데, 실제로는 ~ 때문에 ~했다", true) },
+    { id: "after", name: "내 생각의 변화", q: "처음 내 생각은 어떻게 바뀌었나요?", hint: "그대로여도 괜찮아요. 왜 그런지 써요. (혼자)", done: () => said(`s7.after.${S.uid}`),
+      body: () => `${recall("처음 내 생각", priorOf() || "적지 않았어요")}${fld(`s7.after.${S.uid}`, "", "예) 처음엔 ~라고 생각했는데, ~를 알게 되어 ~", true)}` },
+    { id: "share", name: "발표 준비", q: "발표할 내용을 정리해요", hint: "왜 그렇게 정했는지 근거를 넣어 짧게.", done: () => filled("s7.share"),
+      body: () => `<div class="flow">${flowRows().map(([n, sc, k, v]) => `<div class="fl ${v ? "" : "miss"}"><span>${k}</span><div>${v ? esc(v) : "비어 있음"}</div>
+        ${v ? "" : `<button class="link" data-go="${n}" data-sub="${sc}">${n}단계로</button>`}</div>`).join("")}</div>${fld("s7.share", "", "우리는 ~을 문제로 보고, ~ 때문이라고 생각해 ~을 하기로 했다", true)}` },
+    { id: "ai", name: "AI 돌아보기", q: "오늘 AI의 말 중, 받아들인 것과 버린 것은?", hint: "그렇게 한 까닭도 써요.", done: () => filled("s7.reflection"),
+      body: () => `${fld("s7.reflection", "", "예) ~는 자료와 맞아서 받아들였고, ~는 확인이 안 돼서 버렸다", true)}
+        <div class="group" style="margin-top:12px">${CHECKLIST.map((t, i) => `<label class="cell" style="cursor:pointer"><input type="checkbox" data-save="s7.checks.${i}" ${w(`s7.checks.${i}`) ? "checked" : ""} style="width:20px;height:20px;margin-top:2px"><span class="grow">${esc(t)}</span></label>`).join("")}</div>` },
+  ],
 };
+const keptCauses = () => list("s2.causes").filter((q) => [CAUSE_STATUS[0], OLD_CAUSE_STATUS[0]].includes(w(`s3.causes.${q.id}.status`)));
 
-// 1단계 ①: 인물을 만나기 전에 내가 당연하게 여겨 온 생각을 한 줄 적는다. 대화를 시작하면 접어 둔다.
-function priorCard() {
-  const v = priorOf();
-  if (S.chat.length) return `<details class="fold prior m-hide" data-keep="prior"><summary>처음 내 생각 <span class="meta-line">· ${v ? esc(v.slice(0, 40)) : "적지 않음"}</span></summary><div class="inner">
-    ${fld(`s1.findings.${S.uid}.prior`, esc(ui().priorQuestion), ui().priorHint, true)}</div></details>`;
-  return `<div class="card prior"><h3>이야기를 듣기 전에 <span class="tag x">혼자</span></h3>
-    <p class="desc">${esc(ui().priorQuestion)} 맞고 틀린 답은 없어요. (나만 봐요)</p>
-    <textarea id="prior-in" data-save="s1.findings.${S.uid}.prior" maxlength="${MAX_AREA}" placeholder="${esc(ui().priorHint)}">${esc(v)}</textarea></div>`;
+// 1단계: 인물 고르기. 카드를 누르면 편지 창이 열린다. 사건마다 정한 인물(예: 난민 신청자)은 모둠에 꼭 한 명 있어야 한다.
+function pickBody() {
+  const letters = S.info.letters || [], mineId = S.me?.id, started = S.chatCount > 0;
+  const hasRequired = letters.some((l) => l.required && S.picks[l.id]);
+  const card = (l) => {
+    const t = S.picks[l.id], mine = l.id === mineId, other = t && !mine;
+    const state = mine ? `<span class="tag g">내가 고름</span>` : other ? `<span class="tag x">${esc(t.nick || "친구")} 선택</span>` : l.required ? `<span class="tag y">${esc(ui().requiredTag)}</span>` : "";
+    return `<div class="pcard pc-pop ${mine ? "mine" : ""} ${other ? "taken" : ""}" data-id="${esc(l.id)}">
+      <button type="button" class="pc-open" data-act="read-letter" data-id="${esc(l.id)}" aria-haspopup="dialog"><div class="avatar sm">${esc(l.name.slice(0, 1))}</div><div class="pc-t"><b>${esc(l.name)}</b><small>${esc(l.brief)}</small></div>${state}<span class="pc-more">${mine ? "다시 읽기" : "편지 읽기"}</span></button></div>`;
+  };
+  return `${hasRequired ? "" : `<div class="notice yellow" role="status">모둠에서 한 명은 꼭 <b>${esc(ui().requiredWho)}</b>${josa(ui().requiredWho, "을", "를")} 골라요.</div>`}
+    ${mineId ? `<div class="notice ok pick-ok" role="status"><span><b>${esc(S.me.name)}</b>님을 골랐어요.${started ? "" : " 대화 전에는 바꿀 수 있어요."}</span></div>` : ""}
+    <div class="pcards">${letters.map(card).join("")}</div>
+    <div class="meta-line">우리 모둠 ${Math.max(S.memberCount, Object.keys(S.picks).length)}명 중 ${Object.keys(S.picks).length}명이 골랐어요.</div>`;
 }
 
-const sub1 = {
-  // 모든 인물의 편지를 보여 주고, 모둠이 상의해 한 명씩 고른다(직소). 사건마다 정한 인물(제주는 난민 신청자)은 모둠에 꼭 한 명 있어야 한다.
-  pick() {
-    const letters = S.info.letters || [];
-    const takenBy = (id) => S.picks[id];
-    const mineId = S.me?.id;
-    const hasRequired = letters.some((l) => l.required && takenBy(l.id));
-    const started = S.chatCount > 0;
-    // 카드 전체가 편지 창을 여는 버튼(PC는 넓은 두 단, 휴대폰은 아래에서 올라오는 창). 내가 고른 카드에는 '대화하러 가기'를 바로 붙인다
-    const card = (l) => {
-      const t = takenBy(l.id), mine = l.id === mineId, other = t && !mine;
-      const state = mine ? `<span class="tag g">내가 고른 인물</span>` : other ? `<span class="tag x">${esc(t.nick || "친구")} 선택</span>` : l.required ? `<span class="tag y">${esc(ui().requiredTag)}</span>` : "";
-      return `<div class="pcard pc-pop ${mine ? "mine" : ""} ${other ? "taken" : ""}" data-id="${esc(l.id)}">
-        <button type="button" class="pc-open" data-act="read-letter" data-id="${esc(l.id)}" aria-haspopup="dialog"><div class="avatar sm">${esc(l.name.slice(0, 1))}</div><div class="pc-t"><b>${esc(l.name)}</b><small>${esc(l.brief)}</small></div>${state}<span class="pc-more">${mine ? "다시 읽기" : "편지 읽기"}</span></button>
-        ${mine ? `<div class="pc-act"><button class="btn btn-primary btn-sm" data-go="1" data-sub="chat">대화하러 가기 →</button></div>` : ""}</div>`;
-    };
-    return `<div class="card"><h3>누구와 이야기할까요? <span class="tag">모둠</span> <span class="meta-line">· 카드를 누르면 편지를 읽어요</span></h3>
-      ${hasRequired ? "" : `<div class="notice yellow" role="status"><b>모둠에 한 명은 꼭</b> <b>${esc(ui().requiredWho)}</b>${josa(ui().requiredWho, "과", "와")} 이야기해야 해요. 아직 아무도 고르지 않았어요.</div>`}
-      ${mineId ? `<div class="notice ok pick-ok" role="status"><span><b>${esc(S.me.name)}</b>님과 이야기하기로 했어요.${started ? "" : " 대화를 시작하기 전에는 바꿀 수 있어요."}</span> <button class="btn btn-primary btn-sm" data-go="1" data-sub="chat">대화하러 가기 →</button></div>` : ""}
-      ${started ? `<div class="meta-line">대화를 시작해서 인물을 바꿀 수 없어요. 바꾸고 싶으면 선생님께 말씀드리세요.</div>` : ""}
-      <div class="pcards">${letters.map(card).join("")}</div>
-      <div class="meta-line">우리 모둠 ${Math.max(S.memberCount, Object.keys(S.picks).length)}명 중 ${Object.keys(S.picks).length}명이 골랐어요.</div></div>`;
-  },
+// 1단계: 메신저 대화. PC 넓은 화면은 편지를 옆에 펼쳐 두고, 휴대폰은 대화창이 화면 대부분을 쓴다.
+function chatBody() {
+  const me = S.me;
+  // 처음 받는 편지는 도착하듯 내려앉는다(한 번만)
+  const arrive = !S.chat.length && !seenList().includes("letter");
+  if (arrive) markSeen("letter");
+  const letterOpen = WIDE() || (IS_M && !S.chat.length);
+  return `<div class="split chat-split"><div class="split-side"><details class="letter ${arrive ? "arrive" : ""}" data-keep="letter" ${letterOpen ? "open" : ""}>
+    <summary>${esc(me.name)}에게서 편지가 왔어요</summary>
+    <div class="body">${me.letter.map((p) => `<p>${esc(p)}</p>`).join("")}<div class="sign">${esc(ui().letterSign)}<br>${esc(me.name)} 드림</div></div>
+  </details></div>
+  <div class="split-main"><div class="goal-chips" aria-label="알아낼 것"><span>알아낼 것</span><b>① 누구인지</b><b>② 힘든 것</b><b>③ 바라는 것</b></div>
+  <div class="card chat-card">
+    <div class="chat-head"><div class="avatar">${esc(me.name.slice(0, 1))}</div><div><div class="nm">${esc(me.name)}</div><div class="st ${S.locked ? "off" : ""}">${S.locked ? "대화 멈춤" : "대화 중"}</div></div><div class="chat-tools"><button class="btn btn-plain btn-sm m-only" data-act="letter" aria-label="편지 다시 읽기">편지</button><button class="btn btn-plain btn-sm" data-act="dl-chat" aria-label="내 대화를 글 파일로 저장">대화 저장</button></div></div>
+    <div class="chat-rule">${me.personal ? "개인적인 이야기도 물어볼 수 있어요." : "단체·기관에서 일하는 사람이라, 하는 일과 생각을 중심으로 물어봐요."} 놀리거나 모욕하는 말은 선생님께 알려지고, 3번이면 대화가 멈춰요.</div>
+    <div class="msgs" id="msgs" role="log" aria-live="polite" aria-label="인물과의 대화"></div>
+    <div class="starters">${STARTERS.map((q) => `<button class="chip sm" data-act="starter" data-t="${esc(q)}">${esc(q)}</button>`).join("")}</div>
+    ${S.locked ? `<div class="composer locked" role="alert">대화 규칙을 여러 번 어겨 대화가 멈췄어요. 선생님께 말씀드리면 다시 열어 주실 수 있어요.</div>`
+      : `<form class="composer" id="chat-form" autocomplete="off">
+      <div class="chat-left" id="chat-left" role="status" aria-live="polite"></div>
+      <input type="text" id="msg" maxlength="500" enterkeyhint="send" autocomplete="off" autocorrect="off" placeholder="${esc(me.name)}에게 메시지 보내기" />
+      <button class="send" id="send-btn" type="submit" aria-label="보내기">${SEND_ICON}</button>
+    </form>`}
+  </div></div></div>`;
+}
 
-  chat() {
-    const me = S.me;
-    // PC 넓은 화면에서는 편지·할 일을 왼쪽에, 대화창을 오른쪽에 둔다
-    // 처음 받는 편지는 도착하듯 내려앉는다(한 번만)
-    const arrive = !S.chat.length && !seenList().includes("letter");
-    if (arrive) markSeen("letter");
-    // 대화 전에 할 일(처음 내 생각)은 대화창 바로 위에 둔다. 대화를 시작하면 옆으로 접어 둔다.
-    // 편지: PC 넓은 화면은 옆에 펼쳐 두고, 좁은 PC는 고를 때 창으로 읽었으니 접어 둔다. 휴대폰은 대화 전에만 펼친다.
-    const first = !S.chat.length;
-    const letterOpen = WIDE() || (IS_M && first);
-    return `<div class="split chat-split"><div class="split-side"><details class="letter ${arrive ? "arrive" : ""}" data-keep="letter" ${letterOpen ? "open" : ""}>
-      <summary>${esc(me.name)}에게서 편지가 왔어요</summary>
-      <div class="body">${me.letter.map((p) => `<p>${esc(p)}</p>`).join("")}<div class="sign">${esc(ui().letterSign)}<br>${esc(me.name)} 드림</div></div>
-    </details>
-    ${first ? "" : priorCard()}</div>
-    <div class="split-main"><div class="goal-chips" aria-label="알아낼 것"><span>알아낼 것</span><b>① 누구인지</b><b>② 힘든 것</b><b>③ 바라는 것</b></div>
-    ${first ? priorCard() : ""}
-    <div class="card chat-card">
-      <div class="chat-head"><div class="avatar">${esc(me.name.slice(0, 1))}</div><div><div class="nm">${esc(me.name)}</div><div class="st ${S.locked ? "off" : ""}">${S.locked ? "대화 멈춤" : "대화 중"}</div></div><div class="chat-tools"><button class="btn btn-plain btn-sm m-only" data-act="letter" aria-label="편지 다시 읽기">편지</button><button class="btn btn-plain btn-sm" data-act="dl-chat" aria-label="내 대화를 글 파일로 저장">대화 저장</button></div></div>
-      <div class="chat-rule">${me.personal
-        ? `나이·가족·고향·종교처럼 ${esc(me.name)}의 개인적인 이야기도 자유롭게 물어볼 수 있어요.`
-        : `${esc(me.name)}은(는) 단체·기관에서 일하는 사람이에요. 하는 일과 생각을 중심으로 물어보세요. 개인적인 신상은 대답하기 어려울 수 있어요.`}
-        다만 놀리거나 모욕하는 말, 성적인 말은 기록되어 선생님께 알려지고, 3번이면 대화가 멈춰요.</div>
-      <div class="msgs" id="msgs" role="log" aria-live="polite" aria-label="인물과의 대화"></div>
-      <div class="starters">${STARTERS.map((q) => `<button class="chip sm" data-act="starter" data-t="${esc(q)}">${esc(q)}</button>`).join("")}</div>
-      ${S.locked ? `<div class="composer locked" role="alert">대화 규칙을 여러 번 어겨 대화가 멈췄어요. 선생님께 말씀드리면 다시 열어 주실 수 있어요.</div>`
-        : `<form class="composer" id="chat-form" autocomplete="off">
-        <div class="chat-left" id="chat-left" role="status" aria-live="polite"></div>
-        <input type="text" id="msg" maxlength="500" enterkeyhint="send" autocomplete="off" autocorrect="off" placeholder="${esc(me.name)}에게 메시지 보내기" />
-        <button class="send" id="send-btn" type="submit" aria-label="보내기">${SEND_ICON}</button>
-      </form>`}
-    </div></div></div>`;
-  },
+// 1단계: 친구들이 만난 사람들을 나란히 본다(제출한 사람만)
+function boardBody() {
+  const all = submitted(), done = all.length, total = Math.max(S.memberCount, done);
+  return `<div class="meta-line">제출 ${done} / ${total}명${done < total ? " · 친구들이 제출하면 여기에 바로 보여요" : ""}</div>
+    <div class="board">${all.map((f) => `<div class="b-col"><div class="b-h">${esc(f.persona || "인물")}<small>${esc(f.nick || "")}</small></div>
+      <div class="b-r"><span>누구</span>${esc(f.who || f.text || "")}</div><div class="b-r"><span>힘든 것</span>${esc(f.hard || "")}</div><div class="b-r"><span>바라는 것</span>${esc(f.want || "")}</div>${txt(f.premise) ? `<div class="b-r"><span>당연하게 여기는 것</span>${esc(f.premise)}</div>` : ""}${txt(f.doubt) ? `<div class="b-r"><span>정말 그럴까?</span>${esc(f.doubt)}</div>` : ""}</div>`).join("")}</div>`;
+}
 
-  note() {
-    const mine = w(`s1.findings.${S.uid}`) || {};
-    const others = submitted().filter((f) => f.id !== S.uid);
-    const done = submitted().length;
-    const total = Math.max(S.memberCount, done);
-    const status = `<div class="meta-line">모둠 제출 현황: <b>${done} / ${total}명</b></div>`;
-    if (!mine.submitted) {
-      return `<div class="card"><h3>② ${esc(S.me.name)}에게 알아낸 것 <span class="tag x">혼자</span></h3>
-        ${priorOf() ? `<div class="notice muted"><b>대화 전 내 생각</b><br>${esc(priorOf())}</div>` : ""}
-        ${noteFields().map(([k, l, ph]) => fld(`s1.findings.${S.uid}.${k}`, l, ph)).join("")}
-        <div class="row" style="margin-top:14px;justify-content:space-between">${status}<button class="btn btn-primary" data-act="submit-note">제출하기</button></div></div>`;
-    }
-    // 제출한 뒤에는 내 쓰기 칸을 접고, 모둠원 제출 현황과 모둠원이 쓴 내용을 먼저 보여 준다(내 글은 접힌 상자에서 보고 고친다)
-    const allIn = done >= total;
-    return `<div class="card wait-card ${allIn ? "done" : ""}"><h3>${allIn ? "모두 제출했어요!" : "제출했어요. 모둠원을 기다리는 중이에요"}</h3>
-      <div class="sub-dots">${submitted().map((f) => `<span class="dot on">${esc(f.nick || "")}</span>`).join("")}${Array.from({ length: Math.max(0, total - done) }, () => `<span class="dot">…</span>`).join("")}</div>
-      ${status}
-      ${allIn ? `<button class="btn btn-primary" style="margin-top:12px" data-go="1" data-sub="group">③ 모둠 문제 정하러 가기 →</button>` : `<p class="meta-line" style="margin-top:8px">기다리는 동안 아래에서 먼저 제출한 모둠원의 이야기를 읽어 보세요.</p>`}</div>
-    <div class="card"><h3>모둠원이 만난 사람들</h3>
-      ${others.map((f) => findingCard(f)).join("") || `<div class="meta-line">아직 제출한 모둠원이 없어요.</div>`}</div>
-    <details class="fold mine-fold" data-keep="mynote"><summary>내가 제출한 내용 보기·고치기</summary><div class="inner">
-      ${findingCard({ ...mine, nick: S.nick }, true)}
-      <div style="margin-top:10px"><button class="btn btn-plain btn-sm" data-act="edit-note">수정하기</button></div></div></details>`;
-  },
+// 2단계: 처음 내 생각이 어디서 왔는지 쓰고 모둠에 보인다. 남의 문제를 '나와 비슷한 점' 찾기로 억지로 잇지 않고, 내가 당연하게 믿어 온 것에서 출발한다.
+function linkBody() {
+  const all = list("s2.links"), mine = all.filter((l) => l.by === S.uid), others = all.filter((l) => l.by !== S.uid);
+  const view = (l, own) => `<div class="card flat item link-card">${l.prior ? `<div class="meta-line">처음 생각: ${esc(l.prior)}</div>` : ""}
+      <div style="margin-top:4px">${esc(l.source)}</div>
+      ${own ? coachBox("link", l.id, true, "", stageLogs(2).some((g) => g.payload?.linkId === l.id) ? fld(`s2.linkMore.${l.id}`, "질문을 받고 더 생각한 것", "", true) : "")
+        : txt(w(`s2.linkMore.${l.id}`)) ? `<div class="meta-line" style="margin-top:6px">더 생각한 것: ${esc(w(`s2.linkMore.${l.id}`))}</div>` : ""}
+      <div class="row" style="margin-top:8px;justify-content:space-between">${who(l)}${own ? `<button class="btn btn-plain btn-sm" data-act="del" data-path="s2.links" data-id="${l.id}">삭제</button>` : ""}</div></div>`;
+  return `${recall("처음 내 생각", priorOf() || "1단계에서 적지 않았어요")}
+    ${mine.length ? mine.map((l) => view(l, true)).join("") : `<textarea id="lk-src" maxlength="${MAX_INPUT}" aria-label="처음 내 생각은 어디서 왔을까요?" placeholder="예) 뉴스 제목만 봤어요 / 주변 어른들이 하는 말을 들었어요"></textarea>
+      <div class="sc-act"><button class="btn btn-tinted" data-act="add-link">모둠에 보이기</button></div>`}
+    ${others.length ? `<label class="lbl">친구들의 생각</label>${others.map((l) => view(l, false)).join("")}` : ""}`;
+}
 
-  group() {
-    const mine = w(`s1.findings.${S.uid}`) || {};
-    if (!mine.submitted) return "";
-    const all = submitted();
-    const done = all.length, total = Math.max(S.memberCount, done);
-    const chk = (i) => `<label class="cell" style="cursor:pointer"><input type="checkbox" data-save="s1.problem.checks.${i}" ${w(`s1.problem.checks.${i}`) ? "checked" : ""} style="width:20px;height:20px;margin-top:2px"><span class="grow">${esc(PROBLEM_CHECKS[i])}</span></label>`;
-    return `<div class="notice green">👥 여기부터 모둠 활동 · 칸은 모둠이 함께 써요</div>
-    <div class="card"><h3>1) 만난 사람들 나란히 보기 <span class="meta-line">${done}/${total}명</span></h3>
-      <div class="board">${all.map((f) => `<div class="b-col"><div class="b-h">${esc(f.persona || "인물")}<small>${esc(f.nick || "")}</small></div>
-        <div class="b-r"><span>누구</span>${esc(f.who || f.text || "")}</div><div class="b-r"><span>힘든 것</span>${esc(f.hard || "")}</div><div class="b-r"><span>바라는 것</span>${esc(f.want || "")}</div>${txt(f.premise) ? `<div class="b-r"><span>당연하게 여기는 것</span>${esc(f.premise)}</div>` : ""}${txt(f.doubt) ? `<div class="b-r"><span>정말 그럴까?</span>${esc(f.doubt)}</div>` : ""}</div>`).join("")}</div></div>
-    <div class="card"><h3>2) 같은 점 찾기</h3>
-      ${fld("s1.problem.common", "여러 사람이 함께 겪거나 걱정하는 것은?", "예) ○○와 △△ 모두 ~을 걱정한다", true)}</div>
-    <div class="card"><h3>3) 서로 다르게 말한 것 찾기</h3>
-      ${fld("s1.problem.disputes", "엇갈린 말 (한 줄에 하나씩 · 누가 맞는지는 아직 정하지 않아요)", "예) ○○는 ~라고 했는데, △△는 ~라고 했다", true)}</div>
-    <div class="card"><h3>4) 부딪히는 점 찾기</h3>
-      ${fld("s1.problem.conflict", "누구의 바람과 누구의 걱정이 부딪히나요?", "예) ○○는 ~을 원하지만, △△는 ~을 걱정한다", true)}</div>
-    ${deep("premise") ? `<div class="card"><h3>4-1) 부딪히는 가치에 이름 붙이기</h3>
-      <p class="meta-line">두 바람 밑에는 저마다 지키려는 가치가 있어요. 위 '당연하게 여기는 것'을 함께 보면 찾기 쉬워요.</p>
-      ${pick("s1.problem.valueA", "한쪽이 지키려는 것", VALUES)}${pick("s1.problem.valueB", "다른 쪽이 지키려는 것", VALUES)}
-      ${fld("s1.problem.valueWhy", "두 가치를 함께 지키기 어려운 까닭은?", "예) ○○을 지키려면 ~해야 하는데, 그러면 △△의 ~이 어려워진다", true)}</div>` : ""}
-    <div class="card"><h3>5) 우리 모둠의 문제를 한 문장으로</h3>
-      <details class="example" data-keep="ex-hmw" ${MID() ? "open" : ""}><summary>예시 보기</summary><div class="ex-row bad">✗ ${esc(ui().broadProblem)} <span>너무 넓어요</span></div>
-        <div class="ex-row bad">✗ ${esc(ui().decidedProblem)} <span>답을 정한 주장이에요</span></div>
-        <div class="ex-row good">✓ (다른 주제) 어떻게 하면 급식 줄 서는 시간을 줄이면서도 모두가 충분히 먹을 수 있을까?</div></details>
-      ${fld("s1.problem.situation", "문제 상황: 누가 어떤 어려움을 겪고 있나요? (한두 문장)", "", true)}
-      <p class="meta-line">두 바람이 부딪히는 사건이면 '어떻게 하면 ~하면서도 ~할 수 있을까?' 꼴이 쓰기 쉬워요. 사건에 맞게 내 말로 바꿔 써도 돼요.</p>
-      ${fld("s1.problem.hmw", "우리가 풀 질문", "예) 어떻게 하면 ________하면서도 ________할 수 있을까?", true, 10)}</div>
-    <div class="card"><h3>6) 점검하기</h3>
-      <div class="group">${PROBLEM_CHECKS.map((_, i) => chk(i)).join("")}</div></div>`;
-  },
-};
+// 2단계: 확인 질문 만들기. 인물에게 들은 '정말 그럴까?' 말을 누르면 칸에 들어간다.
+function checkBody() {
+  const doubts = submitted().filter((f) => txt(f.doubt));
+  return `${list("s2.checks").map((c) => `<div class="card flat item"><div class="meta-line">${esc(c.heard)}${c.fo ? ` · ${esc(c.fo)}` : ""}</div><b>${esc(c.question)}</b>
+      <div class="row" style="margin-top:6px;justify-content:space-between">${who(c)}<button class="btn btn-plain btn-sm" data-act="del" data-path="s2.checks" data-id="${c.id}">삭제</button></div></div>`).join("")}
+    ${doubts.length ? `<div class="chipbar">${doubts.map((f) => `<button class="chip" data-act="use-doubt" data-t="${esc(`${f.persona || f.nick}: ${f.doubt}`)}">${esc(f.doubt.slice(0, 30))}</button>`).join("")}</div>` : ""}
+    <label class="lbl" for="ch-heard">확인할 말</label><input type="text" id="ch-heard" data-next="${MID() ? "ch-fo" : "ch-q"}" enterkeyhint="next" maxlength="${MAX_INPUT}" placeholder="예) ${esc(ui().heardExample)}" />
+    ${MID() ? `<label class="lbl" for="ch-fo">이 말은 사실일까요, 의견일까요?</label><select id="ch-fo"><option value="">선택하세요</option>${FACT_OPINION.map((x) => `<option>${x}</option>`).join("")}</select>` : ""}
+    <label class="lbl" for="ch-q">확인 질문</label><input type="text" id="ch-q" data-enter="add-check" enterkeyhint="done" maxlength="${MAX_INPUT}" placeholder="예) ${esc(ui().checkQuestion)}" />
+    <div class="sc-act"><button class="btn btn-tinted" data-act="add-check">추가</button></div>`;
+}
+
+// 3단계: 확인 질문 하나를 자료로 판단한다. AI 검색 도우미는 내 예상을 쓴 뒤에만 물을 수 있다(선택).
+function judgeBody(c) {
+  const logs = logsOf3(c), open3 = ready.problem();
+  const judge = (base, label) => `${pick(`${base}.verdict`, label, verdicts())}${fld(`${base}.source`, "어떤 자료에서 무엇을 보고 알았나요?", "예) 사건 자료에 ~라고 나와 있다")}${sourceMore(base)}`;
+  return `<div class="quote"><div class="meta-line">${esc(c.heard)}</div><b>${esc(c.question)}</b></div>
+    <div class="sc-act"><button class="btn btn-tinted btn-sm" data-act="show-mat">📄 사건 자료 보기</button></div>
+    ${logs.length ? "" : `<div class="judge">${judge(`s3.direct.${c.id}`, "자료를 보니, 그 말은?")}</div>
+      <details class="example" data-keep="ask3-${c.id}"><summary>AI 검색 도우미에게도 물어볼래요 (선택)</summary>
+        ${fld(`s3.guess.${c.id}`, "묻기 전에, 내 예상은?", "예) 아마 ~일 것 같다")}
+        <div class="row" style="margin-top:10px"><button class="btn btn-primary btn-sm" data-act="ask-check" data-id="${c.id}" ${S.busy || !open3 || !said(`s3.guess.${c.id}`, 2) ? "disabled" : ""}>검색 도우미에게 묻기</button>${said(`s3.guess.${c.id}`, 2) ? "" : `<span class="meta-line">내 예상을 먼저 쓰면 열려요</span>`}</div></details>`}
+    ${S.busy === "check:" + c.id ? loading("", "기다리는 동안 사건 자료에서 먼저 찾아볼까요?") : ""}
+    ${logs.map((l) => `<div class="ai-block"><div class="meta-line">검색 도우미의 답</div><div class="ai-out">${esc(l.output)}</div>${srcLinks(l.payload?.sources)}
+      <div class="judge">${judge(`s3.checks.${l.id}`, "확인해 보니, 그 말은?")}</div></div>`).join("")}
+    ${logs.length ? `<div style="margin-top:8px"><button class="btn btn-plain btn-sm" data-act="ask-check" data-id="${c.id}" ${S.busy || !open3 ? "disabled" : ""}>다시 묻기</button></div>` : ""}`;
+}
+
+// 3단계: 추측마다 남길지 버릴지. 사실로 확인된 결과가 없으면 '확인돼서 남겨요'는 고를 수 없다.
+function keepBody() {
+  const checks = list("s2.checks"), all = checks.flatMap(verdicts3);
+  return `<div class="group">${list("s2.causes").map((q) => {
+    // 확인 질문이 이 추측을 가리키면 그 결과만, 아니면 확인한 결과 전체를 본다
+    const linked = checks.filter((c) => c.causeId === q.id), vs = linked.length ? linked.flatMap(verdicts3) : all, support = vs.some((v) => SUPPORT.includes(v));
+    return `<div class="cell"><div class="grow"><b>${esc(q.text)}</b>
+      ${pick(`s3.causes.${q.id}.status`, "", support ? CAUSE_STATUS : CAUSE_STATUS.slice(1))}</div></div>`; }).join("")}</div>
+    ${all.some((v) => SUPPORT.includes(v)) ? "" : `<div class="meta-line">아직 '사실이다'로 확인한 것이 없어요.</div>`}`;
+}
 
 // ---------- 이벤트 ----------
 const val = (id) => document.getElementById(id)?.value.trim() ?? "";
@@ -1625,6 +1246,8 @@ panel.addEventListener("pointerdown", (e) => { if (e.target.closest("#send-btn")
 panel.addEventListener("click", async (e) => {
   const go = e.target.closest("[data-go]");
   if (go) { goTo(Number(go.dataset.go), go.dataset.sub || null); return; }
+  const sc = e.target.closest("[data-scene]");
+  if (sc && !sc.disabled) { goTo(S.stage, sc.dataset.scene); return; }
   const b = e.target.closest("[data-act]"); if (!b) return;
   const a = b.dataset.act, d = b.dataset;
 
@@ -1638,34 +1261,28 @@ panel.addEventListener("click", async (e) => {
     case "retry-chat": { const t = S.chatErr?.text; if (t && !S.sending) sendChat(t); break; }
     case "dl-chat": downloadChat(); break;
     case "help": maybeHelp(true); break;
-    case "guide-toggle": setGuide(!guideOn()); guideSig = ""; render(true); break;
     case "letter": if (S.me) await showModal({ title: `${esc(S.me.name)}에게서 온 편지`, body: S.me.letter.map((p) => `<p>${esc(p)}</p>`).join(""), dismissible: true, actions: [{ label: "닫기", value: true, kind: "btn-primary" }] }); break;
     case "read-letter": await readLetter(d.id); break;
     case "case-tab": S.caseTab = d.id; render(true); break;
     case "mat-tab": S.matTab = d.id; render(true); break;
+    case "show-mat": await showMaterials(); break;
     case "starter": { const m = $("#msg"); if (m) { m.value = d.t; S.draft = d.t; m.focus(); } break; }
     case "submit-note": {
       await flushAll();
       const mine = w(`s1.findings.${S.uid}`) || {};
       if (Math.max(S.chatCount, S.chat.length) < Math.min(2, S.chatLimit)) return toast(`대화에서 질문을 ${Math.min(2, S.chatLimit)}번 이상 해야 정리할 수 있어요.`, true);
-      if (noteRequired().some((k) => txt(mine[k]).length < 4)) return toast(`1~${noteRequired().length}번을 모두 4자 이상 써야 제출할 수 있어요.`, true);
+      if (noteRequired().some((k) => txt(mine[k]).length < 4)) return toast("알아낸 것을 모두 4자 이상 써야 제출할 수 있어요.", true);
       await save(`s1.findings.${S.uid}`, { ...mine, nick: S.nick, persona: S.me?.name || "", submitted: true, t: Date.now() });
-      toast("제출했어요. 모둠원의 내용을 확인하세요."); break;
+      toast("제출했어요!"); break;
     }
     case "edit-note": await save(`s1.findings.${S.uid}.submitted`, false); break;
-    case "use-q": { const c = $("#cz"); if (c) { c.value = d.t; c.focus(); } break; }
     case "ask-coach": await aiGroup(2, "coach", d.focus === "link" ? { focus: "link", linkId: d.id } : { focus: "cause" }, `coach:${d.focus}:${d.id || ""}`); break;
-    case "use-kept": { const c = panel.querySelector(sv("s3.chain.cause")); if (c) { c.value = d.t; c.dispatchEvent(new Event("input", { bubbles: true })); c.focus(); } break; }
+    case "use-kept": { const c = panel.querySelector('[data-save="s3.chain.cause"]'); if (c) { c.value = d.t; c.dispatchEvent(new Event("input", { bubbles: true })); c.focus(); } break; }
     case "use-doubt": { const h = $("#ch-heard"); if (h) { h.value = d.t; $("#ch-q")?.focus(); } break; }
     case "add-check": {
       if (val("ch-heard").length < 3 || val("ch-q").length < 5) return toast("확인할 말과 확인 질문을 구체적으로 쓰세요.", true);
-      if (MID()) {
-        if (!val("ch-fo")) return toast("이 말이 사실을 말한 건지, 생각(의견)을 말한 건지 먼저 골라 주세요.", true);
-        if (val("ch-look").length < 4) return toast("이 말이 맞는지 알려면 무엇을 보면 될지 써 주세요.", true);
-        await addItem("s2.checks", { heard: val("ch-heard"), fo: val("ch-fo"), question: val("ch-q"), look: val("ch-look"), srcType: val("ch-src"), causeId: val("ch-cause") }); render(true); break;
-      }
-      if (val("ch-refute").length < 4) return toast("이 말이 틀렸다면 어떤 사실이 나와야 할지도 써 보세요. 내 추측에 불리한 사실을 먼저 떠올리는 연습이에요.", true);
-      await addItem("s2.checks", { heard: val("ch-heard"), question: val("ch-q"), refute: val("ch-refute"), srcType: val("ch-src"), causeId: val("ch-cause") }); render(true); break;
+      if (MID() && !val("ch-fo")) return toast("이 말이 사실인지 의견인지 먼저 골라 주세요.", true);
+      await addItem("s2.checks", { heard: val("ch-heard"), question: val("ch-q"), ...(MID() ? { fo: val("ch-fo") } : {}) }); render(true); break;
     }
     case "add-clink": {
       const from = val("cl-from"), to = val("cl-to"), rel = val("cl-rel");
@@ -1674,32 +1291,26 @@ panel.addEventListener("click", async (e) => {
       if (list("s2.causeLinks").some((l) => l.from === from && l.to === to)) return toast("이미 이은 두 원인이에요.", true);
       await addItem("s2.causeLinks", { from, to, rel }); render(true); break;
     }
-    case "link-form": S.linkFormOpen = d.open === "1"; render(true); break;
-    case "lk-angle": S.linkAngle = +d.i; { const ids = ["lk-src", "lk-scene", "lk-q"], keep = ids.map((id) => $("#" + id)?.value || ""); render(true); ids.forEach((id, i) => { const n = $("#" + id); if (n) n.value = keep[i]; }); } break;
     case "add-link": {
-      if (val("lk-src").length < 4 || val("lk-scene").length < 8) return toast("1번과 2번을 조금 더 구체적으로 써 주세요.", true);
-      const f = w(`s1.findings.${S.uid}`) || {};
-      await addItem("s2.links", { prior: txt(f.prior), surprise: txt(f.surprise), source: val("lk-src"), angle: ANGLES[S.linkAngle ?? 0], scene: val("lk-scene"), question: val("lk-q") });
-      S.linkFormOpen = false; render(true); break;
+      if (val("lk-src").length < 8) return toast("조금 더 구체적으로 써 주세요.", true);
+      await addItem("s2.links", { prior: priorOf(), source: val("lk-src") }); render(true); break;
     }
     case "add-cause": { if (val("cz").length < 4) return toast("원인을 한 문장으로 쓰세요.", true); await addItem("s2.causes", { level: val("cz-lv"), text: val("cz") }); render(true); break; }
     case "ask-check": await aiGroup(3, "verify_query", { checkId: d.id }, "check:" + d.id); break;
     case "add-proposal": {
       const t = val("pt"); if (t.length < 30) return toast("해결책을 30자 이상 쓰세요.", true);
-      if (val("pt-cause").length < 4) return toast("이 해결책이 겨냥하는 원인을 적으세요.", true);
-      const usedCase = val("pt-ref") && val("pt-ref") !== NO_CASE;
-      if (deep("tradeoff") && usedCase && val("pt-transfer").length < 4) return toast("참고한 사례와 우리 사건은 무엇이 다른지 써 주세요. 그대로 옮기면 맞지 않을 수 있어요.", true);
-      S.proposalId = await addItem("s4.proposals", { text: t, cause: val("pt-cause"), ref: val("pt-ref"), ...(deep("tradeoff") && usedCase ? { transfer: val("pt-transfer") } : {}) }); render(true); break;
+      await addItem("s4.proposals", { text: t, cause: txt(w("s3.chain.cause")) }); render(true); break;
     }
-    case "ask-feedback": S.proposalId = d.id; await aiGroup(4, "proposal_feedback", { proposalId: d.id }, "feedback"); break;
+    case "ask-feedback": // 조언이 도착하면 바로 조언 장면을 연다
+      await aiGroup(4, "proposal_feedback", { proposalId: d.id }, "feedback");
+      S.goScene = [4, "advice"]; render(true); break;
     case "add-pred": {
       if (val("pp").length < 10) return toast("예측과 이유를 10자 이상 쓰세요.", true);
       await addItem("s5.predictions", { stakeholder: val("ps"), text: val("pp") }); render(true); break;
     }
     case "round": S.round = Number(d.r); render(true); break;
-    case "ask-scenario": { const pid = val("sp") || S.proposalId; S.proposalId = pid; await aiGroup(5, "scenario", { proposalId: pid, round: S.round }, "scenario"); break; }
+    case "ask-scenario": await aiGroup(5, "scenario", { proposalId: "final", round: S.round }, "scenario"); break;
     case "pick-scn": setLocal(`s5.selection.${d.id}.idx`, Number(d.i)); render(true); await save(`s5.selection.${d.id}.idx`, Number(d.i)); break;
-    case "plan-type": setLocal("s6.plan.type", d.v); render(true); await save("s6.plan.type", d.v); break;
   }
 });
 
@@ -1709,15 +1320,13 @@ panel.addEventListener("input", (e) => {
   if (el.id === "msg") { S.draft = el.value; return; }
   grow(el); updateCounts();
   const p = el.dataset?.save;
-  if (p && el.type !== "checkbox" && el.tagName !== "SELECT") queueSave(p, el.value);
+  if (p && el.type !== "checkbox" && el.tagName !== "SELECT") { queueSave(p, el.value); refreshFoot(); }
 });
 panel.addEventListener("change", (e) => {
   const el = e.target;
-  // 원인 가설을 고르면 확인할 말 칸에 그 원인을 넣어 준다
-  if (el.id === "ch-cause") { const q = list("s2.causes").find((x) => x.id === el.value); const h = $("#ch-heard"); if (q && h) h.value = q.text; return; }
   const p = el.dataset?.save; if (!p) return;
-  if (el.type === "checkbox") { setLocal(p, el.checked); save(p, el.checked); }
-  else if (el.tagName === "SELECT") { setLocal(p, el.value); save(p, el.value); if (p === "s4.finalFit") render(true); }
+  if (el.type === "checkbox") { setLocal(p, el.checked); save(p, el.checked); refreshFoot(); }
+  else if (el.tagName === "SELECT") { setLocal(p, el.value); save(p, el.value); refreshFoot(); }
   else flushSave(p);
 });
 // 추가 칸에서 Enter: 다음 칸으로 가거나(data-next) 바로 추가한다(data-enter). 한글 조합 중의 Enter는 무시한다.
@@ -1729,7 +1338,11 @@ panel.addEventListener("keydown", (e) => {
 });
 // 공용 칸에 들어가면 모둠원 화면에 '입력 중'을 표시하고, 나오면 지운다
 const isShared = (p) => p && !p.startsWith("s1.findings.");
+// 학생이 장면 안에서 무언가를 하면 그 장면에 머문다(마쳐도 저절로 넘어가지 않고 '다음'을 누른다)
+const pinScene = () => { if (S.shown && !S.scene[S.stage]) S.scene[S.stage] = S.shown; };
+panel.addEventListener("pointerdown", pinScene, true);
 panel.addEventListener("focusin", (e) => {
+  pinScene();
   const p = e.target.dataset?.save;
   if (isShared(p) && e.target.type !== "checkbox" && e.target.tagName !== "SELECT") save(`live.${S.uid}`, { path: p, nick: S.nick, t: Date.now() });
 });

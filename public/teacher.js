@@ -595,7 +595,7 @@ async function loadCheck(eventId) {
 }
 
 // ---------- 모둠 산출물 (학생이 적은 문제·원인·대안·시나리오·계획) ----------
-const PROBLEM_CHECK_N = 5, REFLECT_N = 10;
+const PROBLEM_CHECK_N = 3, REFLECT_N = 4; // 학생 화면의 문제 점검·AI 돌아보기 체크 수(app.js 의 PROBLEM_CHECKS·CHECKLIST)
 const tx = (v) => (typeof v === "string" ? v.trim() : "");
 const listOf = (x) => Object.entries(x || {}).map(([id, v]) => ({ id, ...(v && typeof v === "object" ? v : { text: v }) })).sort((a, b) => (a.t || 0) - (b.t || 0));
 const countTrue = (o) => Object.values(o || {}).filter(Boolean).length;
