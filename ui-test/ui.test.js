@@ -2770,7 +2770,7 @@ test("교사 평가: ③ 세특 — 초안 만들기(글 수준·초안·만든 
   assert.equal(await pg.locator(".sk-struct").getAttribute("open"), null, "만든 과정은 접혀 있다");
   assert.equal(await pg.locator(".sk-part").count(), 4);
   const struct = await pg.locator(".sk-struct").textContent();
-  assert.match(struct, /기 · 문제의식[\s\S]*승 · 과정[\s\S]*전 · 발견[\s\S]*결 · 성찰/);
+  assert.match(struct, /기 · 탐구의 출발[\s\S]*승 · 핵심 역량[\s\S]*전 · 역량과 생각의 전환[\s\S]*결 · 종합과 성장/);
   assert.match(struct, /근거: 내 활동 · 힘든 것/);
   assert.match(struct, /1,480바이트로 맞췄어요\(목표 1,500바이트 · 2번 다듬음\)/); assert.match(struct, /뺀 문장 1개/);
   assert.ok(!/고성능|빠른 모델|byte/.test(struct));

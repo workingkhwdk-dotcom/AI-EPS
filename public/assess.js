@@ -378,7 +378,7 @@ async function qResolve(btn) {
 const GRADE_CLS = { S: "s", A: "a", B: "b", C: "c" };
 const GRADE_NAME = { S: "매우 우수", A: "우수", B: "보통", C: "미흡" };
 const EMP = [["balance", "균형"], ["academic", "학업역량"], ["leader", "리더십"], ["character", "인성"], ["growth", "성장잠재력"]];
-const PART_NAME = { 기: "기 · 문제의식", 승: "승 · 과정", 전: "전 · 발견", 결: "결 · 성찰" };
+const PART_NAME = { 기: "기 · 탐구의 출발", 승: "승 · 핵심 역량", 전: "전 · 역량과 생각의 전환", 결: "결 · 종합과 성장" }; // functions/seteuk.js 의 PART_GUIDE 와 같은 뜻
 const skOf = (id) => (st.sk[id] = st.sk[id] || { prep: null, gen: null, text: null, editing: false, saved: null, msg: "" });
 const byteCls = (n, max) => (n > max ? "over" : n > max * 0.9 ? "warn" : "ok");
 const bytesHtml = (n, max) => `<b>${n.toLocaleString()}</b><small> / ${max.toLocaleString()}바이트</small>`;
@@ -392,7 +392,8 @@ function seteukHtml() {
   return `<div class="card sk-root"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><h3 style="margin:0">세특 쓰기</h3><div class="meta-line">저장 ${nSk} / ${live.length}명${nDraft ? ` · 초안만 있음 ${nDraft}명` : ""}</div></div>
       <div class="row"><label class="meta-line">분량 <select id="as-max">${[1000, 1500, 2000].map((n) => `<option value="${n}" ${d.seteukMax === n ? "selected" : ""}>${n.toLocaleString()}바이트 (한글 약 ${Math.round(n / 3)}자)</option>`).join("")}</select></label>
       <label class="meta-line">강조할 점 <select id="as-emp">${EMP.map(([k, n]) => `<option value="${k}" ${st.emphasis === k ? "selected" : ""}>${n}</option>`).join("")}</select></label></div></div>
-    <div class="meta-line" style="margin-top:6px">초안은 꼭 읽고 고친 뒤 저장하세요.</div>
+    <div class="meta-line" style="margin-top:6px">평가척도표 수준과 평가 근거를 바탕으로 교사의 말로 써요. 초안은 꼭 읽고 고친 뒤 저장하세요.</div>
+    ${(() => { const p = { ...d.progress, ...liveProgress(d) }; return p.total && p.done < p.total ? `<div class="notice yellow" style="margin-top:8px">아직 채점하지 않은 항목이 ${p.total - p.done}개 있어요. <b>① 채점</b>을 마친 뒤 만들면 그 수준이 세특에 반영돼요.</div>` : ""; })()}
     ${all}
     <div class="chipbar as-pick" style="margin-top:10px">${list.map((x) => `<button class="chip sm ${x.key === st.id ? "on" : ""}" data-asid="${esc(x.key)}">${esc(stuName(x))}${x.hasSeteuk ? " ✓" : x.hasDraft ? ' <span class="tag b">초안</span>' : ""}${x.excluded ? ` <span class="tag x">제외</span>` : ""}</button>`).join("") || `<span class="meta-line">학생이 없어요.</span>`}</div>
     ${live.length && nSk === live.length ? `<div class="row" style="margin-top:10px">${goBtn("release", "모두 저장했어요 · ④ 공개로 →")}</div>` : ""}</div>
@@ -433,7 +434,7 @@ function prepHtml(p) {
 }
 function structureHtml(g) {
   const last = g.log.at(-1)?.bytes ?? g.bytes;
-  return `<details class="as-ev sk-struct"><summary>초안을 어떻게 썼나요? <span class="meta-line">문장마다 어떤 활동을 근거로 했는지</span></summary>
+  return `<details class="as-ev sk-struct"><summary>초안을 어떻게 썼나요? <span class="meta-line">문장마다 어떤 평가 기준을 근거로 했는지</span></summary>
     ${g.parts.map((p) => `<div class="sk-part p-${p.part}"><b>${PART_NAME[p.part]}</b><div>${p.sentences.length ? p.sentences.map((x) => `<div class="sk-sent">${esc(x.text)}<div class="meta-line">근거: ${x.evidence.map((id) => esc(g.evidence[id]?.label || id)).join(", ")}</div></div>`).join("") : `<i>비어 있음</i>`}</div></div>`).join("")}
     <div class="meta-line">분량: ${last.toLocaleString()}바이트로 맞췄어요(목표 ${g.target.toLocaleString()}바이트 · ${g.log.length}번 다듬음)${g.dropped.length ? ` · 근거가 없어 뺀 문장 ${g.dropped.length}개` : ""}. 직접 고치면 이 구조와 달라질 수 있어요.</div></details>`;
 }
