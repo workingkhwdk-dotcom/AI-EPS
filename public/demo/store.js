@@ -112,6 +112,7 @@ export function resetTopic(topic, level = "high") {
     localStorage.removeItem(keyOf(topic, level));
     const code = codeOf(topic, level);
     for (const k of Object.keys(localStorage)) if (k.startsWith(`eps_help_${code}_`)) localStorage.removeItem(k);
+    localStorage.removeItem(`eps_demo_clock_${code}`); // 단계 시간(app.js 의 demoClock)
   } catch {}
 }
 // 메뉴에서 '하던 것이 있어요' 표시용: 인물을 골랐거나 대화·AI 기록이 있거나 모둠 문서(work)에 쓴 것이 있으면 true

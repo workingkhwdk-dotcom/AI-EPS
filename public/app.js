@@ -3,7 +3,7 @@ import { waitHtml, startWaitTicker, STEPS } from "./wait.js";
 import { showModal, confirmModal } from "./modal.js";
 import { HELP, helpSimple, helpDetail, fill } from "./help.js";
 import { openResult, seenAt as resSeenAt, markSeen as resMarkSeen } from "./result.js";
-import { studentClock, offsetFrom } from "./clock.js";
+import { studentClock, offsetFrom, STAGE_MIN_DEFAULT } from "./clock.js";
 import { signInAnonymously, onAuthStateChanged, setPersistence, browserSessionPersistence, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { doc, getDoc, getDocFromServer, onSnapshot, updateDoc, collection, query, orderBy, serverTimestamp, deleteField } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
@@ -304,7 +304,7 @@ async function enter(code, joined) {
   $("#join").classList.add("hidden");
   showArea();
   addHelpButton();
-  clk = clk || studentClock({ stageName: (n) => STAGES[n - 1].name, esc, toast, mountChip: (el) => $("#help-btn").before(el) });
+  clk = clk || studentClock({ stageName: (n) => STAGES[n - 1].name, esc, toast, mountChip: (el) => $("#help-btn").before(el), demo: DEMO });
   clk.setOffset(S.clockOff);
   $("#who").textContent = `${S.groupId.replace("g", "")}모둠 · ${S.nick}`;
   $("#logout").classList.remove("hidden");
@@ -424,8 +424,19 @@ function startStartPoll(code) {
 // 선생님이 다음 단계를 열면 모두 그 단계로 옮겨 간다. 시간이 끝나도 쓰던 것은 계속 쓸 수 있고, 넘어가는 것은 선생님이 정한다.
 let clk = null;
 const maxStage = () => (S.clock?.stage || 7);
+// 체험(demo): 선생님이 없으므로 단계에 처음 들어갈 때 그 단계의 기본 시간이 저절로 흐른다.
+// 시간이 끝나도 막지 않고 단계도 잠그지 않는다(S.clock 은 비워 둔다). 단계마다 시작한 때를 이 기기에 기억한다(초기화하면 지워짐: demo/store.js).
+const DEMO = document.documentElement.classList.contains("demo");
+function demoClock() {
+  if (!clk || !S.started || !S.code) return;
+  const key = `eps_demo_clock_${S.code}`, n = S.stage, min = STAGE_MIN_DEFAULT[n];
+  let m = {}; try { m = JSON.parse(localStorage.getItem(key) || "{}"); } catch {}
+  if (!m[n]) { m[n] = Date.now(); try { localStorage.setItem(key, JSON.stringify(m)); } catch {} }
+  clk.update({ stage: n, min, add: 0, endsAt: m[n] + min * 60000, left: null, ev: "go", t: m[n] });
+}
 function applyClock(c) {
   S.clockRaw = c || null;
+  if (DEMO) return demoClock();
   if (!S.started) return; // 대기실에서는 시간을 보이지 않는다(시작하면 applyStarted 가 다시 부른다)
   const prev = S.clock, next = c?.stage ? c : null;
   S.clock = next;
@@ -594,6 +605,7 @@ function goTo(stage, target) {
   window.scrollTo(0, 0);
   S.scrollChat = stage === 1 && S.sub1 === "chat" && S.chat.length > 0; // 대화로 돌아오면 마지막 말풍선을 보여 준다
   renderTabs(); render(true); ping();
+  if (DEMO) demoClock();
   maybeHelp();
 }
 $("#tabs").onclick = (e) => { const b = e.target.closest("[data-stage]"); if (b) goTo(Number(b.dataset.stage)); };

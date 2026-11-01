@@ -1944,6 +1944,32 @@ test("체험: 실제 수업과 다른 점은 화면의 띠가 아니라 단계�
 });
 
 
+test("체험: 선생님이 없으니 단계에 처음 들어갈 때 기본 시간이 저절로 흐르고(잠금 없음), 안내 창이 실제 수업과 다른 점을 알리며, 초기화하면 시간도 처음부터", async () => {
+  const { pg, ctx, errors } = await demoPage();
+  await pg.goto(`${base}/demo-play.html?t=junam2025`);
+  await pg.waitForSelector("#app:not(.hidden)");
+  await pg.waitForSelector("#clock-layer.clk-intro");
+  assert.match(await pg.locator("#clock-layer").innerText(), /1단계 · 이야기 듣기[\s\S]*30분[\s\S]*주어진 시간/);
+  assert.match(await pg.locator("#clock-chip").innerText(), /30분|29분/);
+  assert.match(await pg.locator(".modal .help-demo").innerText(), /수업지도안의 기본 시간[\s\S]*선생님이 단계마다 시간을 정하고/);
+  await dismissHelp(pg);
+  // 잠금이 없어 바로 5단계로 갈 수 있고, 그 단계의 기본 시간이 흐른다
+  assert.equal(await pg.getAttribute('#tabs [data-stage="5"]', "aria-disabled"), null);
+  await pg.click('#tabs .stage-tab[data-stage="5"]');
+  await pg.waitForFunction(() => /20분|19분/.test(document.querySelector("#clock-chip")?.innerText || ""));
+  assert.equal(await pg.getAttribute('#tabs [data-stage="5"]', "aria-current"), "step");
+  const saved = await pg.evaluate(() => JSON.parse(localStorage.getItem("eps_demo_clock_JUNAM2025") || "{}"));
+  assert.deepEqual(Object.keys(saved).sort(), ["1", "5"], "단계마다 시작한 때를 기억한다");
+  await dismissHelp(pg);
+  pg.once("dialog", (d) => d.accept());
+  await pg.click("#demo-reset");
+  await pg.waitForSelector(".pcard");
+  const after = await pg.evaluate(() => JSON.parse(localStorage.getItem("eps_demo_clock_JUNAM2025") || "{}"));
+  assert.deepEqual(Object.keys(after), ["1"], "초기화하면 시간도 처음부터(지금 단계만 새로 시작)");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 test("체험(PC 1366×768): 머리 부분이 낮아 활동이 화면 위쪽에서 보이고, 편지는 넓은 창에 스크롤 없이 뜨며, 처음 내 생각 칸이 첫 화면에 보인다", async () => {
   const { pg, ctx, errors } = await demoPage({ viewport: { width: 1366, height: 768 } });
   await pg.goto(`${base}/demo-play.html?t=jeju2018`);
