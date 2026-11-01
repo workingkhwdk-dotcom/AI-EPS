@@ -324,7 +324,7 @@ cp functions/.env.example functions/.env     # 열어서 TEACHER_EMAILS 를 본�
 
 firebase deploy
 ```
-배포가 끝나면 학생용 주소는 `https://knue-socialstudies-ai-eps.web.app/`, 교사용은 `/teacher.html`입니다.
+배포가 끝나면 학생용 주소는 `https://knue-socialstudies-ai-eps.web.app/`, 교사용은 `/teacher.html`, 수업지도안은 `/lesson-plan.html`입니다(약 11MB라 열 때마다 Hosting 전송량을 씁니다).
 
 ### 자동 배포 (권장)
 main 에 PR 을 합치면 CI(서버·보안 규칙·화면 테스트)가 돌고, **모두 통과한 바로 그 커밋**을 GitHub Actions(`.github/workflows/deploy.yml`)가 서버 함수·화면·보안 규칙까지 배포합니다. 맥(로컬 폴더)의 상태와 상관없이 늘 GitHub main 그대로 올라가므로, 로컬에서 `firebase deploy` 를 할 필요가 없습니다. 테스트가 하나라도 실패하면 배포하지 않습니다. 급할 때는 GitHub → Actions → **자동 배포** → *Run workflow* 로 지금의 main 을 바로 배포할 수 있습니다.
