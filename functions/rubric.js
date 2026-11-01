@@ -16,7 +16,7 @@ const ELEMENTS = [
 
 const CRITERIA = [
   {
-    id: "c11", el: 1, scope: "student", max: 10, stage: "1단계 ①②", ai: true,
+    id: "c11", el: 1, scope: "student", max: 10, stage: "1단계 대화·알아낸 것", ai: true,
     name: "인물 이해: 대화와 정리",
     high: [
       "인물이 누구인지·무엇이 힘든지·무엇을 바라는지를 알아내는 질문을 이어 가고, 세 가지와 '정말 그럴까? 싶은 말'을 인물의 말을 근거로 구체적으로 정리한다.",
@@ -31,7 +31,7 @@ const CRITERIA = [
     ],
   },
   {
-    id: "c12", el: 1, scope: "group", max: 10, maxContrib: 5, stage: "1단계 ③", ai: true,
+    id: "c12", el: 1, scope: "group", max: 10, maxContrib: 5, stage: "1단계 모둠 문제", ai: true,
     name: "모둠 문제 정하기",
     high: [
       "친구들이 만난 인물들의 바람과 걱정을 견주어 누구의 무엇이 부딪히는지 근거 있게 짚고, '어떻게 하면 ~하면서도 ~할 수 있을까?' 문장이 부딪히는 두 바람을 모두 담는다.",
@@ -47,7 +47,7 @@ const CRITERIA = [
     deep: [{ key: "premise", text: "'이 사람이 당연하게 여기는 것'과 부딪히는 두 가치·그 까닭을 쓴 것이 '매우 잘함'의 조건이다." }],
   },
   {
-    id: "c21", el: 2, scope: "student", max: 10, stage: "2단계 ①", ai: true,
+    id: "c21", el: 2, scope: "student", max: 10, stage: "2단계 내 생각 돌아보기", ai: true,
     name: "처음 내 생각 돌아보기",
     high: [
       "처음 생각이 어디서 왔는지(보거나 들은 것, 겪은 것)를 구체적으로 짚고, 그 생각이 어떻게 만들어졌는지 스스로 돌아본다.",
@@ -62,7 +62,7 @@ const CRITERIA = [
     ],
   },
   {
-    id: "c22", el: 2, scope: "student", max: 10, stage: "2단계 ②③", ai: true,
+    id: "c22", el: 2, scope: "student", max: 10, stage: "2단계 원인 추측·확인 질문", ai: true,
     name: "원인 추측과 확인 질문(내가 쓴 것)", nameMiddle: "원인 추측과 확인 방법(내가 쓴 것)",
     high: [
       "내가 쓴 원인 추측이 서로 다른 갈래(사람의 생각·선택 / 사회 분위기 / 법·제도)에 걸치고, 내가 쓴 확인 질문이 숫자·사실로 답할 수 있어 자료로 확인 가능하다.",
@@ -78,7 +78,7 @@ const CRITERIA = [
     deep: [{ key: "causeMap", text: "원인을 둘 이상 쓰고 원인끼리 '○○ 때문에 △△이 생겼어요/더 커졌어요'로 이은 것이 '매우 잘함'의 조건이다." }],
   },
   {
-    id: "c23", el: 2, scope: "group", max: 10, maxContrib: 5, stage: "3단계", ai: true,
+    id: "c23", el: 2, scope: "group", max: 10, maxContrib: 5, stage: "3단계 사실 확인·가장 큰 원인", ai: true,
     name: "사실 판정과 가장 큰 원인",
     high: [
       "질문마다 어떤 자료의 무엇을 보고 판정했는지 쓰고 '확인할 수 없다'를 구분하며, 확인된 추측만 남겨 그것과 이어지는 가장 큰 원인을 고른다.",
@@ -97,7 +97,7 @@ const CRITERIA = [
     ],
   },
   {
-    id: "c31", el: 3, scope: "student", max: 10, stage: "4단계", ai: true,
+    id: "c31", el: 3, scope: "student", max: 10, stage: "4단계 해결책 쓰기", ai: true,
     name: "해결책의 구체성과 원인 연결(내가 낸 것)",
     high: [
       "내가 낸 해결책의 누가·무엇을·어떻게가 구체적이고, 3단계에서 정한 가장 큰 원인을 줄이는 쪽으로 직접 이어진다.",
@@ -112,7 +112,7 @@ const CRITERIA = [
     ],
   },
   {
-    id: "c32", el: 3, scope: "group", max: 5, stage: "4단계", ai: true,
+    id: "c32", el: 3, scope: "group", max: 5, stage: "4단계 AI 조언·최종 해결책", ai: true,
     name: "검토와 선택", nameMiddle: "검토와 선택(해결책 점검)",
     high: [
       "강점·약점과 영향받는 사람을 따져(AI 조언을 들었다면 받아들일지 이유와 함께) 최종 해결책을 근거 있게 고르고, 고른 이유가 문제 문장의 두 바람과 이어진다.",
@@ -128,7 +128,7 @@ const CRITERIA = [
     deep: [{ key: "tradeoff", text: "해결책 둘 이상을 '얻는 것/포기하는 것'으로 견주고 앞세운 가치를 쓴 것이 '매우 잘함'의 조건이다." }],
   },
   {
-    id: "c41", el: 4, scope: "student", max: 10, stage: "5단계", ai: true,
+    id: "c41", el: 4, scope: "student", max: 10, stage: "5단계 반응 예측", ai: true,
     name: "반응·결과 예측(내가 쓴 것)", nameMiddle: "반응 예측(내가 쓴 것, 1년 후)",
     high: [
       "AI보다 먼저 내가 쓴 이해관계자별 반응 예측이 2개 이상이고, 각각 '왜 그렇게 반응하는지' 까닭이 있으며, 의도하지 않은 결과까지 짚는다.",
@@ -144,7 +144,7 @@ const CRITERIA = [
     deep: [{ key: "chain", text: "한 사람의 반응이 다른 사람의 반응을 바꾸는 연쇄를 쓴 것이 '매우 잘함'의 조건이다." }],
   },
   {
-    id: "c42", el: 4, scope: "group", max: 5, stage: "6단계", ai: true,
+    id: "c42", el: 4, scope: "group", max: 5, stage: "6단계 실천 계획", ai: true,
     name: "실천 계획",
     high: [
       "누구에게·무엇을·어떻게가 구체적이고, 최종 해결책·걱정되는 문제와 이어진다.",
@@ -160,7 +160,7 @@ const CRITERIA = [
     deep: [{ key: "power", text: "이 일을 정할 권한이 있는 곳과 제안 경로를 쓴 것이 '매우 잘함'의 조건이다." }],
   },
   {
-    id: "c51", el: 5, scope: "group", max: 5, stage: "7단계 ③", ai: true,
+    id: "c51", el: 5, scope: "group", max: 5, stage: "7단계 실제 전개와 비교", ai: true,
     name: "실제 전개와 비교",
     high: [
       "실제 일어난 일과 우리 시나리오의 같은 점·다른 점·우리가 놓친 것을 자료에 근거해 비교하고 다른 까닭을 따진다.",
@@ -176,7 +176,7 @@ const CRITERIA = [
     deep: [{ key: "why", text: "실제와 달랐던 까닭(놓친 원인·반응)을 따진 것이 '매우 잘함'의 조건이다." }],
   },
   {
-    id: "c52", el: 5, scope: "student", max: 5, stage: "7단계 ④", ai: true,
+    id: "c52", el: 5, scope: "student", max: 5, stage: "7단계 내 생각의 변화", ai: true,
     name: "처음 내 생각의 변화",
     high: [
       "처음 생각이 무엇이었고 어떤 사실·인물의 말·논의 때문에 어떻게 바뀌었는지(또는 왜 유지했는지) 구체적으로 쓴다.",
@@ -191,12 +191,12 @@ const CRITERIA = [
     ],
   },
   {
-    id: "c61", el: 6, scope: "group", max: 5, stage: "7단계 ⑥", ai: true,
+    id: "c61", el: 6, scope: "group", max: 5, stage: "7단계 AI 돌아보기", ai: true,
     name: "AI 사용 돌아보기",
     high: [
-      "AI를 썼다면 무엇을 받아들이고 버렸는지 기준을 말하고, 안 썼다면 직접 판단한 과정을 설명한다. 점검표 응답이 기록과 일치한다.",
-      "기준을 말하나 구체적인 사례가 부족하다.",
-      "점검표 응답이 단순하거나 기록과 일부 어긋난다.",
+      "AI의 말 중 믿은 것과 믿지 않은 것을 자료와 견준 까닭과 함께 쓰고(AI를 쓰지 않았다면 직접 판단한 과정을 쓰고), 그 내용이 실제 AI 사용 기록과 맞는다.",
+      "믿은 것과 믿지 않은 것을 썼으나 까닭이 구체적이지 않다.",
+      "'AI를 참고했다' 수준이거나 실제 기록과 일부 어긋난다.",
       "응답이 없거나 AI 답을 그대로 옮긴 흔적이 뚜렷하다.",
     ],
     middle: [
@@ -223,7 +223,7 @@ const CRITERIA = [
   {
     // 모둠 기여도: 내 정리(특히 인물과 대화한 뒤의 정리)와 내가 쓴 항목을 모둠이 쓸 수 있게 가져왔는지, 그것이 모둠의 결정에 실제로 쓰였는지.
     // 정리 자체의 질은 c11 이 보므로(이중 반영을 줄이려고) 여기서는 '모둠에 쓸모 있게 가져왔는가·쓰였는가'를 본다.
-    id: "c63", el: 6, scope: "student", area: "group", contrib: true, max: 10, stage: "전 과정(특히 1단계 ②)", ai: true,
+    id: "c63", el: 6, scope: "student", area: "group", contrib: true, max: 10, stage: "전 과정(특히 1단계 알아낸 것)", ai: true,
     name: "모둠 기여도(내가 모둠에 가져온 것)",
     high: [
       "인물과의 대화에서 알아낸 사실·인물의 말을 모둠이 바로 쓸 수 있게 구체적으로 정리해 모둠에 보냈고, 그 정리나 내가 쓴 원인 추측·해결책·반응 예측이 모둠의 문제 문장·가장 큰 원인·최종 해결책에 실제로 쓰였다.",
