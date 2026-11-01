@@ -452,4 +452,6 @@ function keepWords(src) {
 fs.mkdirSync(path.join(REPO, "docs"), { recursive: true });
 const html2 = keepWords(html.replace(/\(조사 방법은 확인 필요\)/g, "").replace(/\s*세부 논지는 원문 확인 필요/g, ""));
 fs.writeFileSync(path.join(REPO, "docs/lesson-plan.html"), html2);
+// 웹 서비스에서도 열 수 있게 배포 폴더에 같은 파일을 둔다: https://<호스팅 주소>/lesson-plan.html
+fs.writeFileSync(path.join(REPO, "public/lesson-plan.html"), html2);
 console.log("written", (html2.length / 1e6).toFixed(2) + "MB");
