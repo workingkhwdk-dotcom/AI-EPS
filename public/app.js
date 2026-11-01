@@ -814,8 +814,8 @@ function renderChatLeft() {
   $(".starters")?.classList.toggle("m-hide", S.chat.length > 0); // 모바일: 대화가 시작되면 예시 질문 줄을 접어 대화 공간을 넓힌다
   const left = chatLeft(), out = left === 0, lastQ = left === 1;
   el.innerHTML = out
-    ? `질문을 모두 썼어요. <button class="link" type="button" data-go="1" data-sub="note">알아낸 것 정리하러 가기</button>`
-    : `남은 질문 <b>${left}</b> / ${S.chatLimit}번${lastQ ? ` · <b class="last-q">마지막 질문이에요</b>` : S.chat.length >= 2 ? ` · <button class="link" type="button" data-go="1" data-sub="note">다 알아냈으면 정리하러 가기</button>` : ""}`;
+    ? `<span>질문을 모두 썼어요.</span><button class="btn btn-primary btn-sm chat-next" type="button" data-go="1" data-sub="note">알아낸 것 정리하러 가기 →</button>`
+    : `<span>남은 질문 <b>${left}</b> / ${S.chatLimit}번${lastQ ? ` · <b class="last-q">마지막 질문이에요</b>` : ""}</span>${S.chat.length >= 2 ? `<button class="btn btn-tinted btn-sm chat-next" type="button" data-go="1" data-sub="note">다 알아냈으면 정리하러 가기 →</button>` : ""}`;
   el.classList.toggle("out", out);
   el.classList.toggle("last", lastQ);
   const m = $("#msg"); if (m) { m.disabled = out; m.placeholder = out ? "질문을 모두 썼어요" : lastQ ? "마지막 질문 — 가장 궁금한 것을 물어보세요" : `${S.me?.name || ""}에게 메시지 보내기`; }
