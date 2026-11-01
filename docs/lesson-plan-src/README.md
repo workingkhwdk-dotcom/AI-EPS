@@ -1,5 +1,7 @@
 # 수업지도안 생성 도구
 
+작성 규칙은 `docs/지도안-작성-요령.md`에 있습니다.
+
 `docs/lesson-plan.html`(A4 인쇄용 수업지도안)을 만드는 스크립트입니다. 같은 파일을 `public/lesson-plan.html`에도 써서 배포하면 웹(`https://knue-socialstudies-ai-eps.web.app/lesson-plan.html`)에서 열립니다. 앱 코드(`functions/`, `public/`)는 읽기만 하고 수정하지 않습니다.
 
 - `build.js` 지도안 본문 구성과 HTML 출력 (`node build.js`)
