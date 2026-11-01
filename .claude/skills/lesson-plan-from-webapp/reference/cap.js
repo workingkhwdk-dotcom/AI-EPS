@@ -32,6 +32,7 @@ const stubs = {
     export const getDoc = async (r) => (window.__docs[r.p] ? { exists: () => true, data: () => window.__docs[r.p] } : { exists: () => false });
     export const getDocFromServer = async (r) => (window.__docs[r.p] ? { exists: () => true, data: () => window.__docs[r.p] } : { exists: () => false });
     export const getDocs = async (r) => ({ docs: (window.__cols[r.p] || []).map((d) => ({ id: d.id, data: () => d })) });
+    export const getDocsFromServer = async (r) => ({ docs: (window.__cols[r.p] || []).map((d) => ({ id: d.id, data: () => d })) });
     export const updateDoc = async (r, data) => { window.__writes.push(data); };
     const subs = (window.__subs = window.__subs || {});
     const docSnap = (p) => ({ exists: () => p in window.__docs, data: () => window.__docs[p] || {} });
@@ -80,7 +81,7 @@ async function main() {
   await pg.route(/fonts\.googleapis/, (r) => r.fulfill({ contentType: "text/css", body: fs.readFileSync(path.join(FONTS, "@fontsource/gowun-batang/400.css"), "utf8").replace(/url\(\.\/files\//g, `url(${base}/__f/@fontsource/gowun-batang/files/`) }));
   await pg.route(/fonts\.gstatic/, (r) => r.abort());
   await pg.addInitScript(({ work, logs, chat, picks, session, caseData, memberExtra }) => {
-    try { localStorage.setItem("eps_help_ABC234_g1_가람", JSON.stringify(["1-pick", "1-chat", "1-note", "1-group", "2", "3", "4", "5", "6", "7"])); for (const k of ["teacher-main", "teacher-class", "demo-menu", "demo-play"]) localStorage.setItem("eps_tour_" + k, "1"); } catch {}
+    try { localStorage.setItem("eps_help_ABC234_g1_가람", JSON.stringify(["1-pick", "1-chat", "1-note", "1-group", "2", "3", "4", "5", "6", "7", "sc:1:board", "sc:2:mat", "sc:4:cases", "sc:7:real"])); for (const k of ["teacher-main", "teacher-class", "demo-menu", "demo-play"]) localStorage.setItem("eps_tour_" + k, "1"); } catch {}
     window.__user = null; window.__anonUid = "anonX";
     const st = (i) => ({ toMillis: () => 1700000000000 + i * 60000, toDate: () => new Date(1700000000000 + i * 60000) });
     window.__docs = {
@@ -112,21 +113,27 @@ async function main() {
   await pg.waitForTimeout(800);
 
   await pg.addStyleTag({ content: ".toast{display:none !important}" });
-  const go = async (stage, sub) => { await pg.evaluate((n) => document.querySelector(`.stage-tab[data-stage="${n}"]`).click(), stage); if (sub) { await pg.evaluate((x) => document.querySelector(`.subnav [data-sub="${x}"]`).click(), sub); } await pg.waitForTimeout(700); };
-  const card = (t) => pg.locator(`#panel .card:has(> h3:has-text("${t}")), #panel > h3.sec-h:has-text("${t}")`).first();
-  const has = (t) => pg.locator(`#panel .card:has-text("${t}")`).first();
-  const OFF = Number(process.env.OFF || 168);
-  const view = async (name, loc, off = OFF) => { await loc.evaluate((el, o) => { const r = el.getBoundingClientRect(); window.scrollTo(0, r.top + scrollY - o); }, off); await pg.waitForTimeout(350); await pg.screenshot({ path: path.join(OUT, "v-" + name + ".jpg"), type: "jpeg", quality: 88 }); console.log("view", name); };
-  await go(1, "pick"); await view("1-pick", card("누구와 이야기할까요"), 168);
-  await go(1, "chat"); await pg.waitForTimeout(500); await view("1-chat", pg.locator(".chat-card").first(), 168);
-  await go(1, "note"); await view("1-note", pg.locator("#panel .card").first(), 168);
-  await go(1, "group"); await view("1-group", card("만난 사람들 나란히"), 168); await view("1-hmw", card("5) 우리 모둠의 문제"), 168);
-  await go(2); await view("2-link", card("처음 내 생각 돌아보기"), 168); await view("2-cause", card("이 사건은 왜 생겼을까요"), 168); await view("2-check", card("확인할 질문 만들기"), 168); await view("2-mat", pg.locator("details.fold").first(), 168);
-  await go(3); await view("3-ai", has("AI 검색 도우미의 답"), 168); await view("3-keep", card("우리 추측, 남길까 버릴까"), 168); await view("3-core", card("가장 큰 원인 정하기"), 168);
-  await go(4); await view("4-cases", pg.locator("details.fold").first(), 168); await view("4-prop", card("우리 모둠 해결책 쓰기"), 168); await view("4-ai", has("AI 의견을 들은 해결책"), 168); await view("4-final", card("최종 해결책"), 168);
-  await go(5); await view("5-pred", card("사람들은 어떻게 반응할까요"), 168); await view("5-scn", pg.locator("#panel .card:has-text('미래 이야기')").nth(1), 168);
-  await go(6); await view("6-plan", card("무엇을 계획할까요"), 168);
-  await go(7); await view("7-flow", card("우리 모둠의 흐름"), 168); await view("7-after", card("실제로는 어떻게 되었을까"), 168); await view("7-check", card("AI를 어떻게 썼는지 돌아보기"), 168);
+  // 장면(씬) 하나씩: 단계 탭을 누른 뒤 진행 점으로 그 장면을 열고, 장면이 화면 위에 오게 찍는다
+  const OFF = Number(process.env.OFF || 150);
+  const shot = async (name, stage, scene) => {
+    if (!want(name)) return;
+    await pg.evaluate((n) => document.querySelector(`.stage-tab[data-stage="${n}"]`).click(), stage); await pg.waitForTimeout(400);
+    await pg.evaluate((id) => document.querySelector(`.sc-dot[data-scene="${id}"]`)?.click(), scene); await pg.waitForTimeout(700);
+    await pg.locator(".scene").first().evaluate((el, o) => { const r = el.getBoundingClientRect(); window.scrollTo(0, r.top + scrollY - o); }, OFF);
+    await pg.waitForTimeout(350);
+    await pg.screenshot({ path: path.join(OUT, "v-" + name + ".jpg"), type: "jpeg", quality: 88 });
+    console.log("view", name, await pg.locator(".sc-q").first().textContent().catch(() => ""));
+  };
+  for (const [name, stage, scene] of [
+    ["1-pick", 1, "pick"], ["1-prior", 1, "prior"], ["1-chat", 1, "chat"], ["1-note", 1, "note"], ["1-doubt", 1, "doubt"],
+    ["1-group", 1, "board"], ["1-conflict", 1, "conflict"], ["1-hmw", 1, "hmw"], ["1-check", 1, "check"],
+    ["2-link", 2, "why-me"], ["2-mat", 2, "mat"], ["2-cause", 2, "cause"], ["2-map", 2, "map"], ["2-check", 2, "q"],
+    ["3-judge", 3, "c-q1"], ["3-ai", 3, "c-q3"], ["3-keep", 3, "keep"], ["3-core", 3, "cause"],
+    ["4-before", 4, "before"], ["4-cases", 4, "cases"], ["4-prop", 4, "props"], ["4-ai", 4, "advice"], ["4-trade", 4, "trade"], ["4-final", 4, "final"],
+    ["5-pred", 5, "pred"], ["5-scn", 5, "ai"], ["5-worry", 5, "worry"],
+    ["6-plan", 6, "plan"],
+    ["7-after", 7, "real"], ["7-compare", 7, "compare"], ["7-change", 7, "after"], ["7-flow", 7, "share"], ["7-check", 7, "ai"],
+  ]) await shot(name, stage, scene);
   console.log("errors", errors);
   await browser.close(); srv.close();
 }

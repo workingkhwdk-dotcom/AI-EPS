@@ -289,12 +289,21 @@ td.k, th.k { white-space: nowrap; }
 
 .qk { display: inline-block; font-family: var(--sans); font-weight: 700; font-size: 6.8pt; line-height: 1.3; color: #333; border: .3mm solid #333; border-radius: .9mm; padding: 0 1mm; margin-right: 1.2mm; vertical-align: 1px; white-space: nowrap; font-style: normal; }
 .qq { font-style: italic; }
-.legend { display: flex; flex-wrap: wrap; align-items: center; gap: 1.2mm 4.5mm; border: 1px solid #000; border-bottom: 0; background: #f4f4f4; padding: 1.3mm 2.4mm; font-family: var(--sans); font-size: 8pt; line-height: 1.4; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-.legend .lgt { font-weight: 700; margin-right: 1mm; }
-.legend .li { white-space: nowrap; display: inline-flex; align-items: center; gap: 1.4mm; }
-.legend .lb { width: 10.5mm; margin-top: 0; }
-.legend .qk { margin-right: 0; }
-.legend .qq { font-family: var(--serif); }
+.legend { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; border: 0; background: #f7f7f7; font-family: var(--sans); font-size: 7.6pt; line-height: 1.35; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.legend th, .legend td { border: 0; border-bottom: 1px solid #d4d4d4; padding: 1mm 1.6mm; vertical-align: middle; text-align: left; }
+.legend tr > :first-child { border-left: 1px solid #000; }
+.legend tr > :last-child { border-right: 1px solid #000; }
+.legend tr:first-child > * { border-top: 1px solid #000; }
+.legend th { font-weight: 700; color: #222; background: #ececec; white-space: nowrap; }
+.legend th small { font-weight: 400; font-size: 6.4pt; color: #555; }
+.legend .lgh { background: #f7f7f7; font-size: 8.4pt; padding: 1.1mm 1.6mm .9mm; }
+.legend .lgh span { font-weight: 400; font-size: 7pt; color: #555; margin-left: 1.5mm; }
+.legend .lg { display: flex; align-items: center; gap: 1.6mm; }
+.legend .lg > :first-child { flex: none; }
+.legend .lb { width: 9.5mm; margin-top: 0; }
+.legend .qk, .legend .exb { margin-right: 0; }
+.legend .lsym { font-size: 8.5pt; display: inline-block; width: 3.2mm; text-align: center; }
+.legend .dot { font-size: 11pt; line-height: 1; }
 
 /* 예시 답안 상자(본문) */
 .ex { border: .3mm solid #9a9a9a; border-left: 1.2mm solid #8a8a8a; background: #fafafa; margin: 1mm 0 1.8mm; font-size: 8.3pt; line-height: 1.5; break-inside: auto; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -397,3 +406,40 @@ table.rub tr { break-inside: avoid; }
 table.rub thead { display: table-header-group; }
 table.rub td .xl { grid-template-columns: 8.4mm 1fr; }
 table.rub tr.rel { break-after: avoid; page-break-after: avoid; }
+
+/* ---------- 발문 예시: 점선 둥근 상자, 본문보다 1pt 작게 ---------- */
+.qline { display: flex; align-items: flex-start; gap: 1.6mm; margin: 1mm 0 .6mm; padding: 1.2mm 2.2mm 1.3mm; border: .3mm dashed #8a8a8a; border-radius: 2.2mm; background: #fafafa; font-size: 8.7pt; line-height: 1.55; text-align: left; -webkit-print-color-adjust: exact; print-color-adjust: exact; break-inside: avoid; }
+.qline .qk { flex: none; display: inline-block; font-size: 6.6pt; line-height: 1.35; margin: .45mm 0 0; padding: .1mm 1mm; background: #fff; }
+.qline .qq { font-style: normal; color: #222; }
+
+/* ---------- 표 정리: 안쪽 선은 옅게, 머리줄은 차분한 색과 굵은 아래선, 칸 여백 넉넉히 ---------- */
+table.mini, table.it, table.toc { border: 0; }
+table.mini th, table.mini td, table.it th, table.it td, table.toc th, table.toc td { border: 0; border-bottom: 1px solid #c9cdd4; border-left: 1px solid #dde0e5; }
+table.mini tr > :first-child, table.it tr > :first-child, table.toc tr > :first-child { border-left: 1.2px solid #222; }
+table.mini tr > :last-child, table.it tr > :last-child, table.toc tr > :last-child { border-right: 1.2px solid #222; }
+table.mini tr:first-child > *, table.it tr:first-child > *, table.toc tr:first-child > * { border-top: 1.2px solid #222; }
+table.mini tr:last-child > *, table.it tr:last-child > *, table.toc tr:last-child > * { border-bottom: 1.2px solid #222; }
+table.mini th, table.it th, table.toc th { background: #eef1f6; color: #1f2a3d; border-bottom: 1.2px solid #222; font-size: 8.4pt; line-height: 1.4; padding: 1.2mm 1.6mm; vertical-align: middle; text-align: center; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+table.mini td, table.it td { padding: 1.1mm 1.8mm; vertical-align: top; }
+table.mini td:first-child, table.it td:first-child { font-family: var(--sans); font-weight: 700; color: #1f2a3d; }
+table.mini.plainfirst td:first-child { font-family: inherit; font-weight: 400; color: inherit; }
+table.mini td.c, table.it td.c, table.mini td.nw { text-align: center; }
+table.mini .nw, table.it .nw { white-space: nowrap; }
+.mono { font-family: var(--sans); font-size: .92em; white-space: nowrap; }
+/* 본문 인물 표 */
+table.it.pt td:first-child { text-align: center; line-height: 1.35; }
+table.it.pt td:first-child small { display: block; font-family: var(--serif); font-weight: 400; font-size: 7.4pt; color: #555; margin-top: .4mm; }
+/* 부록 목차 */
+table.toc th { font-size: 9.6pt; padding: 1.4mm; }
+table.toc td { padding: 1.6mm 2.2mm; vertical-align: middle; }
+table.toc td.c { background: #eef1f6; color: #1f2a3d; }
+table.toc td:nth-child(2) { font-family: var(--sans); font-weight: 700; }
+table.ai41 td:first-child { text-align: center; white-space: nowrap; }
+table.ai41 td ul.bl { margin: 0; }
+table.ai41 small, table.mini td small { font-size: .9em; color: #555; }
+table.ai41 .dot { font-size: 1.05em; }
+table.bgt td:nth-child(2), table.bgt td:nth-child(3), table.p23 td:nth-child(2) { text-align: center; font-family: var(--sans); }
+table.p23 td:first-child { text-align: center; }
+table.ai41 td ul.bl { padding-left: 2.6mm; }
+table.ai41 td ul.bl li { margin: 0 0 .3mm; }
+table.mini, table.it, table.toc { width: calc(100% - 1px); }

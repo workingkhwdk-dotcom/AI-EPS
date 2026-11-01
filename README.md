@@ -324,6 +324,8 @@ cp functions/.env.example functions/.env     # 열어서 TEACHER_EMAILS 를 본�
 
 firebase deploy
 ```
+수업지도안을 새로 쓰거나 고칠 때는 `docs/지도안-작성-요령.md`를 따릅니다(다른 저장소의 지도안도 이 문서를 참고).
+
 배포가 끝나면 학생용 주소는 `https://knue-socialstudies-ai-eps.web.app/`, 교사용은 `/teacher.html`, 수업지도안은 `/lesson-plan.html`입니다(약 11MB라 열 때마다 Hosting 전송량을 씁니다).
 
 ### 자동 배포 (권장)
