@@ -378,10 +378,15 @@ ${band("본시 수업지도안")}
 </table>
 
 <div class="pb"></div>
-<div class="legend"><span class="lgt">범례</span>
-<span class="li"><span class="lb t">교사</span>교사 활동</span><span class="li"><span class="lb s">학생</span>학생 활동</span><span class="li"><span class="lb a">AI</span>AI의 활동</span>
-<span class="li"><span class="hs">고</span>고등학교 수업</span><span class="li"><span class="hs m">중</span>중학교 수업</span><span class="li"><span class="hs d">심화</span>심화 활동</span><span class="li">${chip("웹앱 1-대화")}웹앱 화면 위치(부록 1)</span>
-<span class="li"><span class="exb">예시</span>예시 답안(실제 학생 답이 아님)</span><span class="li"><span class="qk">발문 예시</span>핵심 발문의 예(말 그대로 쓰지 않아도 됨)</span></div>
+<table class="legend">
+<colgroup><col style="width:21mm"><col><col><col></colgroup>
+<tr><th class="lgh" colspan="4">범례 <span>표의 표시가 뜻하는 것</span></th></tr>
+<tr><th>누가 하나</th><td><div class="lg"><span class="lb t">교사</span><span>교사가 하는 일</span></div></td><td><div class="lg"><span class="lb s">학생</span><span>학생이 하는 일</span></div></td><td><div class="lg"><span class="lb a">AI</span><span>AI가 하는 일</span></div></td></tr>
+<tr><th>어느 수업에서</th><td><div class="lg"><span class="hs">고</span><span>고등학교 수업에서 하는 활동(이 지도안의 기준)</span></div></td><td><div class="lg"><span class="hs m">중</span><span>중학교 수업으로 할 때 달라지는 점</span></div></td><td><div class="lg"><span class="hs d">심화</span><span>수업 설정에서 심화 활동을 켜면 더하는 활동</span></div></td></tr>
+<tr><th>AI 신호등<br><small>활동 제목 뒤 [ ● ]</small></th><td><div class="lg">${dot("g")}<span><b>초록</b> AI를 자유롭게 씀</span></div></td><td><div class="lg">${dot("y")}<span><b>노랑</b> 학생이 먼저 생각해 쓴 뒤, 정해진 범위에서만 씀</span></div></td><td><div class="lg">${dot("r")}<span><b>빨강</b> AI를 쓰지 않음</span></div></td></tr>
+<tr><th>읽는 법</th><td><div class="lg">${chip("웹앱 1-대화")}<span>이 활동의 웹앱 화면<br>(부록 1에 실음)</span></div></td><td><div class="lg"><span class="exb">예시</span><span>예시 답안. 실제 학생의 답이 아님</span></div></td><td><div class="lg"><span class="qk">발문 예시</span><span>교사가 던질 질문의 예. 그대로 읽지 않아도 됨</span></div></td></tr>
+<tr><th>오른쪽 칸</th><td><div class="lg"><b class="lsym">◆</b><span>수업에 쓰는 자료</span></div></td><td><div class="lg"><b class="lsym">※</b><span>지도할 때 유의할 점</span></div></td><td><div class="lg">${aib}<span>쓰는 AI와 디지털 도구</span></div></td></tr>
+</table>
 <table class="flow">
 <colgroup><col style="width:20mm"><col style="width:93mm"><col style="width:12mm"><col style="width:32mm"></colgroup>
 <tr class="fh"><th>모형 단계</th><th>교수 · 학습 활동<br>( AI 신호등 : [ &nbsp;${dot("g")}&nbsp;|&nbsp;${dot("y")}&nbsp;|&nbsp;${dot("r")}&nbsp;] )<sup>1)</sup></th><th>시간<br>(50'<br>×3)</th><th>자료 ◆<br>유의점 ※<br>AI·디지털도구 ${aib}</th></tr>
