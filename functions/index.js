@@ -87,17 +87,19 @@ const MAX_GROUPS = 12;
 //  - fastOpts: 학생이 한꺼번에 부르는 입장·인물 고르기·사건 불러오기. CPU 1개, 인스턴스 하나가 동시에 80건.
 //  - aiOpts: AI 호출. 대부분 OpenAI 응답을 기다리는 시간이라 CPU 1개 인스턴스 하나가 동시에 80건을 받는다.
 // 함수를 새로 만들 때는 이 셋 중 하나를 쓰고, 값을 키우기 전에 합계를 다시 계산할 것.
-const opts = { region: REGION, cors: true, cpu: "gcf_gen1", maxInstances: 5 };
+// 복제한 화면이 우리 서버를 쓰지 못하게 하는 App Check. 콘솔에서 reCAPTCHA 등록 + firebase-config.js 의 appCheckSiteKey 를 채운 뒤 functions/.env 에 ENFORCE_APP_CHECK=1
+const APP_CHECK = process.env.ENFORCE_APP_CHECK === "1";
+const opts = { region: REGION, cors: true, enforceAppCheck: APP_CHECK, cpu: "gcf_gen1", maxInstances: 5 };
 // 입장·시작처럼 학생이 기다리는 호출은 첫 호출이 느리지 않도록(콜드 스타트) CPU 를 넉넉히 주고,
 // MIN_INSTANCES 가 1 이상이면 항상 켜 둔다(수업 시간에만 1로 올리면 비용이 거의 들지 않는다).
 const MIN_INSTANCES = defineInt("MIN_INSTANCES", { default: 0 });
-const fastOpts = { region: REGION, cors: true, cpu: 1, memory: "512MiB", minInstances: MIN_INSTANCES, maxInstances: 3 }; // 3 × 80 = 동시에 240건
+const fastOpts = { region: REGION, cors: true, enforceAppCheck: APP_CHECK, cpu: 1, memory: "512MiB", minInstances: MIN_INSTANCES, maxInstances: 3 }; // 3 × 80 = 동시에 240건
 // 추론 모델(특히 5단계 시뮬레이션)은 응답에 1분 넘게 걸릴 수 있어 넉넉히 둔다.
-const aiOpts = { region: REGION, cors: true, cpu: 1, secrets: [OPENAI_API_KEY], timeoutSeconds: 300, maxInstances: 4 }; // 4 × 80 = 동시에 320건
+const aiOpts = { region: REGION, cors: true, enforceAppCheck: APP_CHECK, cpu: 1, secrets: [OPENAI_API_KEY], timeoutSeconds: 300, maxInstances: 4 }; // 4 × 80 = 동시에 320건
 // 교사 점검용 연결 확인: 가끔 한 번만 부르고 짧게 기다리기만 하므로 CPU 를 적게 잡는다
 const checkOpts = { ...aiOpts, cpu: "gcf_gen1", maxInstances: 1 };
 // 교사 주제 만들기: 단계마다 몇 분씩 AI 응답을 기다린다(대부분 기다리는 시간이라 CPU 는 적게, 시간은 길게).
-const topicOpts = { region: REGION, cors: true, cpu: "gcf_gen1", memory: "256MiB", secrets: [OPENAI_API_KEY], timeoutSeconds: 540, maxInstances: 3 };
+const topicOpts = { region: REGION, cors: true, enforceAppCheck: APP_CHECK, cpu: "gcf_gen1", memory: "256MiB", secrets: [OPENAI_API_KEY], timeoutSeconds: 540, maxInstances: 3 };
 
 const FieldValue = () => admin.firestore.FieldValue;
 
@@ -1238,6 +1240,27 @@ exports.demoRequest = onCall({ ...aiOpts, maxInstances: 2 }, async (req) => {
     console.error(`demoRequest 실패 kind=${d.kind} stage=${d.stage}:`, e.message);
     throw new HttpsError("unavailable", "AI 응답을 받지 못했어요.");
   }
+});
+
+// 체험 화면이 쓰는 주제 자료를 서버에서만 내려 준다(정적 파일로 두면 누구나 통째로 긁어 갈 수 있다). 기기마다 하루 횟수와 하루 전체 횟수를 제한한다.
+const DEMO_DATA_PER_DEVICE = 60, DEMO_DATA_DAILY = 3000;
+exports.demoData = onCall(opts, async (req) => {
+  const dd = req.data && typeof req.data === "object" ? req.data : {};
+  const deviceId = String(dd.deviceId || "");
+  if (!/^[A-Za-z0-9-]{12,64}$/.test(deviceId) || /^day-/i.test(deviceId)) throw new HttpsError("invalid-argument", "기기 표시가 올바르지 않아요.");
+  const data = demo.topicData(String(dd.topic || ""));
+  if (!data) throw new HttpsError("not-found", "주제를 찾을 수 없어요.");
+  const day = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+  const mineRef = db.doc(`demoUsage/${deviceId}`), dayRef = db.doc(`demoUsage/day-${day}`);
+  await db.runTransaction(async (tx) => {
+    const [mine, today] = await Promise.all([tx.get(mineRef), tx.get(dayRef)]);
+    const k = `data_${day}`;
+    if ((mine.data()?.[k] || 0) >= DEMO_DATA_PER_DEVICE || (today.data()?.data || 0) >= DEMO_DATA_DAILY)
+      throw new HttpsError("resource-exhausted", "체험 자료를 너무 많이 불러왔어요. 잠시 뒤에 다시 해 주세요.");
+    tx.set(mineRef, { [k]: FieldValue().increment(1), updatedAt: FieldValue().serverTimestamp() }, { merge: true });
+    tx.set(dayRef, { data: FieldValue().increment(1) }, { merge: true });
+  });
+  return data;
 });
 
 // ---------- 수행평가: 교사 채점, AI 제2평정자, 세특 초안, 학생 결과 공개 ----------

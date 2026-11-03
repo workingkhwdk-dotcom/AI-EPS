@@ -227,7 +227,7 @@ AI가 대상마다 같은 근거를 **독립으로 3번** 채점하고, 칸마�
 - **횟수·비용 보호:** 기기(localStorage 의 `eps_demo_device`)·주제마다 인물 질문 5번, 2~5단계 AI 5번(`demoUsage/{기기}` 에 서버가 센다. 초기화해도 돌아오지 않는다. 실패한 호출은 돌려준다). 하루 전체 한도 `DEMO_DAILY_CAP`(기본 300), 모델 `DEMO_MODEL`(비우면 `OPENAI_MODEL`)은 `functions/.env` 로 바꾼다. 화면의 안내 띠·메뉴·단계마다 붙는 '데모라서' 줄(`demo/ui.js`)에도 실제와 다른 점을 적어 두고, 준비된 예시 답·웹 검색 없이 답한 3단계 답에는 답 안에도 표시가 붙는다. 체험이 실제와 달라지는 기능을 더하거나 고치면 `DIFF` 문구도 함께 고칠 것. OpenAI 키 쪽 사용 한도도 함께 걸어 둘 것.
 - 횟수를 다 썼거나, 서버가 배포 전이거나, 연결이 안 되면 **준비된 예시 답**으로 대신한다(인물의 말은 인물 자료에서 질문과 가까운 것을 골라 들려 주고 — `public/demo/chat.js`, 3~5단계는 모둠이 쓴 글과 수업 자료로 짜 맞춘 예시). 안내 알림이 뜬다.
 - 배포: `firebase deploy --only functions:demoRequest,hosting` (함수를 먼저 배포하지 않아도 체험은 준비된 답으로 동작한다).
-- 데이터·화면 파일은 만들어서 쓴다: `node tools/build-demo-data.js` → `public/demo/data/*.json`, `topics.json`, `demo-play*.html`. **`functions/cases` 나 `index.html`·`m.html` 을 고치면 이 명령을 다시 실행해 결과를 함께 커밋**한다(테스트가 id 가 어긋나면 알려 준다). 학생에게 보이지 않는 교사 전용 정보(역할·근거·출처)는 내보내지 않는다.
+- 데이터·화면 파일은 만들어서 쓴다: `node tools/build-demo-data.js` → `public/demo/topics.json`, `demo-play*.html`. (주제 자료는 파일로 내보내지 않고 서버 함수 `demoData`(`functions/demo.js` 의 `topicData`)가 준다) **`functions/cases` 나 `index.html`·`m.html` 을 고치면 이 명령을 다시 실행해 결과를 함께 커밋**한다(테스트가 id 가 어긋나면 알려 준다). 학생에게 보이지 않는 교사 전용 정보(역할·근거·출처)는 내보내지 않는다.
 
 ### 아이콘(브라우저 탭·휴대폰 홈 화면)
 - 학생용(파란 바탕, 초록 말풍선)과 교사용(초록 바탕, 남색 체크)이 따로 있습니다. 둘 다 교원대 마크, 사회과를 뜻하는 지구 격자, `AI-EPS` 글자를 담았습니다. 파일은 `public/icons/`, 홈 화면 추가 설정은 `public/manifest-student.webmanifest`, `manifest-teacher.webmanifest`입니다.
@@ -663,3 +663,11 @@ firebase deploy                      # hosting + functions + Firestore 규칙 + 
 - **더 빠르게(선택)**: `functions/.env`의 `MIN_INSTANCES=1`로 두고 배포하면 입장·인물 고르기·`getCase`가 항상 켜져 있어 첫 학생도 바로 들어옵니다. 1로 계속 두면 한 달에 약 $50가 들므로, 기본은 0입니다. 더 싼 대안(`WARM_SCHEDULE=on`)은 위 '비용 관리'를 참고하세요.
 - **수업 시작이 휴대폰에서도 빠른 이유**: Firestore가 실시간 연결(WebChannel)이 막히면 자동으로 long-polling으로 바꾸고(`experimentalAutoDetectLongPolling`), 대기실에서는 실시간 알림과 별도로 3초마다·화면을 다시 켤 때·인터넷이 돌아올 때 서버에서 직접 시작 여부를 확인합니다.
 - **휴대폰 대화 화면**: 인물과 대화하는 동안(`body.chat-mode`) 화면 전체는 고정하고 대화창 안에서만 스크롤합니다. 키보드가 올라오면 보이는 화면(`visualViewport`) 크기에 맞춰 입력창이 키보드 바로 위에 붙고, 입력 중에는 머리글·작은 단계 막대·예시 질문을 접어 대화 공간을 넓힙니다. 말풍선은 바뀐 곳부터만 다시 그리고, 보내도 키보드가 닫히지 않으며, 맨 아래를 보는 중에는 창 크기가 바뀌어도 마지막 말풍선이 계속 보입니다. 편지는 대화창 머리의 **편지** 버튼으로 다시 읽습니다.
+
+
+## 저작권·복제 방지
+
+- 배포는 `firebase deploy` 한 번이면 된다. 배포 전에 `tools/build-dist.js` 가 `public/` 을 난독화해 `dist/` 로 만들고, 호스팅은 `dist/` 만 올린다(소스맵 없음). 원본 `public/` 은 그대로 고친다.
+- 프롬프트·사건/인물 자료·체험 주제 자료는 브라우저로 파일째 보내지 않고 서버 함수에서만 준다. 새 로직도 화면(`public/`)에 두지 말고 `functions/` 에 둔다.
+- 복제된 화면이 서버를 쓰지 못하게 하려면 App Check 를 켠다: 콘솔에서 reCAPTCHA v3 등록 → `firebase-config.js` 의 `appCheckSiteKey` → `functions/.env` 에 `ENFORCE_APP_CHECK=1`(키를 넣기 전에 켜면 서비스가 멈춘다).
+- `LICENSE`: All rights reserved.

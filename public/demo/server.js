@@ -8,7 +8,8 @@ import { firebaseConfig } from "../firebase-config.js";
 import { toast } from "../fb.js";
 
 let dataP = null;
-const data = () => (dataP ||= fetch(`demo/data/${TOPIC}.json`).then((r) => r.json()));
+// 주제 자료는 파일이 아니라 서버 함수(demoData)에서 받는다(DEVICE 는 아래에서 정해진다)
+const data = () => (dataP ||= fetchTopic().catch((e) => { dataP = null; throw e; }));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const fail = (msg) => { const e = new Error(msg); e.code = "functions/failed-precondition"; return e; };
 const list = (m) => Object.entries(m || {}).map(([id, v]) => ({ id, ...(v && typeof v === "object" ? v : { text: v }) }));
@@ -22,6 +23,13 @@ const DEVICE = (() => { // 이 기기 표시(서버가 기기마다 횟수를 �
   try { let v = localStorage.getItem("eps_demo_device"); if (!v) { v = (crypto.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9-]/g, "") + "0000000000"; localStorage.setItem("eps_demo_device", v); } return v.slice(0, 64); }
   catch { return "nostorage-" + Math.random().toString(36).slice(2, 12) + "00"; }
 })();
+const DATA_URL = `https://asia-northeast3-${firebaseConfig.projectId}.cloudfunctions.net/demoData`;
+async function fetchTopic() {
+  const res = await fetch(DATA_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data: { deviceId: DEVICE, topic: TOPIC } }) });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok || !j.result) throw new Error(j.error?.message || "체험 자료를 불러오지 못했어요.");
+  return j.result;
+}
 async function askAI(body) {
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 120000);
   try {

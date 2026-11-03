@@ -7,7 +7,8 @@ const c = require("../functions/case");
 const { isPersonal } = require("../functions/charter");
 
 const out = path.join(__dirname, "../public/demo");
-fs.mkdirSync(path.join(out, "data"), { recursive: true });
+// 주제 자료(편지·수업 자료 등)는 파일로 내보내지 않는다. 서버 함수 demoData(functions/demo.js topicData)가 준다.
+fs.rmSync(path.join(out, "data"), { recursive: true, force: true });
 
 const topics = [];
 for (const id of Object.keys(c.EVENTS)) {
@@ -15,16 +16,6 @@ for (const id of Object.keys(c.EVENTS)) {
   const personas = c.availablePersonas(id, false);
   // 원문 대조(verified)를 마치지 않아 학생에게 보일 인물이 없는 사건은 체험에도 내보내지 않는다
   if (!personas.length) { console.log(`건너뜀(원문 대조 전): ${id}`); continue; }
-  const data = {
-    id, title: ev.title, summary: ev.summary, stakeholders: ev.stakeholders, ui: ev.ui,
-    letters: personas.map((p) => ({ id: p.id, name: p.name, brief: c.BRIEFS[p.id] || p.label || "", letter: p.letter, required: c.isRequired(p), personal: isPersonal(p) })),
-    // 인물이 대화에서 고를 수 있는 말: 편지 문단(1인칭)과 입장 문장. 인사·마무리 문단은 따로 둔다.
-    say: Object.fromEntries(personas.map((p) => [p.id, { hello: p.letter[0], paras: p.letter.slice(1), views: p.views }])),
-    materials: c.materialsFor(id),
-    cases: c.casesFor(id),
-    aftermath: c.aftermathFor(id),
-  };
-  fs.writeFileSync(path.join(out, "data", `${id}.json`), JSON.stringify(data));
   topics.push({ id, title: ev.title, summary: ev.summary, personas: personas.length, stakeholders: ev.stakeholders });
 }
 fs.writeFileSync(path.join(out, "topics.json"), JSON.stringify(topics, null, 1));

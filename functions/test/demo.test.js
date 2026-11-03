@@ -94,3 +94,20 @@ test("학교급: 중학교 체험은 중학생 수준 프롬프트·검토자 2�
   await demo.run(demo.parse({ deviceId: dev, topic: "jeju2018", kind: "ai", stage: 5, level: "middle", payload: { proposalText: "가".repeat(40), round: 5 } }), sc.deps);
   assert.match(sc.calls[0].messages[1].content, /시점: 1년 후/);
 });
+
+test("topicData: 학생에게 보이는 자료만 담고 교사 전용 정보(근거·출처)는 담지 않는다", () => {
+  const ids = Object.keys(require("../case").EVENTS);
+  let n = 0;
+  for (const id of ids) {
+    const d = demo.topicData(id);
+    if (!d) continue;
+    n++;
+    assert.equal(d.id, id);
+    assert.ok(d.letters.length && Object.keys(d.say).length === d.letters.length);
+    const json = JSON.stringify({ letters: d.letters, say: d.say });
+    assert.ok(!/"basis"|"sources"|"label"/.test(json), `${id}: 교사 전용 항목이 섞였다`);
+  }
+  assert.ok(n >= 1);
+  assert.equal(demo.topicData("constructor"), null);
+  assert.equal(demo.topicData("nope"), null);
+});

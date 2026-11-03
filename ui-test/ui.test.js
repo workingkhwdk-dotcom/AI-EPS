@@ -5,7 +5,7 @@ const assert = require("node:assert");
 const http = require("http"), fs = require("fs"), path = require("path");
 const { chromium } = require("playwright");
 
-const ROOT = path.join(__dirname, "../public");
+const ROOT = process.env.UI_ROOT ? path.resolve(process.env.UI_ROOT) : path.join(__dirname, "../public");
 const stubs = {
   "firebase-app.js": `export const initializeApp = () => ({});`,
   "firebase-auth.js": `
@@ -1648,9 +1648,16 @@ async function demoPage(ctxOpts = {}, ai = null, { tours = false } = {}) {
   const errors = [];
   pg.on("pageerror", (e) => errors.push(e.message));
   // 체험은 Firebase SDK 를 아예 부르지 않는다. 서버의 AI(demoRequest)만 부르고, 시험에서는 ai 로 대신 답한다(없으면 연결 실패).
-  const hits = [], asked = [];
+  const hits = [], asked = [], dataAsked = [];
   await pg.route(/gstatic\.com\/firebasejs|firestore\.googleapis/, (r) => { hits.push(r.request().url()); r.abort(); });
   const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "*", "Access-Control-Allow-Methods": "POST, OPTIONS" };
+  // 주제 자료는 서버 함수(demoData)에서 받는다: 시험에서는 서버 코드(functions/demo.js)가 만든 값을 그대로 돌려 준다
+  const { topicData } = require("../functions/demo");
+  await pg.route(/cloudfunctions\.net\/demoData/, async (r) => {
+    if (r.request().method() === "OPTIONS") return r.fulfill({ status: 204, headers: cors });
+    const body = JSON.parse(r.request().postData()).data; dataAsked.push(body);
+    r.fulfill({ status: 200, headers: cors, contentType: "application/json", body: JSON.stringify({ result: topicData(body.topic) }) });
+  });
   await pg.route(/cloudfunctions\.net\/demoRequest/, async (r) => {
     if (!ai) return r.abort();
     if (r.request().method() === "OPTIONS") return r.fulfill({ status: 204, headers: cors });
@@ -1659,7 +1666,7 @@ async function demoPage(ctxOpts = {}, ai = null, { tours = false } = {}) {
     r.fulfill({ status: out.status || 200, headers: cors, contentType: "application/json", body: JSON.stringify(out.json) });
   });
   await pg.route(/fonts\.(googleapis|gstatic)|cdn\.jsdelivr/, (r) => r.abort());
-  return { pg, ctx, errors, hits, asked };
+  return { pg, ctx, errors, hits, asked, dataAsked };
 }
 
 const dismissHelp = async (pg) => { await pg.waitForTimeout(500); while (await pg.locator('.modal .btn:has-text("이해했어요")').count()) { await pg.click('.modal .btn:has-text("이해했어요")'); await pg.waitForTimeout(400); } };

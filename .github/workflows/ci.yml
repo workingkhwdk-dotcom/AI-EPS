@@ -44,3 +44,8 @@ jobs:
         working-directory: ui-test
       - run: npm test
         working-directory: ui-test
+      - name: 보호 빌드(난독화) 결과로도 화면 테스트
+        run: |
+          (cd ../tools && npm install --no-audit --no-fund && node build-dist.js)
+          UI_ROOT=../dist npm test
+        working-directory: ui-test
