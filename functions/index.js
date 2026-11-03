@@ -86,17 +86,19 @@ const MAX_GROUPS = 12;
 //  - fastOpts: 학생이 한꺼번에 부르는 입장·인물 고르기·사건 불러오기. CPU 1개, 인스턴스 하나가 동시에 80건.
 //  - aiOpts: AI 호출. 대부분 OpenAI 응답을 기다리는 시간이라 CPU 1개 인스턴스 하나가 동시에 80건을 받는다.
 // 함수를 새로 만들 때는 이 셋 중 하나를 쓰고, 값을 키우기 전에 합계를 다시 계산할 것.
-const opts = { region: REGION, cors: true, cpu: "gcf_gen1", maxInstances: 5 };
+// 복제한 화면이 우리 서버를 쓰지 못하게 하는 App Check. 콘솔에서 reCAPTCHA 등록 + firebase-config.js 의 appCheckSiteKey 를 채운 뒤 functions/.env 에 ENFORCE_APP_CHECK=1
+const APP_CHECK = process.env.ENFORCE_APP_CHECK === "1";
+const opts = { region: REGION, cors: true, enforceAppCheck: APP_CHECK, cpu: "gcf_gen1", maxInstances: 5 };
 // 입장·시작처럼 학생이 기다리는 호출은 첫 호출이 느리지 않도록(콜드 스타트) CPU 를 넉넉히 주고,
 // MIN_INSTANCES 가 1 이상이면 항상 켜 둔다(수업 시간에만 1로 올리면 비용이 거의 들지 않는다).
 const MIN_INSTANCES = defineInt("MIN_INSTANCES", { default: 0 });
-const fastOpts = { region: REGION, cors: true, cpu: 1, memory: "512MiB", minInstances: MIN_INSTANCES, maxInstances: 3 }; // 3 × 80 = 동시에 240건
+const fastOpts = { region: REGION, cors: true, enforceAppCheck: APP_CHECK, cpu: 1, memory: "512MiB", minInstances: MIN_INSTANCES, maxInstances: 3 }; // 3 × 80 = 동시에 240건
 // 추론 모델(특히 5단계 시뮬레이션)은 응답에 1분 넘게 걸릴 수 있어 넉넉히 둔다.
-const aiOpts = { region: REGION, cors: true, cpu: 1, secrets: [OPENAI_API_KEY], timeoutSeconds: 300, maxInstances: 4 }; // 4 × 80 = 동시에 320건
+const aiOpts = { region: REGION, cors: true, enforceAppCheck: APP_CHECK, cpu: 1, secrets: [OPENAI_API_KEY], timeoutSeconds: 300, maxInstances: 4 }; // 4 × 80 = 동시에 320건
 // 교사 점검용 연결 확인: 가끔 한 번만 부르고 짧게 기다리기만 하므로 CPU 를 적게 잡는다
 const checkOpts = { ...aiOpts, cpu: "gcf_gen1", maxInstances: 1 };
 // 교사 주제 만들기: 단계마다 몇 분씩 AI 응답을 기다린다(대부분 기다리는 시간이라 CPU 는 적게, 시간은 길게).
-const topicOpts = { region: REGION, cors: true, cpu: "gcf_gen1", memory: "256MiB", secrets: [OPENAI_API_KEY], timeoutSeconds: 540, maxInstances: 3 };
+const topicOpts = { region: REGION, cors: true, enforceAppCheck: APP_CHECK, cpu: "gcf_gen1", memory: "256MiB", secrets: [OPENAI_API_KEY], timeoutSeconds: 540, maxInstances: 3 };
 
 const FieldValue = () => admin.firestore.FieldValue;
 

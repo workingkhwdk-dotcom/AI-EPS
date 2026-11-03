@@ -5,7 +5,7 @@ const assert = require("node:assert");
 const http = require("http"), fs = require("fs"), path = require("path");
 const { chromium } = require("playwright");
 
-const ROOT = path.join(__dirname, "../public");
+const ROOT = process.env.UI_ROOT ? path.resolve(process.env.UI_ROOT) : path.join(__dirname, "../public");
 const stubs = {
   "firebase-app.js": `export const initializeApp = () => ({});`,
   "firebase-auth.js": `

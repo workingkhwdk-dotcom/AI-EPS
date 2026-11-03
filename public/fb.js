@@ -6,6 +6,11 @@ import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/
 import { firebaseConfig } from "./firebase-config.js";
 
 export const app = initializeApp(firebaseConfig);
+// App Check(선택): appCheckSiteKey 가 있을 때만 켠다. 우리 사이트가 아닌 곳에 복제된 화면은 토큰을 받지 못해 서버 함수를 쓸 수 없다.
+if (firebaseConfig.appCheckSiteKey) {
+  import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check.js").then((m) =>
+    m.initializeAppCheck(app, { provider: new m.ReCaptchaV3Provider(firebaseConfig.appCheckSiteKey), isTokenAutoRefreshEnabled: true })).catch(() => {});
+}
 export const auth = getAuth(app);
 // 휴대폰·학교 와이파이처럼 연결이 불안정한 곳에서는 실시간 연결(WebChannel)이 막히거나 늦게 전달되는 일이 있어,
 // 막히면 자동으로 다른 방식(long-polling)으로 바꾼다. 수업 시작 같은 변화가 휴대폰에서 늦게 보이는 것을 줄인다.
