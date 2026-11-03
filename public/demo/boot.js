@@ -22,8 +22,11 @@
     "6": "모둠 친구와 함께 쓰지 않고, 쓴 글이 선생님 화면으로 가지 않아요.",
     "7": "모둠 친구와 함께 쓰지 않고, 쓴 글이 선생님 화면으로 가지 않아요."
   };
+  // 단계 시간: 체험은 단계에 처음 들어갈 때 기본 시간이 저절로 흐르고 막지 않는다(app.js 의 demoClock). 단계마다 처음 안내(1단계는 고르기)에만 붙인다.
+  var TIME = " 시간은 단계에 처음 들어올 때 수업지도안의 기본 시간으로 저절로 흐르고, 시간이 지나도 계속할 수 있어요. 실제 수업에서는 선생님이 단계마다 시간을 정하고(더하기·멈춤), 선생님이 연 단계까지만 갈 수 있어요.";
   window.EPS_HELP_EXTRA = function (key) {
-    return DIFF[key] ? '<div class="help-demo" role="note"><b>체험에서는</b> ' + DIFF[key] + "</div>" : "";
+    var t = DIFF[key] ? DIFF[key] + (key === "1-pick" || /^[2-7]$/.test(key) ? TIME : "") : "";
+    return t ? '<div class="help-demo" role="note"><b>체험에서는</b> ' + t + "</div>" : "";
   };
   // 화면 가져오기(import map)를 못 쓰는 오래된 브라우저
   var ok = !!(window.HTMLScriptElement && HTMLScriptElement.supports && HTMLScriptElement.supports("importmap"));

@@ -140,6 +140,20 @@ const chatDocs = (uid) => [...store.entries()].filter(([k]) => k.startsWith(`ses
 const groupLogs = () => [...store.entries()].filter(([k]) => k.startsWith(`sessions/${code}/groups/g1/logs/`)).map(([, v]) => v);
 const setWork = (work) => store.set(`sessions/${code}/groups/g1`, { ...store.get(`sessions/${code}/groups/g1`), work });
 
+test("입장·인물 고르기·사건 자료도 미리 깨우기({ warm: true })는 로그인 없이 바로 끝나고 아무것도 쓰지 않는다", async () => {
+  const before = store.size;
+  for (const f of ["joinSession", "choosePersona", "getCase"]) {
+    assert.deepEqual(await api[f]({ data: { warm: true } }), { warm: true }, f);
+    await assert.rejects(api[f]({ data: { warm: "yes" } }), undefined, `${f}: warm 이 true 가 아니면 평소처럼 로그인을 확인한다`);
+  }
+  assert.equal(store.size, before);
+});
+
+test("aiRequest 미리 깨우기({ warm: true })는 로그인·수업 확인 없이 바로 끝나고 아무것도 쓰지 않는다", async () => {
+  assert.deepEqual(await api.aiRequest({ data: { warm: true } }), { warm: true });
+  await assert.rejects(api.aiRequest({ data: { warm: "yes" } }));
+});
+
 test("교사: 수업 만들기 → 코드와 모둠 문서 생성", async () => {
   const { code: c } = await api.createSession({ ...teacher, data: { groupCount: 2, eventId: "bogus" } });
   code = c;
@@ -888,11 +902,11 @@ test("모둠 AI 한도(3~5단계): 한도에 도달하면 막히고, 실패한 �
   await join("A1", c, "가람", "sesame1");
   const g = () => store.get(`sessions/${c}/groups/g1`);
   const verify = () => api.aiRequest({ ...student("A1"), data: { code: c, stage: 3, type: "verify_query", payload: { checkId: "c1" } } });
-  store.set(`sessions/${c}/groups/g1`, { ...g(), aiCount: 149, work: { s1: s1Work, s2: { checks: { c1: { heard: "x", question: "예멘 신청자는 몇 명이었나?", real: "자료에 없다", t: 1 } } } } });
+  store.set(`sessions/${c}/groups/g1`, { ...g(), aiCount: 59, work: { s1: s1Work, s2: { checks: { c1: { heard: "x", question: "예멘 신청자는 몇 명이었나?", real: "자료에 없다", t: 1 } } } } });
   await verify();
-  assert.equal(g().aiCount, 150);
+  assert.equal(g().aiCount, 60);
   await assert.rejects(verify(), /한도/);
-  assert.equal(g().aiCount, 150, "한도 초과 요청이 횟수를 늘리면 안 된다");
+  assert.equal(g().aiCount, 60, "한도 초과 요청이 횟수를 늘리면 안 된다");
   store.set(`sessions/${c}/groups/g1`, { ...g(), aiCount: 10 });
   const realFetch = global.fetch;
   global.fetch = async () => ({ ok: false, status: 500, text: async () => "boom" });
@@ -904,7 +918,7 @@ test("모둠 AI 한도(3~5단계): 한도에 도달하면 막히고, 실패한 �
 // ---------- 수업 설정·복제·자동 닫힘 ----------
 test("수업 설정: AI 한도·웹 검색·자동 닫힘을 교사만, 올바른 값으로만 바꿀 수 있다", async () => {
   const c = await mk();
-  assert.equal(store.get(`sessions/${c}`).aiLimit, 150);
+  assert.equal(store.get(`sessions/${c}`).aiLimit, 60);
   const upd = (data) => api.updateSession({ ...teacher, data: { code: c, ...data } });
   await upd({ aiLimit: 20, webSearch: false, autoCloseHours: 4 });
   assert.deepEqual([store.get(`sessions/${c}`).aiLimit, store.get(`sessions/${c}`).webSearch, store.get(`sessions/${c}`).autoCloseHours], [20, false, 4]);
@@ -1185,6 +1199,44 @@ test("모둠원 별명 목록: 입장하면 모둠 문서에 별명이 적히고
   assert.deepEqual(store.get(`sessions/${c}/groups/g1`).names, { A1: "가람", B1: "나래" });
   await join("A2", c, "가람", "sesame1");
   assert.deepEqual(store.get(`sessions/${c}/groups/g1`).names, { A2: "가람", B1: "나래" });
+});
+
+test("단계 시간: 새 수업은 수업지도안 기본 시간, 시작하면 1단계 시간이 흐르고, 교사만 더하기·멈춤·다음 단계·끄기를 한다", async () => {
+  const c = (await api.createSession({ ...teacher, data: { groupCount: 1, stageMin: { 1: 35, 2: 20, 3: 20, 4: 25, 5: 20, 6: 10, 7: 20 } } })).code;
+  assert.equal(store.get(`sessions/${c}`).stageMin[1], 35, "수업 만들 때 바꾼 시간");
+  assert.equal(store.get(`sessions/${c}`).clock, undefined, "시작 전에는 시계가 없다");
+  await assert.rejects(api.updateSession({ ...teacher, data: { code: c, stageMin: { 1: 0 } } }), /1~120분/);
+  const t0 = Date.now();
+  const r = await api.updateSession({ ...teacher, data: { code: c, started: true } });
+  let k = store.get(`sessions/${c}`).clock;
+  assert.equal(k.stage, 1); assert.equal(k.min, 35); assert.ok(k.endsAt >= t0 + 35 * 60000 && k.endsAt <= Date.now() + 35 * 60000);
+  assert.ok(r.now >= t0, "응답에 서버 시각");
+  await assert.rejects(api.updateSession({ ...student("A1"), data: { code: c, clock: { op: "add", min: 5 } } }), /교사/);
+  await api.updateSession({ ...teacher, data: { code: c, clock: { op: "add", min: 5 } } });
+  assert.equal(store.get(`sessions/${c}`).clock.add, 5);
+  await api.updateSession({ ...teacher, data: { code: c, clock: { op: "pause" } } });
+  assert.equal(store.get(`sessions/${c}`).clock.endsAt, null);
+  await assert.rejects(api.updateSession({ ...teacher, data: { code: c, clock: { op: "go", stage: 9 } } }), /1~7/);
+  await api.updateSession({ ...teacher, data: { code: c, stageMin: { 1: 35, 2: 12, 3: 20, 4: 25, 5: 20, 6: 10, 7: 20 }, clock: { op: "go", stage: 2 } } });
+  k = store.get(`sessions/${c}`).clock;
+  assert.equal(k.stage, 2); assert.equal(k.min, 12, "같이 보낸 새 시간으로 시작");
+  const off = await api.updateSession({ ...teacher, data: { code: c, clock: { op: "stop" } } });
+  assert.equal(store.get(`sessions/${c}`).clock, undefined); assert.equal(off.clock, null);
+  // 복제하면 단계별 시간도 가져간다
+  const { code: c2 } = await api.cloneSession({ ...teacher, data: { code: c } });
+  assert.equal(store.get(`sessions/${c2}`).stageMin[2], 12);
+  assert.equal(store.get(`sessions/${c2}`).clock, undefined);
+});
+
+test("단계 시간: 대기 중인 수업에서 단계를 시작하면 수업도 시작된다. 예전 수업(단계 시간 없음)은 시작해도 시계가 저절로 돌지 않는다", async () => {
+  const c = (await api.createSession({ ...teacher, data: { groupCount: 1 } })).code;
+  await api.updateSession({ ...teacher, data: { code: c, clock: { op: "go", stage: 1 } } });
+  assert.equal(store.get(`sessions/${c}`).started, true);
+  assert.equal(store.get(`sessions/${c}`).clock.min, 30);
+  const old = (await api.createSession({ ...teacher, data: { groupCount: 1 } })).code;
+  const s = { ...store.get(`sessions/${old}`) }; delete s.stageMin; store.set(`sessions/${old}`, s);
+  await api.updateSession({ ...teacher, data: { code: old, started: true } });
+  assert.equal(store.get(`sessions/${old}`).clock, undefined);
 });
 
 test("선생님 한마디: 교사만 보낼 수 있고, 모둠을 고를 수 있으며, 빈 글이면 지운다", async () => {

@@ -3,9 +3,12 @@ import { waitHtml, startWaitTicker, STEPS } from "./wait.js";
 import { showModal, confirmModal } from "./modal.js";
 import { initTopics, loadTopics, topicClassTitle, topicReady } from "./topics.js";
 import { runTour } from "./tour.js";
+// 평가 탭(assess.js, 큰 파일)은 평가 탭을 처음 열 때 불러온다(교사 화면이 빨리 열리게)
+const openAssess = (code) => import("./assess.js").then((m) => m.openAssess(code)).catch((e) => toast(errMsg(e), true));
+import { STAGE_MIN_DEFAULT, leftOf, mmss, offsetFrom } from "./clock.js";
 startWaitTicker();
 import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { collection, query, where, orderBy, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { collection, query, where, orderBy, onSnapshot, getDocs, getDocsFromServer } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const $ = (s) => document.querySelector(s);
 const STAGE_NAMES = ["", "이야기 듣기", "원인 찾기", "사실 확인", "해결책 만들기", "미래 그려 보기", "실천 계획", "돌아보기"]; // 학생 화면과 같은 이름
@@ -156,7 +159,7 @@ const TOUR_CLASS = [
   { el: "#lobby", title: "수업 시작", text: "<p>학생들은 들어와서 대기실에서 기다려요. 모둠이 다 모이면 <b>수업 시작하기</b>를 눌러요.</p>" },
   { el: "#notice-card", title: "학생에게 한마디", text: "<p>\"5분 남았어요\" 같은 짧은 공지를 모든 모둠이나 한 모둠에게 보내요. 학생 화면 위쪽에 떠요.</p>" },
   { el: "#students", title: "학생과 모둠 진행", text: "<p>학생마다 지금 몇 단계인지, 질문을 몇 번 썼는지 보여요. 아래 <b>모둠 진행</b>에서 대화 기록과 AI 기록을 열어 볼 수 있어요. 문제가 생기면 위쪽 <b>확인이 필요해요</b>에 바로 나타나요.</p>" },
-  { el: "#ctabs", title: "수업 메뉴", text: "<p><b>자료 관리</b>·<b>인물 편집</b>으로 이 수업만의 자료를 고치고, <b>수업 설정</b>에서 학교급과 <b>심화 활동</b>을 하나씩 켜고 꺼요.</p>" },
+  { el: "#ctabs", title: "수업 메뉴", text: "<p><b>자료 관리</b>·<b>인물 편집</b>으로 이 수업만의 자료를 고치고, <b>평가</b>에서 척도표로 채점하고 세특을 쓰고 점수·세특을 따로 공개해요. <b>수업 설정</b>에서는 학교급과 <b>심화 활동</b>을 하나씩 켜고 꺼요.</p>" },
   { el: "#csv-btn", title: "기록 남기기와 닫기", text: "<p>수업이 끝나면 <b>기록 CSV</b>를 받아 두고, 위쪽 단추로 수업을 닫아요. 닫으면 학생이 더 쓸 수 없어요.</p>" },
 ];
 $("#tour-btn").onclick = () => { const inClass = !$("#class-view").classList.contains("hidden"); runTour(inClass ? "teacher-class" : "teacher-main", inClass ? TOUR_CLASS : TOUR_MAIN, { force: true }); };
@@ -173,9 +176,10 @@ $("#tabs").onclick = (e) => { const b = e.target.closest("[data-tab]"); if (b) s
 // 수업을 연 뒤의 세 가지 작업: 진행 현황 / 자료 관리 / 수업 설정
 function showCTab(name) {
   document.querySelectorAll("#ctabs button").forEach((b) => b.classList.toggle("on", b.dataset.ctab === name));
-  for (const t of ["live", "materials", "personas", "settings"]) $(`#cpane-${t}`).classList.toggle("hidden", t !== name);
+  for (const t of ["live", "materials", "personas", "assess", "settings"]) $(`#cpane-${t}`).classList.toggle("hidden", t !== name);
   if (name === "materials") loadMats();
   if (name === "personas") loadPersonaEdit();
+  if (name === "assess") openAssess(current);
   if (name === "settings") fillSettings();
 }
 $("#ctabs").onclick = (e) => { const b = e.target.closest("[data-ctab]"); if (b) showCTab(b.dataset.ctab); };
@@ -232,7 +236,7 @@ $("#create-btn").onclick = async () => {
   try {
     const title = $("#t-title").value;
     const ev = caseArgs($("#t-event").value);
-    const { data } = await call("createSession")({ title, ...ev, groupCount: Number($("#t-groups").value), chatLimit: Number($("#t-chatlimit").value), level: $("#t-level").value });
+    const { data } = await call("createSession")({ title, ...ev, groupCount: Number($("#t-groups").value), chatLimit: Number($("#t-chatlimit").value), level: $("#t-level").value, stageMin: readStageMin("t") });
     toast(`수업을 만들었습니다. 코드: ${data.code}`);
     toggleNew(false);
     openSession(data.code, title.trim() || "수업", ev.topicId);
@@ -312,10 +316,33 @@ function openSession(code, title, topicId) {
     renderWorkViews();
   }));
   tickTimer = setInterval(renderDash, 15000); // 접속 상태를 주기적으로 갱신
+  startLobbyPoll(code);
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
+// 대기실: 학교 와이파이처럼 실시간 연결이 막히거나 늦으면 들어온 학생이 바로 안 보인다.
+// 그래서 대기 중인 동안은 몇 초마다 서버에서 입장한 학생 목록을 직접 다시 읽는다(학생 화면의 수업 시작 확인과 같은 방식).
+let lobbyPoll = null, lobbyBusy = false;
+const lobbyWaiting = () => { const r = curRow(); return !!r && r.started === false && !r.closed; };
+async function pollLobby(code) {
+  if (current !== code || document.hidden || lobbyBusy || !lobbyWaiting()) return;
+  lobbyBusy = true;
+  try {
+    const s = await getDocsFromServer(collection(db, `sessions/${code}/members`));
+    if (current !== code) return;
+    members = s.docs.map((d) => ({ uid: d.id, ...d.data() }));
+    renderDash();
+  } catch {} finally { lobbyBusy = false; }
+}
+function startLobbyPoll(code) {
+  clearInterval(lobbyPoll);
+  lobbyPoll = setInterval(() => pollLobby(code), 4000);
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden && current) pollLobby(current); });
+window.addEventListener("online", () => { if (current) pollLobby(current); });
+
 function closeSession() {
+  clearInterval(lobbyPoll);
   closePresent();
   unsubs.forEach((u) => u()); unsubs = [];
   clearInterval(tickTimer);
@@ -339,7 +366,10 @@ const KPI_ICON = {
   flag: kpiSvg('<path d="M5 21V4"/><path d="M5 4.5h11l-2 4 2 4H5"/>'),
   pause: kpiSvg('<circle cx="12" cy="12" r="8.5"/><path d="M10 9v6M14 9v6"/>'),
 };
-function renderDash() {
+// 학생 접속 신호(학생마다 30초에 한 번)·모둠 글이 들어올 때마다 바로 다시 그리지 않고, 짧은 순간에 온 것을 한 번에 그린다
+let dashTimer = null;
+function renderDash() { if (!dashTimer) dashTimer = setTimeout(() => { dashTimer = null; renderDashNow(); }, 120); }
+function renderDashNow() {
   if (!current) return;
   trackChanges();
   renderLobby();
@@ -595,7 +625,7 @@ async function loadCheck(eventId) {
 }
 
 // ---------- 모둠 산출물 (학생이 적은 문제·원인·대안·시나리오·계획) ----------
-const PROBLEM_CHECK_N = 5, REFLECT_N = 10;
+const PROBLEM_CHECK_N = 3, REFLECT_N = 4; // 학생 화면의 문제 점검·AI 돌아보기 체크 수(app.js 의 PROBLEM_CHECKS·CHECKLIST)
 const tx = (v) => (typeof v === "string" ? v.trim() : "");
 const listOf = (x) => Object.entries(x || {}).map(([id, v]) => ({ id, ...(v && typeof v === "object" ? v : { text: v }) })).sort((a, b) => (a.t || 0) - (b.t || 0));
 const countTrue = (o) => Object.values(o || {}).filter(Boolean).length;
@@ -856,13 +886,14 @@ function fillSettings() {
   const r = curRow(); if (!r) return;
   $("#s-title").value = r.title;
   $("#s-groups").value = r.groupCount;
-  $("#s-ailimit").value = r.aiLimit || 150;
+  $("#s-ailimit").value = r.aiLimit || 60;
   $("#s-chatlimit").value = r.chatLimit || 5;
   $("#s-web").value = r.webSearch === false ? "0" : "1";
   $("#s-coach").value = r.coach === false ? "0" : "1";
   $("#s-auto").value = String(r.autoCloseHours || 0);
   $("#s-level").value = r.level === "middle" ? "middle" : "high";
   renderDeep(r.deep || {});
+  renderStageMin("s", r.stageMin);
   $("#s-topic-card").classList.toggle("hidden", !r.topicId);
   $("#s-guide").style.whiteSpace = "pre-wrap";
   $("#s-guide").textContent = studentGuide();
@@ -874,7 +905,7 @@ const DEEP = [
   ["premise", "1단계 · 인물이 당연하게 여기는 것(전제)과 부딪히는 가치 찾기"],
   ["causeMap", "2·3단계 · 원인끼리 잇기(인과 지도)와 뿌리가 되는 원인 따지기"],
   ["sources", "3단계 · 다른 자료로 한 번 더 확인하고, 자료를 만든 쪽 따지기"],
-  ["tradeoff", "4단계 · 해결책 두 개를 얻는 것·포기하는 것으로 견주기, 사례를 옮길 때의 조건"],
+  ["tradeoff", "4단계 · 해결책 두 개를 좋아지는 점·손해 보는 점으로 견주기"],
   ["chain", "5단계 · 한 사람의 반응이 다른 사람에게 미치는 연쇄 예측"],
   ["power", "6단계 · 결정 권한이 있는 곳과 제안 경로 찾기"],
   ["why", "7단계 · 실제와 달랐던 까닭 분석"],
@@ -901,7 +932,7 @@ $("#s-save").onclick = async () => {
     await call("updateSession")({
       code: current, title: $("#s-title").value, groupCount: Number($("#s-groups").value),
       aiLimit: Number($("#s-ailimit").value), chatLimit: Number($("#s-chatlimit").value), webSearch: $("#s-web").value === "1", coach: $("#s-coach").value === "1", autoCloseHours: Number($("#s-auto").value),
-      level, deep,
+      level, deep, stageMin: readStageMin("s"),
     });
     toast("저장했습니다");
     setTimeout(fillSettings, 400);
@@ -955,6 +986,7 @@ function renderOpen() {
       : `<span class="tag">진행 중</span> <span class="meta-line">끝나면 '수업 닫기'</span>`;
   renderLobby();
   renderNoticeCard();
+  renderClock();
 }
 
 // ---------- 대기실: 모두 들어왔는지 확인하고 수업 시작 ----------
@@ -1023,7 +1055,7 @@ $("#s-clone").onclick = async () => {
 let piiBy = {}; // 학생 uid → 개인정보 의심 입력 수
 const ALERT_AWAY_MIN = 10;
 function renderAlerts() {
-  const r = curRow(), lim = r?.aiLimit || 150, out = [];
+  const r = curRow(), lim = r?.aiLimit || 60, out = [];
   for (const g of groups) {
     if (g.lastAiError) out.push(["r", `${g.name}: AI 오류 (${g.lastAiError.stage}단계) — ${g.lastAiError.message}`]);
     if ((g.aiCount || 0) >= lim * 0.8) out.push(["y", `${g.name}: AI 사용 ${g.aiCount}/${lim}회 — 한도가 가깝습니다 (수업 설정에서 늘릴 수 있어요)`]);
@@ -1158,6 +1190,7 @@ function renderPresent() {
   $("#p-url").textContent = `${location.host}/`;
   $("#p-code").textContent = current;
   if (!$("#p-qr").dataset.code || $("#p-qr").dataset.code !== current) { $("#p-qr").innerHTML = qrSvg(joinUrl()); $("#p-qr").dataset.code = current; }
+  tickClock();
   $("#p-count").innerHTML = `<b>${members.length}명</b> 입장${members.length ? ` · 접속 중 ${online}명` : ""}`;
 }
 $("#present-btn").onclick = openPresent;
@@ -1215,3 +1248,103 @@ function stuckMin(g) {
   const min = Math.floor((Date.now() - c.t) / 60000);
   return min >= STUCK_MIN ? min : 0;
 }
+
+// ---------- 단계 시간(clock.js, 서버 functions/clock.js) ----------
+// 반 전체가 같은 단계에서 활동하도록 교사가 단계와 남은 시간을 정한다. 학생은 연 단계까지만 갈 수 있고,
+// 다음 단계를 열면 모두 그 단계로 옮겨 간다. 시간이 끝나도 저절로 넘어가지 않는다(시간 더하기나 다음 단계는 교사가 고른다).
+const STAGE_KEYS = Object.keys(STAGE_MIN_DEFAULT);
+function renderStageMin(prefix, vals) {
+  const v = { ...STAGE_MIN_DEFAULT, ...(vals || {}) };
+  $(`#${prefix}-stagemin`).innerHTML = STAGE_KEYS.map((k) => `<label class="sm-cell"><span>${k}단계<small>${esc(STAGE_NAMES[k])}</small></span><input type="number" min="1" max="120" inputmode="numeric" data-sm="${k}" value="${v[k]}" aria-label="${k}단계 ${esc(STAGE_NAMES[k])} 시간(분)" /></label>`).join("")
+    + `<div class="sm-sum meta-line" data-sm-sum></div>`;
+  sumStageMin(prefix);
+}
+const readStageMin = (prefix) => Object.fromEntries([...document.querySelectorAll(`#${prefix}-stagemin [data-sm]`)].map((el) => [el.dataset.sm, Number(el.value)]));
+function sumStageMin(prefix) {
+  const v = readStageMin(prefix), tot = Object.values(v).reduce((a, b) => a + (b || 0), 0);
+  const el = document.querySelector(`#${prefix}-stagemin [data-sm-sum]`);
+  if (el) el.textContent = `합계 ${tot}분 (수업 열기 5분을 더하면 ${tot + 5}분 · 50분 수업 ${((tot + 5) / 50).toFixed(1)}차시)`;
+}
+for (const p of ["t", "s"]) $(`#${p}-stagemin`).addEventListener("input", () => sumStageMin(p));
+renderStageMin("t");
+
+let clockOff = 0, clockSig = "";
+const clockNow = () => curRow()?.clock || null;
+async function clockOp(op, okMsg) {
+  const sent = Date.now();
+  try {
+    const { data } = await call("updateSession")({ code: current, clock: op });
+    clockOff = offsetFrom(data?.now, sent);
+    if (okMsg) toast(okMsg);
+  } catch (e) { toast(errMsg(e), true); }
+}
+function renderClock() {
+  const card = $("#clock-card"); if (!card) return;
+  const r = curRow(), c = clockNow();
+  const hide = !r || !!r.closed || r.started === false;
+  card.classList.toggle("hidden", hide);
+  if (hide) { clockSig = ""; return; }
+  const sm = { ...STAGE_MIN_DEFAULT, ...(r.stageMin || {}) };
+  const sig = JSON.stringify([c, sm]);
+  if (sig === clockSig) return tickClock();
+  clockSig = sig;
+  const stageOpts = (sel) => STAGE_KEYS.map((k) => `<option value="${k}" ${Number(k) === sel ? "selected" : ""}>${k}단계 ${esc(STAGE_NAMES[k])} (${sm[k]}분)</option>`).join("");
+  if (!c) {
+    $("#clock-body").innerHTML = `<p class="desc">단계 시간이 꺼져 있어요. 시작하면 모든 학생에게 주어진 시간이 보이고, 학생은 선생님이 연 단계까지만 갈 수 있어요.</p>
+      <div class="row"><select id="clk-pick" aria-label="시작할 단계">${stageOpts(1)}</select><button class="btn btn-primary btn-sm" type="button" data-clk="start">이 단계 시간 시작</button></div>`;
+    return;
+  }
+  const n = c.stage, next = n < 7 ? n + 1 : null;
+  $("#clock-body").innerHTML = `<div class="clk-t-top"><div><div class="meta-line">지금 단계</div><b class="clk-t-stage">${n}단계 · ${esc(STAGE_NAMES[n])}</b></div><div class="clk-t-time" id="clk-time" aria-live="off"></div></div>
+    <div class="clk-t-bar" aria-hidden="true"><i id="clk-bar"></i></div>
+    <div class="meta-line" id="clk-meta"></div>
+    <div class="row clk-t-acts"><span class="meta-line">시간 더하기</span>${[1, 3, 5].map((m) => `<button class="btn btn-tinted btn-sm" type="button" data-clk="add" data-min="${m}">+${m}분</button>`).join("")}
+      <button class="btn btn-plain btn-sm" type="button" data-clk="${c.endsAt == null ? "resume" : "pause"}">${c.endsAt == null ? "▶ 이어서" : "⏸ 멈춤"}</button></div>
+    ${next ? `<button class="btn btn-primary m-block clk-t-next" type="button" data-clk="next">다음 단계로: ${next}단계 ${esc(STAGE_NAMES[next])} (${sm[next]}분) →</button>` : `<div class="notice muted">마지막 단계예요. 끝나면 '시간 끄기'나 '수업 닫기'를 누르세요.</div>`}
+    <details class="clk-t-more"><summary class="meta-line">다른 단계로 옮기기 · 시간 끄기</summary>
+      <div class="row" style="margin-top:8px"><select id="clk-pick" aria-label="옮길 단계">${stageOpts(n)}</select><button class="btn btn-tinted btn-sm" type="button" data-clk="go">이 단계로 (처음부터)</button></div>
+      <div class="row" style="margin-top:8px"><button class="btn btn-plain btn-sm" type="button" data-clk="stop">시간 끄기</button><span class="meta-line">끄면 학생이 단계를 자유롭게 오가요</span></div></details>`;
+  tickClock();
+}
+function tickClock() {
+  const c = clockNow(), r = curRow();
+  const left = leftOf(c, clockOff), paused = c?.endsAt == null;
+  const pc = $("#p-clock");
+  if (pc) {
+    pc.classList.toggle("hidden", !c || !r || !!r.closed);
+    if (c) {
+      const txt = `${c.stage}단계 · ${STAGE_NAMES[c.stage]} · ${paused ? "⏸ " : ""}${left > 0 ? mmss(left) : "시간 끝"}`;
+      if (pc.textContent !== txt) pc.textContent = txt;
+      pc.classList.toggle("warn", left <= 60000); pc.classList.toggle("over", left <= 0);
+    }
+  }
+  const t = $("#clk-time"); if (!t || !c) return;
+  const tot = (c.min || 0) + (c.add || 0);
+  t.textContent = left > 0 ? mmss(left) : `+${mmss(-left)}`;
+  t.className = `clk-t-time${left <= 60000 ? " warn" : ""}${left <= 0 ? " over" : ""}${paused ? " paused" : ""}`;
+  $("#clk-bar").style.width = `${Math.max(0, Math.min(100, (left / (tot * 60000)) * 100))}%`;
+  $("#clk-meta").textContent = `주어진 시간 ${c.min}분${c.add ? ` + 더한 시간 ${c.add}분` : ""}${paused ? " · 멈춤" : left <= 0 ? " · 시간이 지났어요(시간을 더하거나 다음 단계로)" : ""}`;
+}
+setInterval(() => { if (current) tickClock(); }, 500);
+$("#clock-body").onclick = async (e) => {
+  const b = e.target.closest("[data-clk]"); if (!b) return;
+  const c = clockNow(), sm = { ...STAGE_MIN_DEFAULT, ...(curRow()?.stageMin || {}) }, act = b.dataset.clk;
+  const pick = Number($("#clk-pick")?.value || 1);
+  b.disabled = true;
+  try {
+    if (act === "start") await clockOp({ op: "go", stage: pick }, `${pick}단계 시간을 시작했어요`);
+    else if (act === "add") await clockOp({ op: "add", min: Number(b.dataset.min) }, `${b.dataset.min}분 더했어요`);
+    else if (act === "pause") await clockOp({ op: "pause" }, "시간을 멈췄어요");
+    else if (act === "resume") await clockOp({ op: "resume" }, "시간이 다시 흘러요");
+    else if (act === "next" || act === "go") {
+      const to = act === "next" ? c.stage + 1 : pick, left = leftOf(c, clockOff);
+      const early = left > 0 ? ` 아직 ${mmss(left)} 남았어요.` : "";
+      const back = to < c.stage ? " 앞 단계에 있는 학생은 이 단계로 돌아와요." : "";
+      if (await confirmModal(`${to}단계로 넘어갈까요?`, `모든 학생 화면이 ${to}단계 ${esc(STAGE_NAMES[to])}(으)로 옮겨 가고 ${sm[to]}분이 새로 흘러요.${early}${back}`, `${to}단계 시작`, "취소"))
+        await clockOp({ op: "go", stage: to }, `${to}단계를 시작했어요`);
+    } else if (act === "stop") {
+      if (await confirmModal("단계 시간을 끌까요?", "학생 화면의 남은 시간이 사라지고, 학생이 모든 단계를 자유롭게 오갈 수 있어요. 언제든 다시 시작할 수 있어요.", "끄기", "취소"))
+        await clockOp({ op: "stop" }, "단계 시간을 껐어요");
+    }
+  } finally { b.disabled = false; }
+};
