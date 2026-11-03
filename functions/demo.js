@@ -3,7 +3,8 @@
 //  - 요청을 믿지 않는다: 글자 수를 자르고, 사건·인물·횟수 종류는 서버가 아는 값만 받는다.
 //  - 웹 검색은 쓰지 않는다(비용). 3단계 검색 도우미는 수업 자료만 근거로 답한다.
 //  - Firebase 에 의존하지 않는다(그래서 단위 테스트가 가능하다). 모델 호출은 호출하는 쪽이 넘겨 준다(call).
-const { EVENTS, availablePersonas, materialsFor } = require("./case");
+const { EVENTS, BRIEFS, availablePersonas, materialsFor, casesFor, aftermathFor, isRequired } = require("./case");
+const { isPersonal } = require("./charter");
 const prompts = require("./prompts");
 const conduct = require("./conduct");
 const { guardMessages, parseVerdict, resolveOutput } = require("./guard");
@@ -129,4 +130,18 @@ async function aiTurn(d, { call, effort }) {
 
 const run = (d, deps) => (d.kind === "chat" ? chatTurn(d, deps) : aiTurn(d, deps));
 
-module.exports = { LIMITS, DemoError, parse, run, REVIEW_LABELS };
+// 체험 화면이 쓰는 주제 자료. 학생에게 이미 보이는 내용(편지·수업 자료·사례·이후 전개)과 인물이 '대답할 말 후보'만 담는다.
+// 교사 전용 정보(역할 label·근거 basis·출처·조심할 이야기 등)는 담지 않는다. 브라우저로 파일째 내려보내지 않고 서버 함수(demoData)로만 준다.
+function topicData(id) {
+  if (!Object.hasOwn(EVENTS, id)) return null;
+  const ev = EVENTS[id], personas = availablePersonas(id, false);
+  if (!personas.length) return null; // 원문 대조를 마치지 않아 학생에게 보일 인물이 없는 사건
+  return {
+    id, title: ev.title, summary: ev.summary, stakeholders: ev.stakeholders, ui: ev.ui,
+    letters: personas.map((p) => ({ id: p.id, name: p.name, brief: BRIEFS[p.id] || p.label || "", letter: p.letter, required: isRequired(p), personal: isPersonal(p) })),
+    say: Object.fromEntries(personas.map((p) => [p.id, { hello: p.letter[0], paras: p.letter.slice(1), views: p.views }])),
+    materials: materialsFor(id), cases: casesFor(id), aftermath: aftermathFor(id),
+  };
+}
+
+module.exports = { topicData, LIMITS, DemoError, parse, run, REVIEW_LABELS };

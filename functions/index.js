@@ -1205,6 +1205,27 @@ exports.demoRequest = onCall({ ...aiOpts, maxInstances: 2 }, async (req) => {
   }
 });
 
+// 체험 화면이 쓰는 주제 자료를 서버에서만 내려 준다(정적 파일로 두면 누구나 통째로 긁어 갈 수 있다). 기기마다 하루 횟수와 하루 전체 횟수를 제한한다.
+const DEMO_DATA_PER_DEVICE = 60, DEMO_DATA_DAILY = 3000;
+exports.demoData = onCall(opts, async (req) => {
+  const dd = req.data && typeof req.data === "object" ? req.data : {};
+  const deviceId = String(dd.deviceId || "");
+  if (!/^[A-Za-z0-9-]{12,64}$/.test(deviceId) || /^day-/i.test(deviceId)) throw new HttpsError("invalid-argument", "기기 표시가 올바르지 않아요.");
+  const data = demo.topicData(String(dd.topic || ""));
+  if (!data) throw new HttpsError("not-found", "주제를 찾을 수 없어요.");
+  const day = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+  const mineRef = db.doc(`demoUsage/${deviceId}`), dayRef = db.doc(`demoUsage/day-${day}`);
+  await db.runTransaction(async (tx) => {
+    const [mine, today] = await Promise.all([tx.get(mineRef), tx.get(dayRef)]);
+    const k = `data_${day}`;
+    if ((mine.data()?.[k] || 0) >= DEMO_DATA_PER_DEVICE || (today.data()?.data || 0) >= DEMO_DATA_DAILY)
+      throw new HttpsError("resource-exhausted", "체험 자료를 너무 많이 불러왔어요. 잠시 뒤에 다시 해 주세요.");
+    tx.set(mineRef, { [k]: FieldValue().increment(1), updatedAt: FieldValue().serverTimestamp() }, { merge: true });
+    tx.set(dayRef, { data: FieldValue().increment(1) }, { merge: true });
+  });
+  return data;
+});
+
 // ---------- 정기 작업 ----------
 // 마지막 접속 후 정한 시간이 지난 수업을 자동으로 닫는다(수업이 끝나고 누가 접속하는 것을 막기 위해). 30분마다.
 exports.autoCloseSessions = onSchedule({ region: REGION, schedule: "every 30 minutes", timeZone: "Asia/Seoul", cpu: "gcf_gen1", maxInstances: 1 }, async () => {
